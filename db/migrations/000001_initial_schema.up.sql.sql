@@ -1,22 +1,22 @@
 -- Create tables
 CREATE TABLE users (
     id SERIAL PRIMARY KEY,
-    username VARCHAR(50) UNIQUE NOT NULL,
-    first_name VARCHAR(50) NOT NULL,
-    last_name VARCHAR(50) NOT NULL,
-    email VARCHAR(100) UNIQUE NOT NULL,
+    username VARCHAR(255) UNIQUE NOT NULL,
+    first_name VARCHAR(255),
+    last_name VARCHAR(255),
+    email VARCHAR(255) UNIQUE NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE auth (
     id SERIAL PRIMARY KEY,
-    user_id INTEGER UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    password_hash VARCHAR(255) NOT NULL,
-    last_login TIMESTAMP WITH TIME ZONE,
-    is_active BOOLEAN DEFAULT true,
-    CONSTRAINT fk_user FOREIGN KEY (user_id) REFERENCES users(id)
+    user_id INTEGER REFERENCES users(id),
+    token VARCHAR(255),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMP,
+    UNIQUE(token)
 );
 
 CREATE TABLE teams (
@@ -44,14 +44,15 @@ CREATE INDEX idx_user_teams_team_id ON user_teams(team_id);
 
 -- Insert sample data
 INSERT INTO users (username, first_name, last_name, email, password_hash) VALUES
-('admin', 'Admin', 'User', 'admin@example.com', '$2a$10$XQq2o2UsFqKVOBzT.PZwU.1QF9M2/NOnQQzUd.JU3aeGXj2hl.K9W'),
-('user1', 'User', 'One', 'user1@example.com', '$2a$10$XQq2o2UsFqKVOBzT.PZwU.1QF9M2/NOnQQzUd.JU3aeGXj2hl.K9W'),
-('user2', 'User', 'Two', 'user2@example.com', '$2a$10$XQq2o2UsFqKVOBzT.PZwU.1QF9M2/NOnQQzUd.JU3aeGXj2hl.K9W');
+('admin', 'Admin', 'User', 'admin@example.com', '$2a$10$UQzDYVagF4svlb9zhvWFZOHrNa6xEwcqRVJ3l9WEn8VOfrCuy7Q8q'),  -- password: hashdom
+('user1', 'User', 'One', 'user1@example.com', '$2a$10$UQzDYVagF4svlb9zhvWFZOHrNa6xEwcqRVJ3l9WEn8VOfrCuy7Q8q'),   -- password: hashdom
+('user2', 'User', 'Two', 'user2@example.com', '$2a$10$UQzDYVagF4svlb9zhvWFZOHrNa6xEwcqRVJ3l9WEn8VOfrCuy7Q8q');   -- password: hashdom
 
-INSERT INTO auth (user_id, password_hash) VALUES
-(1, '$2a$10$XQq2o2UsFqKVOBzT.PZwU.1QF9M2/NOnQQzUd.JU3aeGXj2hl.K9W'), -- password: admin123
-(2, '$2a$10$XQq2o2UsFqKVOBzT.PZwU.1QF9M2/NOnQQzUd.JU3aeGXj2hl.K9W'), -- password: user123
-(3, '$2a$10$XQq2o2UsFqKVOBzT.PZwU.1QF9M2/NOnQQzUd.JU3aeGXj2hl.K9W'); -- password: user123
+-- The auth table should only store authentication-related data like tokens, not password hashes
+INSERT INTO auth (user_id) VALUES
+(1),
+(2),
+(3);
 
 INSERT INTO teams (name, description) VALUES
 ('Team A', 'This is Team A'),
