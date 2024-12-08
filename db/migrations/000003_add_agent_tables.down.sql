@@ -1,0 +1,3 @@
+DROP TABLE IF EXISTS agent_metrics;
+DROP TABLE IF EXISTS agent_teams;
+DROP TABLE IF EXISTS agents; 
