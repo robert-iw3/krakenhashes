@@ -135,8 +135,8 @@ func GetUserByUsername(username string) (*models.User, error) {
  * Returns:
  *   - error: Any error encountered during the operation
  */
-func StoreToken(userID int, token string) error {
-	debug.Debug("Storing auth token for user ID: %d", userID)
+func StoreToken(userID string, token string) error {
+	debug.Debug("Storing auth token for user ID: %s", userID)
 	query := "INSERT INTO auth_tokens (user_id, token, created_at) VALUES ($1, $2, $3)"
 	_, err := db.Exec(query, userID, token, time.Now())
 	if err != nil {
@@ -144,7 +144,7 @@ func StoreToken(userID int, token string) error {
 		return err
 	}
 	debug.Debug("Successfully stored auth token")
-	return err
+	return nil
 }
 
 /*
@@ -180,19 +180,19 @@ func RemoveToken(token string) error {
  *   - int: User ID if token is valid, 0 if invalid
  *   - error: Any error encountered during validation
  */
-func ValidateToken(token string) (int, error) {
+func ValidateToken(token string) (string, error) {
 	debug.Debug("Validating auth token")
-	var userID int
+	var userID string
 	query := "SELECT user_id FROM auth_tokens WHERE token = $1 AND created_at > $2"
 	err := db.QueryRow(query, token, time.Now().Add(-7*24*time.Hour)).Scan(&userID)
 	if err == sql.ErrNoRows {
 		debug.Info("No valid token found")
-		return 0, nil
+		return "", nil
 	}
 	if err != nil {
 		debug.Error("Error validating token: %v", err)
-		return 0, err
+		return "", err
 	}
-	debug.Debug("Successfully validated token for user ID: %d", userID)
+	debug.Debug("Successfully validated token for user ID: %s", userID)
 	return userID, nil
 }

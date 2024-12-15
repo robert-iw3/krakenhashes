@@ -51,7 +51,7 @@ func JWTMiddleware(next http.Handler) http.Handler {
 		debug.Debug("Token cookie found in request")
 
 		// Validate the token
-		claims, err := jwt.ValidateToken(cookie.Value)
+		userID, err := jwt.ValidateJWT(cookie.Value)
 		if err != nil {
 			debug.Error("Token validation failed for request from %s: %v",
 				r.RemoteAddr,
@@ -60,19 +60,19 @@ func JWTMiddleware(next http.Handler) http.Handler {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
-		debug.Info("Token validated successfully for user ID: %d, IP: %s",
-			claims.UserID,
+		debug.Info("Token validated successfully for user ID: %s, IP: %s",
+			userID,
 			r.RemoteAddr,
 		)
 
 		// Add user ID to context
-		ctx := context.WithValue(r.Context(), "user_id", claims.UserID)
-		debug.Debug("Added user ID %d to request context", claims.UserID)
+		ctx := context.WithValue(r.Context(), "user_id", userID)
+		debug.Debug("Added user ID %s to request context", userID)
 
 		// Call the next handler with the updated context
 		next.ServeHTTP(w, r.WithContext(ctx))
-		debug.Debug("Completed processing request for user ID: %d, Path: %s",
-			claims.UserID,
+		debug.Debug("Completed processing request for user ID: %s, Path: %s",
+			userID,
 			r.URL.Path,
 		)
 	})

@@ -73,20 +73,20 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	debug.Info("Password hash validated for user '%s'", req.Username)
 
+	// Generate JWT token with string UUID
 	token, err := jwt.GenerateToken(user.ID)
 	if err != nil {
-		debug.Error("Failed to generate token for user '%s': %v", req.Username, err)
-		http.Error(w, "Error generating token", http.StatusInternalServerError)
+		debug.Error("Failed to generate token: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-	debug.Debug("JWT token generated for user '%s'", req.Username)
 
+	// Store token in database
 	if err := database.StoreToken(user.ID, token); err != nil {
-		debug.Error("Failed to store token for user '%s': %v", req.Username, err)
-		http.Error(w, "Error storing token", http.StatusInternalServerError)
+		debug.Error("Failed to store token: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-	debug.Debug("Token stored in database for user '%s'", req.Username)
 
 	http.SetCookie(w, &http.Cookie{
 		Name:     "token",
@@ -157,13 +157,13 @@ func CheckAuthHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	claims, err := jwt.ValidateToken(cookie.Value)
+	userID, err := jwt.ValidateJWT(cookie.Value)
 	if err != nil {
 		debug.Info("Invalid token found: %v", err)
 		json.NewEncoder(w).Encode(map[string]bool{"authenticated": false})
 		return
 	}
 
-	debug.Info("Valid authentication found for user ID: %d", claims.UserID)
+	debug.Info("Valid authentication found for user ID: %s", userID)
 	json.NewEncoder(w).Encode(map[string]bool{"authenticated": true})
 }

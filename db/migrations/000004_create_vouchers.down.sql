@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS temp_vouchers;
+DROP TABLE IF EXISTS vouchers; 
