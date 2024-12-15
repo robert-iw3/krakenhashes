@@ -22,7 +22,16 @@ export interface Agent {
     name: string;
     status: 'inactive' | 'active' | 'error';
     lastHeartbeat: string;
-    createdBy: number;
+    createdBy: {
+        id: number;
+        username: string;
+    };
+    version: string;
+    hardware: AgentHardware;
+    teams: {
+        id: number;
+        name: string;
+    }[];
     createdAt: string;
     updatedAt: string;
     metrics?: AgentMetrics;
@@ -72,4 +81,38 @@ export interface ClaimCode {
     code: string;
     continuous: boolean;
     createdAt: string;
+}
+
+/**
+ * Represents hardware information reported by an agent
+ */
+export interface AgentHardware {
+    cpus: {
+        model: string;
+        cores: number;
+        threads: number;
+    }[];
+    gpus: {
+        model: string;
+        memory: string;
+        driver: string;
+    }[];
+    networkInterfaces: {
+        name: string;
+        ipAddress: string;
+    }[];
+}
+
+/**
+ * Represents a claim voucher in the system
+ */
+export interface ClaimVoucher {
+    code: string;
+    createdBy: {
+        id: number;
+        username: string;
+    };
+    createdAt: string;
+    isContinuous: boolean;
+    isActive: boolean;
 } 

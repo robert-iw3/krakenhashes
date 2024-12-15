@@ -17,9 +17,9 @@
     "jsx": "react-jsx",
     "baseUrl": "src",
     "paths": {
-      "*": ["*"]
+      "@/*": ["*"]
     }
   },
-  "include": ["src"],
+  "include": ["src/**/*"],
   "exclude": ["node_modules", "build"]
 } 
