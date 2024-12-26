@@ -8,7 +8,7 @@
  * Represents a registered agent in the system.
  * 
  * @interface Agent
- * @property {number} id - Unique identifier for the agent
+ * @property {string} id - Unique identifier for the agent (UUID)
  * @property {string} name - Display name of the agent
  * @property {'inactive' | 'active' | 'error'} status - Current agent status
  * @property {string} lastHeartbeat - ISO timestamp of last heartbeat
@@ -18,18 +18,18 @@
  * @property {AgentMetrics} [metrics] - Optional current metrics
  */
 export interface Agent {
-    id: number;
+    id: string;
     name: string;
     status: 'inactive' | 'active' | 'error';
     lastHeartbeat: string;
     createdBy: {
-        id: number;
+        id: string;
         username: string;
     };
     version: string;
     hardware: AgentHardware;
     teams: {
-        id: number;
+        id: string;
         name: string;
     }[];
     createdAt: string;
@@ -109,10 +109,15 @@ export interface AgentHardware {
 export interface ClaimVoucher {
     code: string;
     createdBy: {
-        id: number;
+        id: string;
         username: string;
     };
     createdAt: string;
     isContinuous: boolean;
     isActive: boolean;
+    usedAt?: string;
+    usedBy?: {
+        id: string;
+        username: string;
+    };
 } 

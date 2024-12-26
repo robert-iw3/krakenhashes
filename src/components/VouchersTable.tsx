@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import {
   Table,
   TableBody,
@@ -14,7 +14,11 @@ import { format } from 'date-fns';
 import { useVouchers } from '../hooks/useVouchers';
 
 export const VouchersTable: React.FC = () => {
-  const { vouchers, disableVoucher } = useVouchers();
+  const { vouchers, disableVoucher, fetchVouchers } = useVouchers();
+
+  useEffect(() => {
+    fetchVouchers();
+  }, [fetchVouchers]);
 
   return (
     <TableContainer component={Paper}>
@@ -32,7 +36,7 @@ export const VouchersTable: React.FC = () => {
           {vouchers.map((voucher) => (
             <TableRow key={voucher.code}>
               <TableCell>{voucher.code}</TableCell>
-              <TableCell>{voucher.createdBy}</TableCell>
+              <TableCell>{voucher.createdBy.username}</TableCell>
               <TableCell>{voucher.isContinuous ? 'Yes' : 'No'}</TableCell>
               <TableCell>
                 {format(new Date(voucher.createdAt), 'yyyy-MM-dd HH:mm:ss')}
@@ -42,9 +46,9 @@ export const VouchersTable: React.FC = () => {
                   variant="outlined"
                   color="error"
                   onClick={() => disableVoucher(voucher.code)}
-                  disabled={voucher.disabledAt !== null}
+                  disabled={!voucher.isActive}
                 >
-                  {voucher.disabledAt ? 'Disabled' : 'Disable'}
+                  {!voucher.isActive ? 'Disabled' : 'Disable'}
                 </Button>
               </TableCell>
             </TableRow>

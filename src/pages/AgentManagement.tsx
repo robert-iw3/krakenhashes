@@ -66,15 +66,23 @@ export default function AgentManagement() {
     try {
       setLoading(true);
       setError(null);
+      
+      console.log('Fetching agents and vouchers...');
       const [agentsRes, vouchersRes] = await Promise.all([
         api.get<Agent[]>('/api/agents'),
-        api.get<ClaimVoucher[]>('/api/claim-vouchers')
+        api.get<ClaimVoucher[]>('/api/vouchers')
       ]);
-      setAgents(agentsRes.data);
-      setClaimVouchers(vouchersRes.data.filter(v => v.isActive));
+      
+      console.log('Received agents:', agentsRes.data);
+      console.log('Received vouchers:', vouchersRes.data);
+      
+      setAgents(agentsRes.data || []);
+      setClaimVouchers((vouchersRes.data || []).filter(v => v.isActive));
     } catch (error) {
       console.error('Failed to fetch data:', error);
       setError('Failed to load data. Please try again.');
+      setAgents([]);
+      setClaimVouchers([]);
     } finally {
       setLoading(false);
     }
@@ -82,16 +90,22 @@ export default function AgentManagement() {
 
   useEffect(() => {
     fetchData();
+    
+    // Set up polling for updates
+    const interval = setInterval(fetchData, 30000); // Poll every 30 seconds
+    
+    return () => clearInterval(interval);
   }, []);
 
   // Handle claim code generation
   const handleCreateClaimCode = async () => {
     try {
       setError(null);
-      const response = await api.post<{ code: string }>('/api/claim-vouchers', {
+      const response = await api.post<{ code: string }>('/api/vouchers/temp', {
         isContinuous
       });
       setClaimCode(response.data.code);
+      await fetchData(); // Refresh the vouchers list
     } catch (error) {
       console.error('Failed to create claim code:', error);
       setError('Failed to generate claim code. Please try again.');
@@ -102,7 +116,7 @@ export default function AgentManagement() {
   const handleDeactivateVoucher = async (code: string) => {
     try {
       setError(null);
-      await api.delete(`/api/claim-vouchers/${code}`);
+      await api.delete(`/api/vouchers/${code}/disable`);
       await fetchData();
     } catch (error) {
       console.error('Failed to deactivate voucher:', error);
@@ -111,7 +125,7 @@ export default function AgentManagement() {
   };
 
   // Handle agent removal
-  const handleRemoveAgent = async (agentId: number) => {
+  const handleRemoveAgent = async (agentId: string) => {
     try {
       setError(null);
       await api.delete(`/api/agents/${agentId}`);
@@ -180,7 +194,7 @@ export default function AgentManagement() {
                 claimVouchers.map((voucher) => (
                   <TableRow key={voucher.code}>
                     <TableCell>{voucher.code}</TableCell>
-                    <TableCell>{voucher.createdBy.username}</TableCell>
+                    <TableCell>{voucher.createdBy?.username || 'Unknown'}</TableCell>
                     <TableCell>{new Date(voucher.createdAt).toLocaleString()}</TableCell>
                     <TableCell>
                       <Chip 
@@ -234,27 +248,29 @@ export default function AgentManagement() {
                   <TableRow key={agent.id}>
                     <TableCell>{agent.id}</TableCell>
                     <TableCell>{agent.name}</TableCell>
-                    <TableCell>{agent.createdBy.username}</TableCell>
+                    <TableCell>{agent.createdBy?.username || 'Unknown'}</TableCell>
                     <TableCell>{agent.version}</TableCell>
                     <TableCell>
-                      <Typography variant="body2">
-                        CPUs: {agent.hardware.cpus.length} x {agent.hardware.cpus[0]?.model}
-                      </Typography>
-                      {agent.hardware.gpus.map((gpu, i) => (
+                      {agent.hardware?.cpus?.length > 0 && (
+                        <Typography variant="body2">
+                          CPUs: {agent.hardware.cpus.length} x {agent.hardware.cpus[0]?.model || 'Unknown'}
+                        </Typography>
+                      )}
+                      {agent.hardware?.gpus?.map((gpu, i) => (
                         <Typography key={i} variant="body2">
                           GPU {i + 1}: {gpu.model} ({gpu.memory})
                         </Typography>
                       ))}
                     </TableCell>
                     <TableCell>
-                      {agent.hardware.networkInterfaces.map((nic, i) => (
+                      {agent.hardware?.networkInterfaces?.map((nic, i) => (
                         <Typography key={i} variant="body2">
                           {nic.name}: {nic.ipAddress}
                         </Typography>
                       ))}
                     </TableCell>
                     <TableCell>
-                      {agent.teams.map((team) => (
+                      {agent.teams?.map((team) => (
                         <Chip
                           key={team.id}
                           label={team.name}
@@ -289,18 +305,20 @@ export default function AgentManagement() {
             setError(null);
           }}
         >
-          <DialogTitle>Register New Agent</DialogTitle>
+          <DialogTitle>{claimCode ? 'Generated Code' : 'Register New Agent'}</DialogTitle>
           <DialogContent>
             <Box sx={{ pt: 2 }}>
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={isContinuous}
-                    onChange={(e) => setIsContinuous(e.target.checked)}
-                  />
-                }
-                label="Allow Continuous Registration"
-              />
+              {!claimCode && (
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={isContinuous}
+                      onChange={(e) => setIsContinuous(e.target.checked)}
+                    />
+                  }
+                  label="Allow Continuous Registration"
+                />
+              )}
               {claimCode && (
                 <Box sx={{ mt: 2, textAlign: 'center' }}>
                   <Typography variant="subtitle1">Claim Code:</Typography>

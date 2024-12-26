@@ -4,25 +4,34 @@ import { api } from '../services/api';
 /**
  * Interfaces for voucher management
  */
-interface TempVoucher {
+interface User {
+  id: string;
+  username: string;
+}
+
+export interface TempVoucher {
   code: string;
-  expiresAt: string;
+  isContinuous: boolean;
+  createdAt: string;
 }
 
 interface Voucher {
   code: string;
-  createdBy: string;
+  createdBy: User;
   isContinuous: boolean;
+  isActive: boolean;
   createdAt: string;
-  disabledAt: string | null;
+  expiresAt?: string;
+  usedAt?: string;
+  usedById?: string;
+  usedBy?: User;
 }
 
 /**
  * Hook for managing agent vouchers
  * 
  * Features:
- * - Create temporary vouchers
- * - Confirm and activate vouchers
+ * - Create vouchers (single-use or continuous)
  * - Fetch active vouchers
  * - Disable existing vouchers
  * 
@@ -30,43 +39,25 @@ interface Voucher {
  * - API errors are caught and can be handled by the consuming component
  * - Network failures are properly handled
  * - Invalid responses trigger appropriate error messages
- * 
- * Usage:
- * ```tsx
- * const { tempVoucher, createTempVoucher, confirmVoucher } = useVouchers();
- * 
- * // Create a new temporary voucher
- * await createTempVoucher();
- * 
- * // Confirm and activate the voucher
- * await confirmVoucher(code, isContinuous);
- * ```
  */
 export const useVouchers = () => {
   const [tempVoucher, setTempVoucher] = useState<TempVoucher | null>(null);
   const [vouchers, setVouchers] = useState<Voucher[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  const createTempVoucher = useCallback(async () => {
-    try {
-      const response = await api.post<TempVoucher>('/api/vouchers/temp');
-      setTempVoucher(response.data);
-      setError(null);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to create temporary voucher';
-      setError(message);
-      throw new Error(message);
-    }
+  const resetTempVoucher = useCallback(() => {
+    setTempVoucher(null);
   }, []);
 
-  const confirmVoucher = useCallback(async (code: string, isContinuous: boolean) => {
+  const createTempVoucher = useCallback(async (isContinuous: boolean) => {
     try {
-      await api.post('/api/vouchers/confirm', { code, isContinuous });
-      setTempVoucher(null);
+      const response = await api.post<TempVoucher>('/api/vouchers/temp', { isContinuous });
+      setTempVoucher(response.data);
       setError(null);
-      await fetchVouchers();
+      await fetchVouchers(); // Refresh the vouchers list
+      return response.data;
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to confirm voucher';
+      const message = err instanceof Error ? err.message : 'Failed to create voucher';
       setError(message);
       throw new Error(message);
     }
@@ -101,8 +92,8 @@ export const useVouchers = () => {
     vouchers,
     error,
     createTempVoucher,
-    confirmVoucher,
     fetchVouchers,
     disableVoucher,
+    resetTempVoucher,
   };
 }; 
