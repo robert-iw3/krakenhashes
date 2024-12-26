@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/ZerkerEOD/hashdom/hashdom-backend/internal/database"
-	"github.com/ZerkerEOD/hashdom/hashdom-backend/pkg/debug"
-	"github.com/ZerkerEOD/hashdom/hashdom-backend/pkg/jwt"
+	"github.com/ZerkerEOD/hashdom-backend/internal/database"
+	"github.com/ZerkerEOD/hashdom-backend/pkg/debug"
+	"github.com/ZerkerEOD/hashdom-backend/pkg/jwt"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -74,7 +74,7 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 	debug.Info("Password hash validated for user '%s'", req.Username)
 
 	// Generate JWT token with string UUID
-	token, err := jwt.GenerateToken(user.ID)
+	token, err := jwt.GenerateToken(user.ID.String())
 	if err != nil {
 		debug.Error("Failed to generate token: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -82,7 +82,7 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Store token in database
-	if err := database.StoreToken(user.ID, token); err != nil {
+	if err := database.StoreToken(user.ID.String(), token); err != nil {
 		debug.Error("Failed to store token: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
@@ -139,7 +139,8 @@ func LogoutHandler(w http.ResponseWriter, r *http.Request) {
 
 /*
  * CheckAuthHandler verifies if the current request has valid authentication.
- * It checks for the presence of a valid JWT token in the cookies.
+ * It checks for the presence of a valid JWT token in the cookies and verifies
+ * it exists in the database.
  *
  * Responses:
  *   - 200: JSON response indicating authentication status
@@ -157,9 +158,23 @@ func CheckAuthHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate token cryptographically
 	userID, err := jwt.ValidateJWT(cookie.Value)
 	if err != nil {
 		debug.Info("Invalid token found: %v", err)
+		json.NewEncoder(w).Encode(map[string]bool{"authenticated": false})
+		return
+	}
+
+	// Verify token exists in database
+	exists, err := database.TokenExists(cookie.Value)
+	if err != nil {
+		debug.Error("Error checking token in database: %v", err)
+		json.NewEncoder(w).Encode(map[string]bool{"authenticated": false})
+		return
+	}
+	if !exists {
+		debug.Warning("Token not found in database for user ID: %s", userID)
 		json.NewEncoder(w).Encode(map[string]bool{"authenticated": false})
 		return
 	}

@@ -2,14 +2,15 @@ package middleware
 
 import (
 	"context"
+	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
 	"net/http"
 
-	"github.com/yourusername/hashdom/internal/repository"
-	"github.com/yourusername/hashdom/internal/services/ca"
-	"github.com/yourusername/hashdom/pkg/debug"
+	"github.com/ZerkerEOD/hashdom-backend/internal/repository"
+	"github.com/ZerkerEOD/hashdom-backend/internal/services/ca"
+	"github.com/ZerkerEOD/hashdom-backend/pkg/debug"
 )
 
 // CertAuth handles certificate-based authentication for agents
@@ -61,7 +62,7 @@ func (ca *CertAuth) Middleware(next http.Handler) http.Handler {
 }
 
 // GenerateAgentCertificate generates a new certificate for an agent
-func (ca *CertAuth) GenerateAgentCertificate(agentID uint, commonName string) error {
+func (ca *CertAuth) GenerateAgentCertificate(agentID string, commonName string) error {
 	// Generate new certificate
 	cert, key, err := ca.ca.IssueCertificate(commonName)
 	if err != nil {
@@ -73,8 +74,8 @@ func (ca *CertAuth) GenerateAgentCertificate(agentID uint, commonName string) er
 	certPEM := ca.EncodeCertificate(cert)
 	keyPEM := ca.EncodePrivateKey(key)
 
-	// Update agent with new certificate
-	if err := ca.agentRepo.UpdateCertificate(context.Background(), agentID, string(certPEM)); err != nil {
+	// Update agent with new certificate and private key
+	if err := ca.agentRepo.UpdateCertificate(context.Background(), agentID, string(certPEM), string(keyPEM)); err != nil {
 		debug.Error("failed to update agent certificate: %v", err)
 		return fmt.Errorf("failed to update agent certificate: %w", err)
 	}
@@ -87,6 +88,14 @@ func (ca *CertAuth) EncodeCertificate(cert *x509.Certificate) []byte {
 	return pem.EncodeToMemory(&pem.Block{
 		Type:  "CERTIFICATE",
 		Bytes: cert.Raw,
+	})
+}
+
+// EncodePrivateKey encodes a private key to PEM format
+func (ca *CertAuth) EncodePrivateKey(key *rsa.PrivateKey) []byte {
+	return pem.EncodeToMemory(&pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: x509.MarshalPKCS1PrivateKey(key),
 	})
 }
 

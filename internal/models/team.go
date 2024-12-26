@@ -1,24 +1,69 @@
 package models
 
 import (
+	"database/sql/driver"
+	"encoding/json"
+	"fmt"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // Team represents a team in the system
 type Team struct {
-	ID          uuid.UUID `json:"id" gorm:"type:uuid;primary_key;default:gen_random_uuid()"`
-	Name        string    `json:"name" gorm:"not null;unique"`
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
 	Description string    `json:"description"`
-	CreatedByID uuid.UUID `json:"created_by_id" gorm:"type:uuid;not null"`
-	CreatedBy   User      `json:"created_by" gorm:"foreignKey:CreatedByID"`
-	CreatedAt   time.Time `json:"created_at" gorm:"not null;default:CURRENT_TIMESTAMP"`
-	UpdatedAt   time.Time `json:"updated_at" gorm:"not null;default:CURRENT_TIMESTAMP"`
-	Agents      []Agent   `json:"agents,omitempty" gorm:"many2many:agent_teams"`
+	Users       []User    `json:"users,omitempty"`
+	Agents      []Agent   `json:"agents,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
-// TableName specifies the table name for Team
-func (Team) TableName() string {
-	return "teams"
+// ScanUsers scans a JSON-encoded users string into the Users slice
+func (t *Team) ScanUsers(value interface{}) error {
+	if value == nil {
+		t.Users = []User{}
+		return nil
+	}
+
+	switch v := value.(type) {
+	case []byte:
+		return json.Unmarshal(v, &t.Users)
+	case string:
+		return json.Unmarshal([]byte(v), &t.Users)
+	default:
+		return fmt.Errorf("unsupported type for users: %T", value)
+	}
+}
+
+// UsersValue returns the JSON encoding of Users for database storage
+func (t Team) UsersValue() (driver.Value, error) {
+	if len(t.Users) == 0 {
+		return nil, nil
+	}
+	return json.Marshal(t.Users)
+}
+
+// ScanAgents scans a JSON-encoded agents string into the Agents slice
+func (t *Team) ScanAgents(value interface{}) error {
+	if value == nil {
+		t.Agents = []Agent{}
+		return nil
+	}
+
+	switch v := value.(type) {
+	case []byte:
+		return json.Unmarshal(v, &t.Agents)
+	case string:
+		return json.Unmarshal([]byte(v), &t.Agents)
+	default:
+		return fmt.Errorf("unsupported type for agents: %T", value)
+	}
+}
+
+// AgentsValue returns the JSON encoding of Agents for database storage
+func (t Team) AgentsValue() (driver.Value, error) {
+	if len(t.Agents) == 0 {
+		return nil, nil
+	}
+	return json.Marshal(t.Agents)
 }

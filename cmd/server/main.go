@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/ZerkerEOD/hashdom/hashdom-backend/internal/database"
-	"github.com/ZerkerEOD/hashdom/hashdom-backend/internal/routes"
-	"github.com/ZerkerEOD/hashdom/hashdom-backend/pkg/debug"
+	"github.com/ZerkerEOD/hashdom-backend/internal/database"
+	"github.com/ZerkerEOD/hashdom-backend/internal/routes"
+	"github.com/ZerkerEOD/hashdom-backend/pkg/debug"
 	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
 )
@@ -45,7 +45,7 @@ func main() {
 	debug.Debug("Router initialized")
 
 	// Setup routes
-	routes.SetupRoutes(r)
+	routes.SetupRoutes(r, db)
 	debug.Info("Routes configured successfully")
 
 	// Get port from environment variable

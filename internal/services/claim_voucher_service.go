@@ -2,13 +2,16 @@ package services
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/base32"
+	"database/sql"
+	"fmt"
+	"math/rand"
 	"strings"
+	"time"
 
-	"github.com/yourusername/hashdom/internal/models"
-	"github.com/yourusername/hashdom/internal/repository"
-	"github.com/yourusername/hashdom/pkg/debug"
+	"github.com/ZerkerEOD/hashdom-backend/internal/models"
+	"github.com/ZerkerEOD/hashdom-backend/internal/repository"
+	"github.com/ZerkerEOD/hashdom-backend/pkg/debug"
+	"github.com/google/uuid"
 )
 
 // ClaimVoucherService handles business logic for claim vouchers
@@ -18,83 +21,126 @@ type ClaimVoucherService struct {
 
 // NewClaimVoucherService creates a new claim voucher service
 func NewClaimVoucherService(repo *repository.ClaimVoucherRepository) *ClaimVoucherService {
+	// Initialize random seed
+	rand.Seed(time.Now().UnixNano())
 	return &ClaimVoucherService{repo: repo}
 }
 
-// GenerateVoucher generates a new claim voucher
-func (s *ClaimVoucherService) GenerateVoucher(ctx context.Context, userID uint, isContinuous bool) (*models.ClaimVoucher, error) {
-	// Generate random code
-	code, err := generateCode()
+// generateClaimCode generates a random 20-character alphanumeric claim code with hyphens for readability
+func generateClaimCode() string {
+	// Define the character set (0-9 and A-Z)
+	const chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	code := make([]byte, 20)
+	for i := range code {
+		code[i] = chars[rand.Intn(len(chars))]
+	}
+
+	// Format with hyphens for display (XXXXX-XXXXX-XXXXX-XXXXX)
+	return fmt.Sprintf("%s-%s-%s-%s",
+		string(code[0:5]),
+		string(code[5:10]),
+		string(code[10:15]),
+		string(code[15:20]))
+}
+
+// normalizeClaimCode removes hyphens from a claim code and converts to uppercase
+func normalizeClaimCode(code string) string {
+	return strings.ToUpper(strings.ReplaceAll(code, "-", ""))
+}
+
+// formatClaimCode adds hyphens to a claim code for display
+func formatClaimCode(code string) string {
+	code = normalizeClaimCode(code)
+	if len(code) != 20 {
+		return code
+	}
+	return fmt.Sprintf("%s-%s-%s-%s",
+		code[0:5],
+		code[5:10],
+		code[10:15],
+		code[15:20])
+}
+
+// CreateTempVoucher creates a temporary claim voucher
+func (s *ClaimVoucherService) CreateTempVoucher(ctx context.Context, userID string, expiresIn time.Duration, isContinuous bool) (*models.ClaimVoucher, error) {
+	// Parse user ID to UUID
+	userUUID, err := uuid.Parse(userID)
 	if err != nil {
-		debug.Error("failed to generate code: %v", err)
-		return nil, err
+		debug.Error("failed to parse user ID: %v", err)
+		return nil, fmt.Errorf("invalid user ID: %w", err)
 	}
 
-	// Store normalized code in database
+	// Generate expiration time
+	expiresAt := time.Now().Add(expiresIn)
+
+	// Create voucher with normalized code for storage
+	code := generateClaimCode()
 	voucher := &models.ClaimVoucher{
-		Code:         normalizeCode(code), // Store without hyphens
-		CreatedByID:  userID,
-		IsContinuous: isContinuous,
+		Code:         normalizeClaimCode(code),
 		IsActive:     true,
+		IsContinuous: isContinuous,
+		ExpiresAt:    sql.NullTime{Time: expiresAt, Valid: true},
+		CreatedByID:  userUUID,
+		CreatedAt:    time.Now(),
+		UpdatedAt:    time.Now(),
 	}
 
+	// Save voucher
 	if err := s.repo.Create(ctx, voucher); err != nil {
 		debug.Error("failed to create voucher: %v", err)
-		return nil, err
+		return nil, fmt.Errorf("failed to create voucher: %w", err)
 	}
 
-	// Return voucher with formatted code for display
-	voucher.Code = code // Return with hyphens for display
+	// Format code for display before returning
+	voucher.Code = formatClaimCode(voucher.Code)
 	return voucher, nil
 }
 
-// ListActiveVouchers lists all active vouchers
-func (s *ClaimVoucherService) ListActiveVouchers(ctx context.Context) ([]models.ClaimVoucher, error) {
-	return s.repo.ListActive(ctx)
+// ListVouchers retrieves all active vouchers
+func (s *ClaimVoucherService) ListVouchers(ctx context.Context) ([]models.ClaimVoucher, error) {
+	vouchers, err := s.repo.ListActive(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Format codes for display
+	for i := range vouchers {
+		vouchers[i].Code = formatClaimCode(vouchers[i].Code)
+	}
+	return vouchers, nil
 }
 
-// DeactivateVoucher deactivates a voucher
-func (s *ClaimVoucherService) DeactivateVoucher(ctx context.Context, code string) error {
-	// Normalize code by removing hyphens
-	normalizedCode := normalizeCode(code)
+// DisableVoucher disables a claim voucher
+func (s *ClaimVoucherService) DisableVoucher(ctx context.Context, code string) error {
+	// Normalize code before disabling
+	normalizedCode := normalizeClaimCode(code)
 	return s.repo.Deactivate(ctx, normalizedCode)
 }
 
 // GetVoucher retrieves a voucher by code
 func (s *ClaimVoucherService) GetVoucher(ctx context.Context, code string) (*models.ClaimVoucher, error) {
-	// Normalize code by removing hyphens
-	normalizedCode := normalizeCode(code)
-	return s.repo.GetByCode(ctx, normalizedCode)
-}
-
-// generateCode generates a random claim code
-func generateCode() (string, error) {
-	// Generate 15 random bytes (will encode to ~24 characters in base32)
-	bytes := make([]byte, 15)
-	if _, err := rand.Read(bytes); err != nil {
-		return "", err
+	// Normalize code before lookup
+	normalizedCode := normalizeClaimCode(code)
+	voucher, err := s.repo.GetByCode(ctx, normalizedCode)
+	if err != nil {
+		return nil, err
 	}
 
-	// Encode to base32 and remove padding
-	code := strings.TrimRight(base32.StdEncoding.EncodeToString(bytes), "=")
-
-	// Insert hyphens every 5 characters for readability
-	var result strings.Builder
-	for i := 0; i < len(code); i += 5 {
-		if i > 0 {
-			result.WriteString("-")
-		}
-		end := i + 5
-		if end > len(code) {
-			end = len(code)
-		}
-		result.WriteString(code[i:end])
-	}
-
-	return result.String(), nil
+	// Format code for display before returning
+	voucher.Code = formatClaimCode(voucher.Code)
+	return voucher, nil
 }
 
-// normalizeCode removes any hyphens from the code
-func normalizeCode(code string) string {
-	return strings.ReplaceAll(code, "-", "")
+// UseVoucher marks a voucher as used by a specific user
+func (s *ClaimVoucherService) UseVoucher(ctx context.Context, code string, userID string) error {
+	// Parse user ID to UUID
+	userUUID, err := uuid.Parse(userID)
+	if err != nil {
+		debug.Error("failed to parse user ID: %v", err)
+		return fmt.Errorf("invalid user ID: %w", err)
+	}
+
+	// Normalize code before using
+	normalizedCode := normalizeClaimCode(code)
+	return s.repo.Use(ctx, normalizedCode, userUUID)
 }

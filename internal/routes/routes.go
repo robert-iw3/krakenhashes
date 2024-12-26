@@ -1,15 +1,24 @@
 package routes
 
 import (
+	"database/sql"
 	"net/http"
 	"os"
 
-	"github.com/ZerkerEOD/hashdom/hashdom-backend/internal/auth"
-	"github.com/ZerkerEOD/hashdom/hashdom-backend/internal/handlers/api"
-	"github.com/ZerkerEOD/hashdom/hashdom-backend/internal/handlers/dashboard"
-	"github.com/ZerkerEOD/hashdom/hashdom-backend/internal/handlers/hashlists"
-	"github.com/ZerkerEOD/hashdom/hashdom-backend/internal/handlers/jobs"
-	"github.com/ZerkerEOD/hashdom/hashdom-backend/pkg/debug"
+	"github.com/ZerkerEOD/hashdom-backend/internal/auth"
+	"github.com/ZerkerEOD/hashdom-backend/internal/db"
+	"github.com/ZerkerEOD/hashdom-backend/internal/handlers"
+	"github.com/ZerkerEOD/hashdom-backend/internal/handlers/agent"
+	"github.com/ZerkerEOD/hashdom-backend/internal/handlers/api"
+	"github.com/ZerkerEOD/hashdom-backend/internal/handlers/dashboard"
+	"github.com/ZerkerEOD/hashdom-backend/internal/handlers/hashlists"
+	"github.com/ZerkerEOD/hashdom-backend/internal/handlers/jobs"
+	"github.com/ZerkerEOD/hashdom-backend/internal/handlers/vouchers"
+	wshandler "github.com/ZerkerEOD/hashdom-backend/internal/handlers/websocket"
+	"github.com/ZerkerEOD/hashdom-backend/internal/repository"
+	"github.com/ZerkerEOD/hashdom-backend/internal/services"
+	wsservice "github.com/ZerkerEOD/hashdom-backend/internal/services/websocket"
+	"github.com/ZerkerEOD/hashdom-backend/pkg/debug"
 	"github.com/gorilla/mux"
 )
 
@@ -43,6 +52,13 @@ func CORSMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		debug.Debug("Processing CORS middleware for request: %s %s", r.Method, r.URL.Path)
 
+		// Special handling for WebSocket connections
+		if r.Header.Get("Upgrade") == "websocket" {
+			debug.Debug("WebSocket connection detected, bypassing CORS restrictions")
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		allowedOrigin := os.Getenv("CORS_ALLOWED_ORIGIN")
 		if allowedOrigin == "" {
 			allowedOrigin = "http://localhost:3000" // fallback default
@@ -53,7 +69,7 @@ func CORSMiddleware(next http.Handler) http.Handler {
 		debug.Debug("Setting CORS headers with allowed origin: %s", allowedOrigin)
 		w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Claim-Code, X-Download-Token")
 		w.Header().Set("Access-Control-Allow-Credentials", "true")
 
 		// Handle preflight requests
@@ -87,8 +103,12 @@ func CORSMiddleware(next http.Handler) http.Handler {
  * Parameters:
  *   - r: The root router to configure
  */
-func SetupRoutes(r *mux.Router) {
+func SetupRoutes(r *mux.Router, sqlDB *sql.DB) {
 	debug.Info("Initializing route configuration")
+
+	// Create our custom DB wrapper
+	database := &db.DB{DB: sqlDB}
+	debug.Debug("Created custom DB wrapper")
 
 	// Apply CORS middleware to all routes
 	r.Use(CORSMiddleware)
@@ -99,6 +119,39 @@ func SetupRoutes(r *mux.Router) {
 	r.HandleFunc("/api/login", auth.LoginHandler).Methods("POST", "OPTIONS")
 	r.HandleFunc("/api/logout", auth.LogoutHandler).Methods("POST", "OPTIONS")
 	r.HandleFunc("/api/check-auth", auth.CheckAuthHandler).Methods("GET", "OPTIONS")
+
+	// Agent routes
+	debug.Debug("Setting up agent routes")
+	agentRepo := repository.NewAgentRepository(database)
+	voucherRepo := repository.NewClaimVoucherRepository(database)
+	agentService := services.NewAgentService(agentRepo, voucherRepo)
+	agentHandler := agent.NewAgentHandler(agentService)
+
+	// Initialize CA manager for certificate operations
+	caCertPath := os.Getenv("CA_CERT_PATH")
+	if caCertPath == "" {
+		debug.Error("CA_CERT_PATH environment variable is not set")
+		return
+	}
+
+	caKeyPath := os.Getenv("CA_KEY_PATH")
+	if caKeyPath == "" {
+		debug.Error("CA_KEY_PATH environment variable is not set")
+		return
+	}
+
+	caManager, err := auth.NewCAManager(caCertPath, caKeyPath)
+	if err != nil {
+		debug.Error("Failed to initialize CA manager: %v", err)
+		return
+	}
+
+	// Create registration handler
+	registrationHandler := handlers.NewRegistrationHandler(agentService, caManager)
+
+	// Agent registration endpoints (unprotected)
+	r.HandleFunc("/api/agent/register", registrationHandler.HandleRegistration).Methods("POST", "OPTIONS")
+	r.HandleFunc("/api/agent/cert", registrationHandler.HandleCertificateDownload).Methods("GET", "OPTIONS")
 
 	// Configure protected routes
 	debug.Debug("Setting up protected routes")
@@ -111,15 +164,33 @@ func SetupRoutes(r *mux.Router) {
 	protected.HandleFunc("/hashlists", hashlists.GetHashlists).Methods("GET")
 	protected.HandleFunc("/jobs", jobs.GetJobs).Methods("GET")
 
+	protected.HandleFunc("/agents", agentHandler.ListAgents).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/agents/{id}", agentHandler.GetAgent).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/agents/{id}", agentHandler.DeleteAgent).Methods("DELETE", "OPTIONS")
+
+	// WebSocket route for agent connections (requires certificate auth)
+	debug.Debug("Setting up WebSocket route for agent connections")
+	wsService := wsservice.NewService(agentService)
+	wsHandler := wshandler.NewHandler(wsService)
+
+	// Add certificate authentication middleware for WebSocket connections
+	wsRouter := r.PathPrefix("/ws").Subrouter()
+	wsRouter.Use(auth.CertificateAuthMiddleware)
+	wsRouter.HandleFunc("/agent", wsHandler.ServeWS)
+
+	// Voucher routes
+	debug.Debug("Setting up voucher routes")
+	voucherService := services.NewClaimVoucherService(voucherRepo)
+	voucherHandler := vouchers.NewVoucherHandler(voucherService)
+
+	protected.HandleFunc("/vouchers/temp", voucherHandler.GenerateVoucher).Methods("POST", "OPTIONS")
+	protected.HandleFunc("/vouchers", voucherHandler.ListVouchers).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/vouchers/{code}/disable", voucherHandler.DeactivateVoucher).Methods("DELETE", "OPTIONS")
+
 	// API subrouter configuration
 	debug.Debug("Setting up API subrouter")
 	apiRouter := protected.PathPrefix("/api").Subrouter()
 	apiRouter.HandleFunc("/some-endpoint", api.SomeAPIHandler).Methods("GET")
-
-	// Agent subrouter configuration
-	// debug.Debug("Setting up Agent subrouter")
-	// agentRouter := protected.PathPrefix("/agent").Subrouter()
-	// agentRouter.HandleFunc("/some-endpoint", agent.SomeAgentHandler).Methods("GET")
 
 	debug.Info("Route configuration completed successfully")
 }

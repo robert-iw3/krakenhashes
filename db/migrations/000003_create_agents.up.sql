@@ -1,38 +1,91 @@
+-- Check if required tables exist
+DO $$ 
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'users') THEN
+        RAISE EXCEPTION 'Table "users" does not exist. Please run previous migrations first.';
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'teams') THEN
+        RAISE EXCEPTION 'Table "teams" does not exist. Please run previous migrations first.';
+    END IF;
+END $$;
+
 -- Create agents table
-CREATE TABLE agents (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+CREATE TABLE IF NOT EXISTS agents (
+    id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
-    claim_code VARCHAR(255) UNIQUE,
-    certificate TEXT,
     status VARCHAR(50) NOT NULL DEFAULT 'inactive',
     last_heartbeat TIMESTAMP WITH TIME ZONE,
-    created_by UUID NOT NULL REFERENCES users(id),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    version VARCHAR(50) NOT NULL,
+    hardware JSONB NOT NULL,
+    created_by_id UUID NOT NULL REFERENCES users(id),
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    certificate TEXT,
+    private_key TEXT,
+    last_error TEXT
 );
 
--- Create agent_teams table for team associations
-CREATE TABLE agent_teams (
-    agent_id UUID NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
-    team_id UUID NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+-- Create agent_metrics table
+CREATE TABLE IF NOT EXISTS agent_metrics (
+    agent_id INTEGER NOT NULL REFERENCES agents(id),
+    cpu_usage FLOAT NOT NULL,
+    gpu_usage FLOAT NOT NULL,
+    gpu_temp FLOAT NOT NULL,
+    memory_usage FLOAT NOT NULL,
+    timestamp TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (agent_id, timestamp)
+);
+
+-- Create agent_teams junction table
+CREATE TABLE IF NOT EXISTS agent_teams (
+    agent_id INTEGER NOT NULL REFERENCES agents(id),
+    team_id UUID NOT NULL REFERENCES teams(id),
     PRIMARY KEY (agent_id, team_id)
 );
 
--- Create agent_metrics table for storing performance data
-CREATE TABLE agent_metrics (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    agent_id UUID NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
-    cpu_usage FLOAT,
-    gpu_usage FLOAT,
-    gpu_temp FLOAT,
-    memory_usage FLOAT,
-    timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
+-- Create indexes if they don't exist and their tables exist
+DO $$ 
+BEGIN
+    -- Indexes for agents table
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'agents') THEN
+        IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_agents_status') THEN
+            CREATE INDEX idx_agents_status ON agents(status);
+        END IF;
+        
+        IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_agents_created_by') THEN
+            CREATE INDEX idx_agents_created_by ON agents(created_by_id);
+        END IF;
+        
+        IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_agents_last_heartbeat') THEN
+            CREATE INDEX idx_agents_last_heartbeat ON agents(last_heartbeat);
+        END IF;
+        
+        IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_agents_certificate') THEN
+            CREATE INDEX idx_agents_certificate ON agents(certificate);
+        END IF;
+    END IF;
 
--- Create indexes
-CREATE INDEX idx_agents_claim_code ON agents(claim_code);
-CREATE INDEX idx_agents_status ON agents(status);
-CREATE INDEX idx_agent_teams_team_id ON agent_teams(team_id);
-CREATE INDEX idx_agent_metrics_agent_id ON agent_metrics(agent_id);
-CREATE INDEX idx_agent_metrics_timestamp ON agent_metrics(timestamp); 
+    -- Index for agent_metrics table
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'agent_metrics') THEN
+        IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_agent_metrics_timestamp') THEN
+            CREATE INDEX idx_agent_metrics_timestamp ON agent_metrics(timestamp);
+        END IF;
+    END IF;
+END $$;
+
+-- Create or replace trigger function
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ language 'plpgsql';
+
+-- Drop trigger if exists and create it
+DROP TRIGGER IF EXISTS update_agents_updated_at ON agents;
+CREATE TRIGGER update_agents_updated_at
+    BEFORE UPDATE ON agents
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column(); 

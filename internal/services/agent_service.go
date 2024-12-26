@@ -3,40 +3,62 @@ package services
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
+	"github.com/ZerkerEOD/hashdom-backend/internal/models"
+	"github.com/ZerkerEOD/hashdom-backend/internal/repository"
+	"github.com/ZerkerEOD/hashdom-backend/pkg/debug"
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
-	"github.com/yourusername/hashdom/internal/models"
-	"github.com/yourusername/hashdom/internal/repository"
-	"github.com/yourusername/hashdom/pkg/debug"
 )
 
-// AgentService handles business logic for agents
+// AgentService handles agent-related operations
 type AgentService struct {
 	agentRepo   *repository.AgentRepository
 	voucherRepo *repository.ClaimVoucherRepository
+	tokens      map[string]downloadToken
+	tokenMutex  sync.RWMutex
 }
 
-// NewAgentService creates a new agent service
+type downloadToken struct {
+	AgentID   string
+	ExpiresAt time.Time
+}
+
+// NewAgentService creates a new instance of AgentService
 func NewAgentService(agentRepo *repository.AgentRepository, voucherRepo *repository.ClaimVoucherRepository) *AgentService {
 	return &AgentService{
 		agentRepo:   agentRepo,
 		voucherRepo: voucherRepo,
+		tokens:      make(map[string]downloadToken),
 	}
 }
 
-// RegisterAgent registers a new agent using a claim voucher
-func (s *AgentService) RegisterAgent(ctx context.Context, claimCode string, hostname string, hardware models.Hardware, version string) (*models.Agent, error) {
-	// Get and validate claim voucher
+// ValidateClaimCode validates a claim code
+func (s *AgentService) ValidateClaimCode(ctx context.Context, claimCode string) error {
 	voucher, err := s.voucherRepo.GetByCode(ctx, claimCode)
 	if err != nil {
-		debug.Error("failed to get claim voucher: %v", err)
-		return nil, err
+		return fmt.Errorf("invalid claim code")
 	}
 
 	if !voucher.IsValid() {
-		debug.Error("invalid claim voucher: %s", claimCode)
-		return nil, repository.ErrInvalidVoucher
+		return fmt.Errorf("claim code expired")
+	}
+
+	return nil
+}
+
+// RegisterAgent registers a new agent using a claim code
+func (s *AgentService) RegisterAgent(ctx context.Context, claimCode, hostname string) (*models.Agent, error) {
+	// Validate claim code
+	voucher, err := s.voucherRepo.GetByCode(ctx, claimCode)
+	if err != nil {
+		return nil, fmt.Errorf("invalid claim code")
+	}
+
+	if !voucher.IsValid() {
+		return nil, fmt.Errorf("claim code is not active")
 	}
 
 	// Check for existing agent with same name and modify if needed
@@ -54,26 +76,93 @@ func (s *AgentService) RegisterAgent(ctx context.Context, claimCode string, host
 	}
 
 	// Create new agent
+	agentID := uuid.New()
 	agent := &models.Agent{
+		ID:          agentID.String(),
 		Name:        name,
-		Status:      "inactive",
-		Version:     version,
-		Hardware:    hardware,
+		Status:      models.AgentStatusPending,
 		CreatedByID: voucher.CreatedByID,
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+		Version:     "1.0.0", // Set initial version
 	}
 
 	if err := s.agentRepo.Create(ctx, agent); err != nil {
 		debug.Error("failed to create agent: %v", err)
-		return nil, err
+		return nil, fmt.Errorf("failed to create agent: %v", err)
 	}
 
 	// Mark voucher as used
-	if err := s.voucherRepo.Use(ctx, claimCode, agent.ID); err != nil {
-		debug.Error("failed to mark voucher as used: %v", err)
-		// Don't return here, agent is already created
+	if !voucher.IsContinuous {
+		if err := s.voucherRepo.Use(ctx, claimCode, agentID); err != nil {
+			debug.Warning("failed to mark voucher as used: %v", err)
+			// Continue anyway since the agent was created successfully
+		}
 	}
 
 	return agent, nil
+}
+
+// CreateDownloadToken generates a temporary token for certificate download
+func (s *AgentService) CreateDownloadToken(ctx context.Context, agentID string) (string, error) {
+	s.tokenMutex.Lock()
+	defer s.tokenMutex.Unlock()
+
+	// Generate token
+	token := uuid.New().String()
+
+	// Store token with expiration
+	s.tokens[token] = downloadToken{
+		AgentID:   agentID,
+		ExpiresAt: time.Now().Add(5 * time.Minute),
+	}
+
+	return token, nil
+}
+
+// ValidateDownloadToken validates a download token and returns the associated agent ID
+func (s *AgentService) ValidateDownloadToken(ctx context.Context, token string) (string, error) {
+	s.tokenMutex.RLock()
+	defer s.tokenMutex.RUnlock()
+
+	dt, exists := s.tokens[token]
+	if !exists {
+		return "", fmt.Errorf("invalid download token")
+	}
+
+	if time.Now().After(dt.ExpiresAt) {
+		delete(s.tokens, token)
+		return "", fmt.Errorf("download token expired")
+	}
+
+	return dt.AgentID, nil
+}
+
+// InvalidateDownloadToken invalidates a download token
+func (s *AgentService) InvalidateDownloadToken(ctx context.Context, token string) error {
+	s.tokenMutex.Lock()
+	defer s.tokenMutex.Unlock()
+
+	delete(s.tokens, token)
+	return nil
+}
+
+// GetAgent retrieves a single agent by ID
+func (s *AgentService) GetAgent(ctx context.Context, id string) (*models.Agent, error) {
+	debug.Info("Getting agent: %s", id)
+	return s.agentRepo.GetByID(ctx, id)
+}
+
+// ListAgents retrieves all agents with optional filters
+func (s *AgentService) ListAgents(ctx context.Context, filters map[string]interface{}) ([]models.Agent, error) {
+	debug.Info("Listing agents with filters: %v", filters)
+	return s.agentRepo.List(ctx, filters)
+}
+
+// DeleteAgent deletes an agent by ID
+func (s *AgentService) DeleteAgent(ctx context.Context, id string) error {
+	debug.Info("Deleting agent: %s", id)
+	return s.agentRepo.Delete(ctx, id)
 }
 
 // HandleAgentConnection handles WebSocket connection from an agent
@@ -81,7 +170,7 @@ func (s *AgentService) HandleAgentConnection(ctx context.Context, conn *websocke
 	defer conn.Close()
 
 	// Update agent status to active
-	if err := s.agentRepo.UpdateStatus(ctx, agent.ID, "active"); err != nil {
+	if err := s.agentRepo.UpdateStatus(ctx, agent.ID, models.AgentStatusActive, nil); err != nil {
 		debug.Error("failed to update agent status: %v", err)
 		return err
 	}
@@ -107,7 +196,7 @@ func (s *AgentService) HandleAgentConnection(ctx context.Context, conn *websocke
 	}
 }
 
-func (s *AgentService) handleHeartbeat(ctx context.Context, agentID uint, done chan struct{}, errChan chan error) {
+func (s *AgentService) handleHeartbeat(ctx context.Context, agentID string, done chan struct{}, errChan chan error) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
@@ -125,7 +214,7 @@ func (s *AgentService) handleHeartbeat(ctx context.Context, agentID uint, done c
 	}
 }
 
-func (s *AgentService) handleMetrics(ctx context.Context, conn *websocket.Conn, agentID uint, done chan struct{}, errChan chan error) {
+func (s *AgentService) handleMetrics(ctx context.Context, conn *websocket.Conn, agentID string, done chan struct{}, errChan chan error) {
 	for {
 		select {
 		case <-done:
@@ -152,22 +241,85 @@ func (s *AgentService) handleMetrics(ctx context.Context, conn *websocket.Conn, 
 	}
 }
 
-// GetAgent retrieves an agent by ID
-func (s *AgentService) GetAgent(ctx context.Context, id uint) (*models.Agent, error) {
-	return s.agentRepo.GetByID(ctx, id)
+// UpdateAgentStatus updates an agent's status and last error
+func (s *AgentService) UpdateAgentStatus(ctx context.Context, id string, status string, lastError *string) error {
+	return s.agentRepo.UpdateStatus(ctx, id, status, lastError)
 }
 
-// ListAgents retrieves all agents with optional filters
-func (s *AgentService) ListAgents(ctx context.Context, filters map[string]interface{}) ([]models.Agent, error) {
-	return s.agentRepo.List(ctx, filters)
+// UpdateLastSeen updates the last_seen timestamp for an agent
+func (s *AgentService) UpdateLastSeen(agentID string) error {
+	ctx := context.Background()
+	agent, err := s.agentRepo.GetByID(ctx, agentID)
+	if err != nil {
+		debug.Error("failed to get agent: %v", err)
+		return err
+	}
+
+	agent.LastSeen = time.Now()
+	if err := s.agentRepo.Update(ctx, agent); err != nil {
+		debug.Error("failed to update agent last seen: %v", err)
+		return err
+	}
+
+	return nil
 }
 
-// DeleteAgent deletes an agent
-func (s *AgentService) DeleteAgent(ctx context.Context, id uint) error {
-	return s.agentRepo.Delete(ctx, id)
-}
+// UpdateHardwareInfo updates the hardware information for an agent
+func (s *AgentService) UpdateHardwareInfo(agentID string, hardwareInfo map[string]interface{}) error {
+	ctx := context.Background()
+	agent, err := s.agentRepo.GetByID(ctx, agentID)
+	if err != nil {
+		debug.Error("failed to get agent: %v", err)
+		return err
+	}
 
-// GetAgentMetrics retrieves agent metrics within a time range
-func (s *AgentService) GetAgentMetrics(ctx context.Context, agentID uint, start, end time.Time) ([]models.AgentMetrics, error) {
-	return s.agentRepo.GetMetrics(ctx, agentID, start, end)
+	// Convert hardware info to models.Hardware
+	hardware := models.Hardware{
+		CPUs:              make([]models.CPU, 0),
+		GPUs:              make([]models.GPU, 0),
+		NetworkInterfaces: make([]models.NetworkInterface, 0),
+	}
+
+	if cpus, ok := hardwareInfo["cpus"].([]interface{}); ok {
+		for _, cpu := range cpus {
+			if cpuMap, ok := cpu.(map[string]interface{}); ok {
+				hardware.CPUs = append(hardware.CPUs, models.CPU{
+					Model:   cpuMap["model"].(string),
+					Cores:   int(cpuMap["cores"].(float64)),
+					Threads: int(cpuMap["threads"].(float64)),
+				})
+			}
+		}
+	}
+
+	if gpus, ok := hardwareInfo["gpus"].([]interface{}); ok {
+		for _, gpu := range gpus {
+			if gpuMap, ok := gpu.(map[string]interface{}); ok {
+				hardware.GPUs = append(hardware.GPUs, models.GPU{
+					Model:  gpuMap["model"].(string),
+					Memory: gpuMap["memory"].(string),
+					Driver: gpuMap["driver"].(string),
+				})
+			}
+		}
+	}
+
+	if nics, ok := hardwareInfo["networkInterfaces"].([]interface{}); ok {
+		for _, nic := range nics {
+			if nicMap, ok := nic.(map[string]interface{}); ok {
+				hardware.NetworkInterfaces = append(hardware.NetworkInterfaces, models.NetworkInterface{
+					Name:      nicMap["name"].(string),
+					IPAddress: nicMap["ipAddress"].(string),
+				})
+			}
+		}
+	}
+
+	agent.Hardware = hardware
+	if err := s.agentRepo.Update(ctx, agent); err != nil {
+		debug.Error("failed to update agent hardware info: %v", err)
+		return err
+	}
+
+	return nil
 }

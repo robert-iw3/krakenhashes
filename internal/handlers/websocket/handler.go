@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/ZerkerEOD/hashdom-backend/internal/models"
-	"github.com/ZerkerEOD/hashdom-backend/internal/services"
+	wsservice "github.com/ZerkerEOD/hashdom-backend/internal/services/websocket"
 	"github.com/ZerkerEOD/hashdom-backend/pkg/debug"
 	"github.com/gorilla/websocket"
 )
@@ -28,19 +28,10 @@ const (
 	maxMessageSize = 512 * 1024 // 512KB
 )
 
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-	CheckOrigin: func(r *http.Request) bool {
-		// In production, implement proper origin checking
-		return true
-	},
-}
-
 // Handler manages WebSocket connections for agents
 type Handler struct {
-	wsService *services.WebSocketService
-	clients   map[uint]*Client
+	wsService *wsservice.Service
+	clients   map[string]*Client
 	mu        sync.RWMutex
 }
 
@@ -49,16 +40,16 @@ type Client struct {
 	handler *Handler
 	conn    *websocket.Conn
 	agent   *models.Agent
-	send    chan *Message
+	send    chan *wsservice.Message
 	ctx     context.Context
 	cancel  context.CancelFunc
 }
 
 // NewHandler creates a new WebSocket handler
-func NewHandler(wsService *services.WebSocketService) *Handler {
+func NewHandler(wsService *wsservice.Service) *Handler {
 	return &Handler{
 		wsService: wsService,
-		clients:   make(map[uint]*Client),
+		clients:   make(map[string]*Client),
 	}
 }
 
@@ -84,7 +75,7 @@ func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) {
 		handler: h,
 		conn:    conn,
 		agent:   agent,
-		send:    make(chan *Message, 256),
+		send:    make(chan *wsservice.Message, 256),
 		ctx:     ctx,
 		cancel:  cancel,
 	}
@@ -123,7 +114,7 @@ func (c *Client) readPump() {
 			return
 		}
 
-		var msg Message
+		var msg wsservice.Message
 		if err := json.Unmarshal(data, &msg); err != nil {
 			debug.Error("failed to unmarshal message: %v", err)
 			continue
@@ -186,25 +177,25 @@ func (c *Client) writePump() {
 }
 
 // SendMessage sends a message to a specific agent
-func (h *Handler) SendMessage(agentID uint, msg *Message) error {
+func (h *Handler) SendMessage(agentID string, msg *wsservice.Message) error {
 	h.mu.RLock()
 	client, ok := h.clients[agentID]
 	h.mu.RUnlock()
 
 	if !ok {
-		return fmt.Errorf("agent %d not connected", agentID)
+		return fmt.Errorf("agent %s not connected", agentID)
 	}
 
 	select {
 	case client.send <- msg:
 		return nil
 	default:
-		return fmt.Errorf("agent %d send buffer full", agentID)
+		return fmt.Errorf("agent %s send buffer full", agentID)
 	}
 }
 
 // Broadcast sends a message to all connected agents
-func (h *Handler) Broadcast(msg *Message) {
+func (h *Handler) Broadcast(msg *wsservice.Message) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
@@ -229,11 +220,11 @@ func (h *Handler) unregisterClient(c *Client) {
 }
 
 // GetConnectedAgents returns a list of connected agent IDs
-func (h *Handler) GetConnectedAgents() []uint {
+func (h *Handler) GetConnectedAgents() []string {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
-	agents := make([]uint, 0, len(h.clients))
+	agents := make([]string, 0, len(h.clients))
 	for agentID := range h.clients {
 		agents = append(agents, agentID)
 	}

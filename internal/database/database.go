@@ -6,9 +6,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/ZerkerEOD/hashdom/hashdom-backend/internal/models"
+	"github.com/ZerkerEOD/hashdom-backend/internal/models"
 
-	"github.com/ZerkerEOD/hashdom/hashdom-backend/pkg/debug"
+	"github.com/ZerkerEOD/hashdom-backend/pkg/debug"
 
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
@@ -166,7 +166,7 @@ func RemoveToken(token string) error {
 		return err
 	}
 	debug.Debug("Successfully removed auth token")
-	return err
+	return nil
 }
 
 /*
@@ -195,4 +195,29 @@ func ValidateToken(token string) (string, error) {
 	}
 	debug.Debug("Successfully validated token for user ID: %s", userID)
 	return userID, nil
+}
+
+/*
+ * TokenExists checks if a given token exists in the database.
+ *
+ * Parameters:
+ *   - token: The authentication token to check
+ *
+ * Returns:
+ *   - bool: True if token exists and is valid, false otherwise
+ *   - error: Any error encountered during the operation
+ */
+func TokenExists(token string) (bool, error) {
+	debug.Debug("Checking if token exists in database")
+
+	var exists bool
+	query := `SELECT EXISTS(SELECT 1 FROM auth_tokens WHERE token = $1)`
+	err := db.QueryRow(query, token).Scan(&exists)
+	if err != nil {
+		debug.Error("Error checking token existence: %v", err)
+		return false, err
+	}
+
+	debug.Debug("Token existence check result: %v", exists)
+	return exists, nil
 }

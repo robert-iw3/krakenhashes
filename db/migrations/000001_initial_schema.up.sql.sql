@@ -6,41 +6,59 @@ CREATE TABLE users (
     last_name VARCHAR(255),
     email VARCHAR(255) UNIQUE NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE auth (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES users(id),
-    token VARCHAR(255),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    expires_at TIMESTAMP,
-    UNIQUE(token)
+    role VARCHAR(50) NOT NULL DEFAULT 'user',
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT users_role_check CHECK (role IN ('user', 'admin', 'agent'))
 );
 
 CREATE TABLE teams (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    name VARCHAR(100) UNIQUE NOT NULL,
+    name VARCHAR(100) NOT NULL,
     description TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT teams_name_unique UNIQUE (name)
 );
 
 CREATE TABLE user_teams (
     user_id UUID NOT NULL,
     team_id UUID NOT NULL,
-    role VARCHAR(50) NOT NULL,
-    joined_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (user_id, team_id),
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE
+    role VARCHAR(50) NOT NULL DEFAULT 'member',
+    joined_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT user_teams_pkey PRIMARY KEY (user_id, team_id),
+    CONSTRAINT user_teams_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    CONSTRAINT user_teams_team_id_fkey FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE,
+    CONSTRAINT user_teams_role_check CHECK (role IN ('member', 'admin'))
 );
 
 -- Create indexes
-CREATE INDEX idx_auth_user_id ON auth(user_id);
+CREATE INDEX idx_users_username ON users(username);
+CREATE INDEX idx_users_email ON users(email);
+CREATE INDEX idx_users_role ON users(role);
+CREATE INDEX idx_teams_name ON teams(name);
 CREATE INDEX idx_user_teams_user_id ON user_teams(user_id);
 CREATE INDEX idx_user_teams_team_id ON user_teams(team_id);
+
+-- Create updated_at trigger function
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ language 'plpgsql';
+
+-- Create triggers
+CREATE TRIGGER update_users_updated_at
+    BEFORE UPDATE ON users
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_teams_updated_at
+    BEFORE UPDATE ON teams
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
 
 -- Insert sample data with explicit UUIDs for referential integrity
 DO $$ 
@@ -52,24 +70,26 @@ DECLARE
     team_b_id UUID;
 BEGIN
     -- Insert users and store their IDs
-    INSERT INTO users (username, first_name, last_name, email, password_hash)
-    VALUES ('admin', 'Admin', 'User', 'admin@example.com', '$2a$10$UQzDYVagF4svlb9zhvWFZOHrNa6xEwcqRVJ3l9WEn8VOfrCuy7Q8q')
+    INSERT INTO users (username, first_name, last_name, email, password_hash, role)
+    VALUES ('admin', 'Admin', 'User', 'admin@example.com', '$2a$10$UQzDYVagF4svlb9zhvWFZOHrNa6xEwcqRVJ3l9WEn8VOfrCuy7Q8q', 'admin')
     RETURNING id INTO admin_id;
 
-    INSERT INTO users (username, first_name, last_name, email, password_hash)
-    VALUES ('user1', 'User', 'One', 'user1@example.com', '$2a$10$UQzDYVagF4svlb9zhvWFZOHrNa6xEwcqRVJ3l9WEn8VOfrCuy7Q8q')
+    INSERT INTO users (username, first_name, last_name, email, password_hash, role)
+    VALUES ('user1', 'User', 'One', 'user1@example.com', '$2a$10$UQzDYVagF4svlb9zhvWFZOHrNa6xEwcqRVJ3l9WEn8VOfrCuy7Q8q', 'user')
     RETURNING id INTO user1_id;
 
-    INSERT INTO users (username, first_name, last_name, email, password_hash)
-    VALUES ('user2', 'User', 'Two', 'user2@example.com', '$2a$10$UQzDYVagF4svlb9zhvWFZOHrNa6xEwcqRVJ3l9WEn8VOfrCuy7Q8q')
+    INSERT INTO users (username, first_name, last_name, email, password_hash, role)
+    VALUES ('user2', 'User', 'Two', 'user2@example.com', '$2a$10$UQzDYVagF4svlb9zhvWFZOHrNa6xEwcqRVJ3l9WEn8VOfrCuy7Q8q', 'user')
     RETURNING id INTO user2_id;
 
-    -- Insert auth records
-    INSERT INTO auth (user_id) VALUES (admin_id), (user1_id), (user2_id);
-
     -- Insert teams
-    INSERT INTO teams (name, description) VALUES ('Team A', 'This is Team A') RETURNING id INTO team_a_id;
-    INSERT INTO teams (name, description) VALUES ('Team B', 'This is Team B') RETURNING id INTO team_b_id;
+    INSERT INTO teams (name, description) 
+    VALUES ('Team A', 'This is Team A') 
+    RETURNING id INTO team_a_id;
+
+    INSERT INTO teams (name, description) 
+    VALUES ('Team B', 'This is Team B') 
+    RETURNING id INTO team_b_id;
 
     -- Insert team memberships
     INSERT INTO user_teams (user_id, team_id, role) VALUES

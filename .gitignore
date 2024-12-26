@@ -40,3 +40,7 @@ docker-compose.yml
 # Cursor
 .cursorignore
 .cursorrules
+
+# Certificate storage
+certs/
+.hashdom/ 

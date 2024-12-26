@@ -1,14 +1,14 @@
-package services
+package websocket
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
 
 	"github.com/ZerkerEOD/hashdom-backend/internal/models"
-	"github.com/ZerkerEOD/hashdom-backend/pkg/debug"
+	"github.com/ZerkerEOD/hashdom-backend/internal/services"
+	"github.com/mitchellh/mapstructure"
 )
 
 // MessageType represents the type of WebSocket message
@@ -37,7 +37,7 @@ type Message struct {
 
 // MetricsPayload represents detailed metrics from agent
 type MetricsPayload struct {
-	AgentID       uint      `json:"agent_id"`
+	AgentID       string    `json:"agent_id"`
 	CollectedAt   time.Time `json:"collected_at"`
 	CPUUsage      float64   `json:"cpu_usage"`
 	MemoryUsage   float64   `json:"memory_usage"`
@@ -49,7 +49,7 @@ type MetricsPayload struct {
 
 // HeartbeatPayload represents a heartbeat message from agent
 type HeartbeatPayload struct {
-	AgentID     uint    `json:"agent_id"`
+	AgentID     string  `json:"agent_id"`
 	LoadAverage float64 `json:"load_average"`
 	MemoryUsage float64 `json:"memory_usage"`
 	DiskUsage   float64 `json:"disk_usage"`
@@ -57,7 +57,7 @@ type HeartbeatPayload struct {
 
 // TaskStatusPayload represents task status update from agent
 type TaskStatusPayload struct {
-	AgentID   uint      `json:"agent_id"`
+	AgentID   string    `json:"agent_id"`
 	TaskID    string    `json:"task_id"`
 	Status    string    `json:"status"`
 	Progress  float64   `json:"progress"`
@@ -67,7 +67,7 @@ type TaskStatusPayload struct {
 
 // AgentStatusPayload represents agent status update
 type AgentStatusPayload struct {
-	AgentID     uint              `json:"agent_id"`
+	AgentID     string            `json:"agent_id"`
 	Status      string            `json:"status"`
 	Version     string            `json:"version"`
 	LastError   string            `json:"last_error,omitempty"`
@@ -77,7 +77,7 @@ type AgentStatusPayload struct {
 
 // ErrorReportPayload represents detailed error report from agent
 type ErrorReportPayload struct {
-	AgentID    uint      `json:"agent_id"`
+	AgentID    string    `json:"agent_id"`
 	Error      string    `json:"error"`
 	Stack      string    `json:"stack"`
 	Context    any       `json:"context"`
@@ -86,7 +86,7 @@ type ErrorReportPayload struct {
 
 // Service handles WebSocket business logic
 type Service struct {
-	agentService *AgentService
+	agentService *services.AgentService
 	metrics      map[string]*MetricsPayload
 	metricsMu    sync.RWMutex
 	lastSeen     map[string]time.Time
@@ -94,21 +94,12 @@ type Service struct {
 }
 
 // NewService creates a new WebSocket service
-func NewService(agentService *AgentService) *Service {
+func NewService(agentService *services.AgentService) *Service {
 	return &Service{
 		agentService: agentService,
 		metrics:      make(map[string]*MetricsPayload),
 		lastSeen:     make(map[string]time.Time),
 	}
-}
-
-// unmarshalPayload helper to unmarshal message payloads
-func unmarshalPayload(payload map[string]any, v interface{}) error {
-	bytes, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-	return json.Unmarshal(bytes, v)
 }
 
 // HandleMessage processes incoming WebSocket messages
@@ -149,13 +140,12 @@ func (s *Service) GetLastSeen(agentID string) time.Time {
 // handleHeartbeat processes heartbeat messages
 func (s *Service) handleHeartbeat(ctx context.Context, agent *models.Agent, msg *Message) error {
 	var payload HeartbeatPayload
-	if err := unmarshalPayload(msg.Payload, &payload); err != nil {
+	if err := mapstructure.Decode(msg.Payload, &payload); err != nil {
 		return err
 	}
 
 	// Update agent status in database
 	if err := s.agentService.UpdateAgentStatus(ctx, agent.ID, "online", nil); err != nil {
-		debug.Error("failed to update agent status: %v", err)
 		return err
 	}
 
@@ -165,7 +155,7 @@ func (s *Service) handleHeartbeat(ctx context.Context, agent *models.Agent, msg 
 // handleMetrics processes metrics messages
 func (s *Service) handleMetrics(ctx context.Context, agent *models.Agent, msg *Message) error {
 	var payload MetricsPayload
-	if err := unmarshalPayload(msg.Payload, &payload); err != nil {
+	if err := mapstructure.Decode(msg.Payload, &payload); err != nil {
 		return err
 	}
 
@@ -180,7 +170,7 @@ func (s *Service) handleMetrics(ctx context.Context, agent *models.Agent, msg *M
 // handleTaskStatus processes task status messages
 func (s *Service) handleTaskStatus(ctx context.Context, agent *models.Agent, msg *Message) error {
 	var payload TaskStatusPayload
-	if err := unmarshalPayload(msg.Payload, &payload); err != nil {
+	if err := mapstructure.Decode(msg.Payload, &payload); err != nil {
 		return err
 	}
 
@@ -191,7 +181,7 @@ func (s *Service) handleTaskStatus(ctx context.Context, agent *models.Agent, msg
 // handleAgentStatus processes agent status messages
 func (s *Service) handleAgentStatus(ctx context.Context, agent *models.Agent, msg *Message) error {
 	var payload AgentStatusPayload
-	if err := unmarshalPayload(msg.Payload, &payload); err != nil {
+	if err := mapstructure.Decode(msg.Payload, &payload); err != nil {
 		return err
 	}
 
@@ -202,7 +192,6 @@ func (s *Service) handleAgentStatus(ctx context.Context, agent *models.Agent, ms
 	}
 
 	if err := s.agentService.UpdateAgentStatus(ctx, agent.ID, payload.Status, lastError); err != nil {
-		debug.Error("failed to update agent status: %v", err)
 		return err
 	}
 
@@ -212,13 +201,12 @@ func (s *Service) handleAgentStatus(ctx context.Context, agent *models.Agent, ms
 // handleErrorReport processes error report messages
 func (s *Service) handleErrorReport(ctx context.Context, agent *models.Agent, msg *Message) error {
 	var payload ErrorReportPayload
-	if err := unmarshalPayload(msg.Payload, &payload); err != nil {
+	if err := mapstructure.Decode(msg.Payload, &payload); err != nil {
 		return err
 	}
 
 	// Update agent status with error
 	if err := s.agentService.UpdateAgentStatus(ctx, agent.ID, "error", &payload.Error); err != nil {
-		debug.Error("failed to update agent status: %v", err)
 		return err
 	}
 

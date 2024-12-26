@@ -22,9 +22,32 @@ type Manager struct {
 
 // NewManager creates a new CA manager
 func NewManager() *Manager {
+	// Get certificate paths from environment
+	certFile := getEnvOrDefault("CA_CERT_PATH", "/etc/hashdom/ca/ca.crt")
+	keyFile := getEnvOrDefault("CA_KEY_PATH", "/etc/hashdom/ca/ca.key")
+
+	// If paths are relative, make them relative to current working directory
+	if !filepath.IsAbs(certFile) || !filepath.IsAbs(keyFile) {
+		cwd, err := os.Getwd()
+		if err == nil {
+			if !filepath.IsAbs(certFile) {
+				certFile = filepath.Join(cwd, certFile)
+			}
+			if !filepath.IsAbs(keyFile) {
+				keyFile = filepath.Join(cwd, keyFile)
+			}
+		}
+	}
+
+	// Ensure the CA directory exists with restricted permissions
+	caDir := filepath.Dir(certFile)
+	if err := os.MkdirAll(caDir, 0700); err != nil {
+		debug.Error("failed to create CA directory: %v", err)
+	}
+
 	return &Manager{
-		certFile: getEnvOrDefault("CA_CERT_PATH", "/etc/hashdom/ca/ca.crt"),
-		keyFile:  getEnvOrDefault("CA_KEY_PATH", "/etc/hashdom/ca/ca.key"),
+		certFile: certFile,
+		keyFile:  keyFile,
 	}
 }
 
@@ -103,23 +126,21 @@ func (m *Manager) loadCA() (*CA, error) {
 	}, nil
 }
 
-// saveCA saves the CA to disk
+// saveCA saves the CA to disk with restricted permissions
 func (m *Manager) saveCA(ca *CA) error {
-	// Create directories if they don't exist
-	if err := os.MkdirAll(filepath.Dir(m.certFile), 0755); err != nil {
-		return fmt.Errorf("failed to create certificate directory: %w", err)
-	}
-	if err := os.MkdirAll(filepath.Dir(m.keyFile), 0755); err != nil {
-		return fmt.Errorf("failed to create key directory: %w", err)
+	// Create directory if it doesn't exist
+	caDir := filepath.Dir(m.certFile)
+	if err := os.MkdirAll(caDir, 0700); err != nil {
+		return fmt.Errorf("failed to create CA directory: %w", err)
 	}
 
-	// Save certificate
+	// Save certificate (readable by others since it's public)
 	certPEM := EncodeCertificate(ca.cert)
 	if err := os.WriteFile(m.certFile, certPEM, 0644); err != nil {
 		return fmt.Errorf("failed to write CA certificate: %w", err)
 	}
 
-	// Save private key
+	// Save private key (restricted access)
 	keyPEM := EncodePrivateKey(ca.key)
 	if err := os.WriteFile(m.keyFile, keyPEM, 0600); err != nil {
 		return fmt.Errorf("failed to write CA private key: %w", err)
