@@ -77,7 +77,7 @@ export default function AgentManagement() {
       console.log('Received vouchers:', vouchersRes.data);
       
       setAgents(agentsRes.data || []);
-      setClaimVouchers((vouchersRes.data || []).filter(v => v.isActive));
+      setClaimVouchers((vouchersRes.data || []).filter(v => v.is_active));
     } catch (error) {
       console.error('Failed to fetch data:', error);
       setError('Failed to load data. Please try again.');
@@ -102,7 +102,7 @@ export default function AgentManagement() {
     try {
       setError(null);
       const response = await api.post<{ code: string }>('/api/vouchers/temp', {
-        isContinuous
+        isContinuous: isContinuous
       });
       setClaimCode(response.data.code);
       await fetchData(); // Refresh the vouchers list
@@ -194,12 +194,12 @@ export default function AgentManagement() {
                 claimVouchers.map((voucher) => (
                   <TableRow key={voucher.code}>
                     <TableCell>{voucher.code}</TableCell>
-                    <TableCell>{voucher.createdBy?.username || 'Unknown'}</TableCell>
-                    <TableCell>{new Date(voucher.createdAt).toLocaleString()}</TableCell>
+                    <TableCell>{voucher.created_by?.username || 'Unknown'}</TableCell>
+                    <TableCell>{new Date(voucher.created_at).toLocaleString()}</TableCell>
                     <TableCell>
                       <Chip 
-                        label={voucher.isContinuous ? "Continuous" : "Single Use"}
-                        color={voucher.isContinuous ? "primary" : "default"}
+                        label={voucher.is_continuous ? "Continuous" : "Single Use"}
+                        color={voucher.is_continuous ? "primary" : "default"}
                       />
                     </TableCell>
                     <TableCell>
@@ -231,15 +231,14 @@ export default function AgentManagement() {
                 <TableCell>Owner</TableCell>
                 <TableCell>Version</TableCell>
                 <TableCell>Hardware</TableCell>
-                <TableCell>Network</TableCell>
-                <TableCell>Teams</TableCell>
+                <TableCell>Status</TableCell>
                 <TableCell>Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {agents.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} align="center">
+                  <TableCell colSpan={7} align="center">
                     No active agents
                   </TableCell>
                 </TableRow>
@@ -263,21 +262,11 @@ export default function AgentManagement() {
                       ))}
                     </TableCell>
                     <TableCell>
-                      {agent.hardware?.networkInterfaces?.map((nic, i) => (
-                        <Typography key={i} variant="body2">
-                          {nic.name}: {nic.ipAddress}
-                        </Typography>
-                      ))}
-                    </TableCell>
-                    <TableCell>
-                      {agent.teams?.map((team) => (
-                        <Chip
-                          key={team.id}
-                          label={team.name}
-                          size="small"
-                          sx={{ m: 0.5 }}
-                        />
-                      ))}
+                      <Chip
+                        label={agent.status}
+                        color={agent.status === 'active' ? 'success' : agent.status === 'error' ? 'error' : 'default'}
+                        size="small"
+                      />
                     </TableCell>
                     <TableCell>
                       <IconButton

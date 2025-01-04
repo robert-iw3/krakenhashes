@@ -108,16 +108,23 @@ export interface AgentHardware {
  */
 export interface ClaimVoucher {
     code: string;
-    createdBy: {
+    created_by: {
         id: string;
         username: string;
+        email: string;
+        role: string;
     };
-    createdAt: string;
-    isContinuous: boolean;
-    isActive: boolean;
-    usedAt?: string;
-    usedBy?: {
-        id: string;
-        username: string;
+    created_by_id: string;
+    is_continuous: boolean;
+    is_active: boolean;
+    created_at: string;
+    updated_at: string;
+    used_at?: {
+        Time: string;
+        Valid: boolean;
+    };
+    used_by_agent_id?: {
+        Int64: number;
+        Valid: boolean;
     };
 } 
