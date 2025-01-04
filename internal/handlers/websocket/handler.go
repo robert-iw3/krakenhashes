@@ -5,34 +5,78 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
 	"github.com/ZerkerEOD/hashdom-backend/internal/models"
+	"github.com/ZerkerEOD/hashdom-backend/internal/services"
 	wsservice "github.com/ZerkerEOD/hashdom-backend/internal/services/websocket"
 	"github.com/ZerkerEOD/hashdom-backend/pkg/debug"
 	"github.com/gorilla/websocket"
 )
 
+// Default connection timing values
 const (
-	// Time allowed to write a message to the peer
-	writeWait = 10 * time.Second
-
-	// Time allowed to read the next pong message from the peer
-	pongWait = 60 * time.Second
-
-	// Send pings to peer with this period (must be less than pongWait)
-	pingPeriod = (pongWait * 9) / 10
-
-	// Maximum message size allowed from peer
-	maxMessageSize = 512 * 1024 // 512KB
+	defaultWriteWait  = 10 * time.Second
+	defaultPongWait   = 60 * time.Second
+	defaultPingPeriod = 54 * time.Second
+	maxMessageSize    = 512 * 1024 // 512KB
 )
+
+// Connection timing configuration
+var (
+	writeWait  time.Duration
+	pongWait   time.Duration
+	pingPeriod time.Duration
+)
+
+// getEnvDuration gets a duration from an environment variable with a default value
+func getEnvDuration(key string, defaultValue time.Duration) time.Duration {
+	debug.Info("Attempting to load environment variable: %s", key)
+	value := os.Getenv(key)
+	debug.Info("Environment variable %s value: %q", key, value)
+
+	if value != "" {
+		duration, err := time.ParseDuration(value)
+		if err == nil {
+			debug.Info("Successfully parsed %s: %v", key, duration)
+			return duration
+		}
+		debug.Warning("Invalid %s value: %s, using default: %v", key, value, defaultValue)
+	}
+	debug.Info("No %s environment variable found, using default: %v", key, defaultValue)
+	return defaultValue
+}
+
+// initTimingConfig initializes the timing configuration from environment variables
+func initTimingConfig() {
+	debug.Info("Initializing WebSocket timing configuration")
+	writeWait = getEnvDuration("HASHDOM_WRITE_WAIT", defaultWriteWait)
+	pongWait = getEnvDuration("HASHDOM_PONG_WAIT", defaultPongWait)
+	pingPeriod = getEnvDuration("HASHDOM_PING_PERIOD", defaultPingPeriod)
+	debug.Info("WebSocket timing configuration initialized:")
+	debug.Info("- Write Wait: %v", writeWait)
+	debug.Info("- Pong Wait: %v", pongWait)
+	debug.Info("- Ping Period: %v", pingPeriod)
+}
+
+var upgrader = websocket.Upgrader{
+	ReadBufferSize:  maxMessageSize,
+	WriteBufferSize: maxMessageSize,
+	CheckOrigin: func(r *http.Request) bool {
+		// TODO: Implement proper origin checking
+		return true
+	},
+	HandshakeTimeout: writeWait,
+}
 
 // Handler manages WebSocket connections for agents
 type Handler struct {
-	wsService *wsservice.Service
-	clients   map[string]*Client
-	mu        sync.RWMutex
+	wsService    *wsservice.Service
+	agentService *services.AgentService
+	clients      map[int]*Client
+	mu           sync.RWMutex
 }
 
 // Client represents a connected agent
@@ -46,30 +90,70 @@ type Client struct {
 }
 
 // NewHandler creates a new WebSocket handler
-func NewHandler(wsService *wsservice.Service) *Handler {
+func NewHandler(wsService *wsservice.Service, agentService *services.AgentService) *Handler {
+	// Initialize timing configuration
+	initTimingConfig()
+
 	return &Handler{
-		wsService: wsService,
-		clients:   make(map[string]*Client),
+		wsService:    wsService,
+		agentService: agentService,
+		clients:      make(map[int]*Client),
 	}
 }
 
 // ServeWS handles WebSocket connections from agents
 func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) {
-	// Get agent from context (set by cert auth middleware)
-	agent, ok := r.Context().Value("agent").(*models.Agent)
-	if !ok {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+	debug.Info("Starting WebSocket connection with timing configuration:")
+	debug.Info("- Write Wait: %v", writeWait)
+	debug.Info("- Pong Wait: %v", pongWait)
+	debug.Info("- Ping Period: %v", pingPeriod)
+
+	debug.Info("New WebSocket connection attempt received from %s", r.RemoteAddr)
+	debug.Debug("Request headers: %v", r.Header)
+
+	// Get API key from header
+	apiKey := r.Header.Get("X-API-Key")
+	if apiKey == "" {
+		debug.Error("No API key provided from %s", r.RemoteAddr)
+		http.Error(w, "API key required", http.StatusUnauthorized)
 		return
 	}
 
+	// Get agent ID from header
+	agentID := r.Header.Get("X-Agent-ID")
+	if agentID == "" {
+		debug.Error("No agent ID provided from %s", r.RemoteAddr)
+		http.Error(w, "Agent ID required", http.StatusUnauthorized)
+		return
+	}
+
+	// Validate API key and get agent
+	agent, err := h.agentService.GetByAPIKey(r.Context(), apiKey)
+	if err != nil {
+		debug.Error("Invalid API key from %s: %v", r.RemoteAddr, err)
+		http.Error(w, "Invalid API key", http.StatusUnauthorized)
+		return
+	}
+
+	// Verify agent ID matches
+	if fmt.Sprintf("%d", agent.ID) != agentID {
+		debug.Error("Agent ID mismatch from %s: provided=%s, actual=%d", r.RemoteAddr, agentID, agent.ID)
+		http.Error(w, "Invalid agent ID", http.StatusUnauthorized)
+		return
+	}
+
+	debug.Info("API key validated for agent %d from %s", agent.ID, r.RemoteAddr)
+
+	// Upgrade connection to WebSocket
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		debug.Error("failed to upgrade connection: %v", err)
+		debug.Error("Failed to upgrade connection from %s: %v", r.RemoteAddr, err)
 		return
 	}
+	debug.Info("Successfully upgraded to WebSocket connection for agent %d", agent.ID)
 
 	// Create client context
-	ctx, cancel := context.WithCancel(r.Context())
+	ctx, cancel := context.WithCancel(context.Background())
 
 	client := &Client{
 		handler: h,
@@ -80,12 +164,43 @@ func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) {
 		cancel:  cancel,
 	}
 
+	// If this is the agent's first connection and it has a claim code in metadata, mark it as used
+	if agent.Status == models.AgentStatusPending {
+		debug.Info("Processing first-time connection for agent %d", agent.ID)
+		if claimCode, ok := agent.Metadata["claim_code"]; ok {
+			debug.Info("Found claim code for agent %d", agent.ID)
+			debug.Debug("Claim code details: %s", claimCode)
+			if err := h.agentService.MarkClaimCodeUsed(ctx, claimCode, agent.ID); err != nil {
+				debug.Error("Failed to mark claim code as used for agent %d: %v", agent.ID, err)
+			} else {
+				debug.Info("Successfully marked claim code as used for agent %d", agent.ID)
+			}
+			// Remove claim code from metadata as it's no longer needed
+			delete(agent.Metadata, "claim_code")
+			if err := h.agentService.Update(ctx, agent); err != nil {
+				debug.Error("Failed to update agent metadata for agent %d: %v", agent.ID, err)
+			} else {
+				debug.Info("Successfully updated agent %d status", agent.ID)
+			}
+		}
+	}
+
+	debug.Info("Agent %d fully registered and ready", agent.ID)
+
+	// Update agent status to active
+	if err := h.agentService.UpdateAgentStatus(ctx, agent.ID, models.AgentStatusActive, nil); err != nil {
+		debug.Error("Failed to update agent status to active: %v", err)
+	} else {
+		debug.Info("Successfully updated agent %d status to active", agent.ID)
+	}
+
 	// Register client
 	h.mu.Lock()
 	h.clients[agent.ID] = client
 	h.mu.Unlock()
+	debug.Info("Added agent %d to active clients", agent.ID)
 
-	// Start client goroutines
+	// Start client routines
 	go client.writePump()
 	go client.readPump()
 }
@@ -93,36 +208,83 @@ func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) {
 // readPump pumps messages from the WebSocket connection to the hub
 func (c *Client) readPump() {
 	defer func() {
+		debug.Info("Agent %d: ReadPump closing", c.agent.ID)
+		// Update agent status to inactive when connection is closed
+		if err := c.handler.agentService.UpdateAgentStatus(c.ctx, c.agent.ID, models.AgentStatusInactive, nil); err != nil {
+			debug.Error("Failed to update agent status to inactive: %v", err)
+		} else {
+			debug.Info("Successfully updated agent %d status to inactive", c.agent.ID)
+		}
 		c.handler.unregisterClient(c)
 		c.conn.Close()
 		c.cancel()
 	}()
 
+	debug.Info("Agent %d: Starting readPump with timing configuration:", c.agent.ID)
+	debug.Info("Agent %d: - Write Wait: %v", c.agent.ID, writeWait)
+	debug.Info("Agent %d: - Pong Wait: %v", c.agent.ID, pongWait)
+	debug.Info("Agent %d: - Ping Period: %v", c.agent.ID, pingPeriod)
+
 	c.conn.SetReadLimit(maxMessageSize)
 	c.conn.SetReadDeadline(time.Now().Add(pongWait))
-	c.conn.SetPongHandler(func(string) error {
-		c.conn.SetReadDeadline(time.Now().Add(pongWait))
+
+	// Set up ping handler
+	c.conn.SetPingHandler(func(appData string) error {
+		debug.Info("Agent %d: Received ping from client, sending pong", c.agent.ID)
+		err := c.conn.SetReadDeadline(time.Now().Add(pongWait))
+		if err != nil {
+			debug.Error("Agent %d: Failed to set read deadline: %v", c.agent.ID, err)
+			return err
+		}
+		// Send pong response immediately
+		err = c.conn.WriteControl(websocket.PongMessage, []byte{}, time.Now().Add(writeWait))
+		if err != nil {
+			debug.Error("Agent %d: Failed to send pong: %v", c.agent.ID, err)
+			return err
+		}
+		debug.Info("Agent %d: Successfully sent pong response", c.agent.ID)
 		return nil
 	})
 
+	// Set up pong handler
+	c.conn.SetPongHandler(func(string) error {
+		debug.Info("Agent %d: Received pong", c.agent.ID)
+		err := c.conn.SetReadDeadline(time.Now().Add(pongWait))
+		if err != nil {
+			debug.Error("Agent %d: Failed to set read deadline: %v", c.agent.ID, err)
+			return err
+		}
+		debug.Info("Agent %d: Successfully updated read deadline after pong", c.agent.ID)
+		return nil
+	})
+
+	debug.Info("Agent %d: Ping/Pong handlers configured", c.agent.ID)
+
 	for {
-		_, data, err := c.conn.ReadMessage()
+		messageType, data, err := c.conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				debug.Error("unexpected close error: %v", err)
+				debug.Error("Agent %d: Unexpected WebSocket close error: %v", c.agent.ID, err)
+			} else {
+				debug.Info("Agent %d: Connection closed: %v", c.agent.ID, err)
 			}
-			return
+			break
 		}
+		debug.Debug("Agent %d: Received message type %d: %s", c.agent.ID, messageType, string(data))
 
 		var msg wsservice.Message
 		if err := json.Unmarshal(data, &msg); err != nil {
-			debug.Error("failed to unmarshal message: %v", err)
+			debug.Error("Agent %d: Failed to unmarshal message: %v", c.agent.ID, err)
 			continue
 		}
 
+		debug.Info("Agent %d: Processing message type: %s", c.agent.ID, msg.Type)
+
 		// Handle message based on type
 		if err := c.handler.wsService.HandleMessage(c.ctx, c.agent, &msg); err != nil {
-			debug.Error("failed to handle message: %v", err)
+			debug.Error("Agent %d: Failed to handle message: %v", c.agent.ID, err)
+		} else {
+			debug.Info("Agent %d: Successfully processed message type: %s", c.agent.ID, msg.Type)
 		}
 	}
 }
@@ -131,66 +293,84 @@ func (c *Client) readPump() {
 func (c *Client) writePump() {
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {
+		debug.Info("Agent %d: WritePump closing", c.agent.ID)
 		ticker.Stop()
 		c.conn.Close()
 	}()
+
+	debug.Info("Agent %d: Starting writePump with timing configuration:", c.agent.ID)
+	debug.Info("Agent %d: - Write Wait: %v", c.agent.ID, writeWait)
+	debug.Info("Agent %d: - Pong Wait: %v", c.agent.ID, pongWait)
+	debug.Info("Agent %d: - Ping Period: %v", c.agent.ID, pingPeriod)
 
 	for {
 		select {
 		case message, ok := <-c.send:
 			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if !ok {
-				// Channel was closed
+				debug.Info("Agent %d: Send channel closed", c.agent.ID)
 				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
 
 			w, err := c.conn.NextWriter(websocket.TextMessage)
 			if err != nil {
+				debug.Error("Agent %d: Failed to get next writer: %v", c.agent.ID, err)
 				return
 			}
 
 			data, err := json.Marshal(message)
 			if err != nil {
-				debug.Error("failed to marshal message: %v", err)
+				debug.Error("Agent %d: Failed to marshal message: %v", c.agent.ID, err)
 				continue
 			}
 
+			debug.Info("Agent %d: Sending message type: %s", c.agent.ID, message.Type)
+			debug.Debug("Message details - Length: %d bytes", len(data))
+
 			if _, err := w.Write(data); err != nil {
+				debug.Error("Agent %d: Failed to write message: %v", c.agent.ID, err)
 				return
 			}
 
 			if err := w.Close(); err != nil {
+				debug.Error("Agent %d: Failed to close writer: %v", c.agent.ID, err)
 				return
 			}
+
+			debug.Info("Agent %d: Successfully sent message type: %s", c.agent.ID, message.Type)
 
 		case <-ticker.C:
+			debug.Info("Agent %d: Sending ping", c.agent.ID)
 			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				debug.Error("Agent %d: Failed to send ping: %v", c.agent.ID, err)
 				return
 			}
+			debug.Info("Agent %d: Successfully sent ping", c.agent.ID)
 
 		case <-c.ctx.Done():
+			debug.Info("Agent %d: Context cancelled", c.agent.ID)
 			return
 		}
 	}
 }
 
 // SendMessage sends a message to a specific agent
-func (h *Handler) SendMessage(agentID string, msg *wsservice.Message) error {
+func (h *Handler) SendMessage(agentID int, msg *wsservice.Message) error {
 	h.mu.RLock()
 	client, ok := h.clients[agentID]
 	h.mu.RUnlock()
 
 	if !ok {
-		return fmt.Errorf("agent %s not connected", agentID)
+		return fmt.Errorf("agent %d not connected", agentID)
 	}
 
 	select {
 	case client.send <- msg:
 		return nil
 	default:
-		return fmt.Errorf("agent %s send buffer full", agentID)
+		return fmt.Errorf("agent %d send buffer full", agentID)
 	}
 }
 
@@ -220,11 +400,11 @@ func (h *Handler) unregisterClient(c *Client) {
 }
 
 // GetConnectedAgents returns a list of connected agent IDs
-func (h *Handler) GetConnectedAgents() []string {
+func (h *Handler) GetConnectedAgents() []int {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
-	agents := make([]string, 0, len(h.clients))
+	agents := make([]int, 0, len(h.clients))
 	for agentID := range h.clients {
 		agents = append(agents, agentID)
 	}

@@ -1,8 +1,10 @@
 package agent
 
 import (
+	"database/sql"
 	"encoding/json"
 	"net/http"
+	"strconv"
 
 	"github.com/ZerkerEOD/hashdom-backend/internal/services"
 	"github.com/ZerkerEOD/hashdom-backend/pkg/debug"
@@ -46,61 +48,63 @@ func (h *AgentHandler) ListAgents(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// GetAgent handles retrieving a single agent
+// GetAgent retrieves an agent by ID
 func (h *AgentHandler) GetAgent(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	id := vars["id"]
-	if id == "" {
-		debug.Error("missing agent ID")
-		http.Error(w, "Missing agent ID", http.StatusBadRequest)
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	debug.Info("Getting agent: %s", id)
+	// Parse agent ID from URL
+	vars := mux.Vars(r)
+	id, err := strconv.Atoi(vars["id"])
+	if err != nil {
+		http.Error(w, "Invalid agent ID", http.StatusBadRequest)
+		return
+	}
 
+	// Get agent
 	agent, err := h.service.GetAgent(r.Context(), id)
 	if err != nil {
-		debug.Error("failed to get agent: %v", err)
-		http.Error(w, "Failed to get agent", http.StatusInternalServerError)
+		if err == sql.ErrNoRows {
+			http.Error(w, "Agent not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
+	// Send response
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(agent)
 }
 
-// DeleteAgent handles agent deletion
+// DeleteAgent deletes an agent
 func (h *AgentHandler) DeleteAgent(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse agent ID from URL
 	vars := mux.Vars(r)
-	id := vars["id"]
-	if id == "" {
-		debug.Error("missing agent ID")
-		http.Error(w, "Missing agent ID", http.StatusBadRequest)
+	id, err := strconv.Atoi(vars["id"])
+	if err != nil {
+		http.Error(w, "Invalid agent ID", http.StatusBadRequest)
 		return
 	}
 
-	debug.Info("Deleting agent: %s", id)
-
+	// Delete agent
 	if err := h.service.DeleteAgent(r.Context(), id); err != nil {
-		debug.Error("failed to delete agent: %v", err)
-		http.Error(w, "Failed to delete agent", http.StatusInternalServerError)
+		if err == sql.ErrNoRows {
+			http.Error(w, "Agent not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	w.WriteHeader(http.StatusOK)
-}
-
-// RegistrationRequest represents the agent registration request
-type RegistrationRequest struct {
-	ClaimCode string `json:"claim_code"`
-	Hostname  string `json:"hostname"`
-}
-
-// RegistrationResponse represents the agent registration response
-type RegistrationResponse struct {
-	AgentID       string            `json:"agent_id"`
-	DownloadToken string            `json:"download_token"`
-	Endpoints     map[string]string `json:"endpoints"`
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // RegisterAgent handles the initial registration of an agent using a claim code

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"log"
 	"net/http"
 	"os"
 
@@ -13,14 +12,38 @@ import (
 )
 
 func main() {
-	// Load .env file first
-	err := godotenv.Load()
+	// Initialize debug package first with default settings
+	debug.Reinitialize()
+	debug.Info("Debug logging initialized with default settings")
+
+	// Get and log current working directory
+	cwd, err := os.Getwd()
 	if err != nil {
-		log.Fatalf("Failed to load .env file: %v", err)
+		debug.Error("Failed to get working directory: %v", err)
+		os.Exit(1)
+	}
+	debug.Info("Current working directory: %s", cwd)
+
+	// Load .env file
+	err = godotenv.Load()
+	if err != nil {
+		debug.Info("Attempting to load .env from current directory: %s", cwd)
+		debug.Warning("Failed to load .env file from current directory: %v", err)
+
+		debug.Info("Attempting to load .env from project root")
+		err = godotenv.Load("../../.env")
+		if err != nil {
+			debug.Error("Failed to load .env file from project root: %v", err)
+			os.Exit(1)
+		}
+		debug.Info("Successfully loaded .env file from project root")
+	} else {
+		debug.Info("Successfully loaded .env file from current directory")
 	}
 
 	// Reinitialize debug package with loaded environment variables
 	debug.Reinitialize()
+	debug.Info("Debug logging reinitialized with environment variables")
 
 	debug.Info("Initializing application...")
 	debug.Info("Environment variables loaded successfully")

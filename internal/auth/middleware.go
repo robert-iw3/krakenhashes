@@ -2,14 +2,10 @@ package auth
 
 import (
 	"context"
-	"crypto/x509"
-	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/ZerkerEOD/hashdom-backend/internal/database"
-	"github.com/ZerkerEOD/hashdom-backend/internal/models"
-	"github.com/ZerkerEOD/hashdom-backend/internal/services/ca"
+	"github.com/ZerkerEOD/hashdom-backend/internal/services"
 	"github.com/ZerkerEOD/hashdom-backend/pkg/debug"
 	"github.com/ZerkerEOD/hashdom-backend/pkg/jwt"
 )
@@ -44,6 +40,13 @@ func JWTMiddleware(next http.Handler) http.Handler {
 			r.URL.Path,
 			r.RemoteAddr,
 		)
+
+		// Allow OPTIONS requests to pass through for CORS preflight
+		if r.Method == "OPTIONS" {
+			debug.Debug("Allowing OPTIONS request to pass through JWT middleware")
+			next.ServeHTTP(w, r)
+			return
+		}
 
 		// Extract token from cookie
 		cookie, err := r.Cookie("token")
@@ -99,77 +102,69 @@ func JWTMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// CertificateAuthMiddleware authenticates agents using client certificates
-func CertificateAuthMiddleware(next http.Handler) http.Handler {
-	caManager := ca.NewManager()
+// NewClaimCodeMiddleware creates a middleware that validates claim codes
+func NewClaimCodeMiddleware(voucherService *services.ClaimVoucherService) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			debug.Info("Processing claim code authentication")
 
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		debug.Debug("Processing certificate authentication")
+			// Extract claim code from header
+			claimCode := r.Header.Get("X-Claim-Code")
+			if claimCode == "" {
+				debug.Error("No claim code provided")
+				http.Error(w, "Claim code required", http.StatusUnauthorized)
+				return
+			}
 
-		// Check if client provided a certificate
-		if r.TLS == nil || len(r.TLS.PeerCertificates) == 0 {
-			debug.Error("No client certificate provided")
-			http.Error(w, "Client certificate required", http.StatusUnauthorized)
-			return
-		}
+			// Validate claim code
+			if err := voucherService.ValidateClaimCode(r.Context(), claimCode); err != nil {
+				debug.Error("Invalid claim code: %v", err)
+				http.Error(w, "Invalid claim code", http.StatusUnauthorized)
+				return
+			}
 
-		cert := r.TLS.PeerCertificates[0]
-
-		// Get CA instance
-		caInstance, err := caManager.GetCA()
-		if err != nil {
-			debug.Error("Failed to get CA instance: %v", err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
-			return
-		}
-
-		// Verify certificate
-		if err := verifyCertificate(caInstance, cert); err != nil {
-			debug.Error("Certificate verification failed: %v", err)
-			http.Error(w, "Invalid certificate", http.StatusUnauthorized)
-			return
-		}
-
-		// Get agent ID from certificate
-		agentID := cert.Subject.CommonName
-
-		// Create agent context
-		agent := &models.Agent{
-			ID: agentID,
-		}
-		ctx := context.WithValue(r.Context(), "agent", agent)
-
-		// Proceed with request
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
+			debug.Info("Valid claim code provided")
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
-func verifyCertificate(ca *ca.CA, cert *x509.Certificate) error {
-	// Verify certificate against CA
-	if err := ca.VerifyCertificate(cert); err != nil {
-		return err
-	}
+// APIKeyMiddleware authenticates requests using API keys
+func APIKeyMiddleware(agentService *services.AgentService) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			debug.Info("Processing API key authentication for %s %s", r.Method, r.URL.Path)
 
-	// Check if certificate is expired
-	now := time.Now()
-	if now.Before(cert.NotBefore) {
-		return fmt.Errorf("certificate not yet valid")
-	}
-	if now.After(cert.NotAfter) {
-		return fmt.Errorf("certificate has expired")
-	}
+			// Get API key from header
+			apiKey := r.Header.Get("X-API-Key")
+			if apiKey == "" {
+				debug.Error("No API key provided")
+				http.Error(w, "API key required", http.StatusUnauthorized)
+				return
+			}
 
-	// Verify certificate usage
-	hasClientAuth := false
-	for _, usage := range cert.ExtKeyUsage {
-		if usage == x509.ExtKeyUsageClientAuth {
-			hasClientAuth = true
-			break
-		}
-	}
-	if !hasClientAuth {
-		return fmt.Errorf("certificate not valid for client authentication")
-	}
+			// Get agent ID from header
+			agentID := r.Header.Get("X-Agent-ID")
+			if agentID == "" {
+				debug.Error("No agent ID provided")
+				http.Error(w, "Agent ID required", http.StatusUnauthorized)
+				return
+			}
 
-	return nil
+			// Validate API key and get agent
+			agent, err := agentService.GetByAPIKey(r.Context(), apiKey)
+			if err != nil {
+				debug.Error("Invalid API key: %v", err)
+				http.Error(w, "Invalid API key", http.StatusUnauthorized)
+				return
+			}
+
+			// Store agent in context
+			ctx := context.WithValue(r.Context(), "agent", agent)
+			r = r.WithContext(ctx)
+
+			debug.Info("API key authentication successful for agent %d", agent.ID)
+			next.ServeHTTP(w, r)
+		})
+	}
 }

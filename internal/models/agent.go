@@ -18,31 +18,26 @@ const (
 	AgentStatusError    = "error"
 )
 
-// CertificateInfo stores information about an agent's certificate
-type CertificateInfo struct {
-	SerialNumber string    `json:"serial_number"`
-	IssuedAt     time.Time `json:"issued_at"`
-	ExpiresAt    time.Time `json:"expires_at"`
-}
-
 // Agent represents a registered agent in the system
 type Agent struct {
-	ID              string          `json:"id"`
-	Name            string          `json:"name"`
-	Status          string          `json:"status"`
-	LastError       sql.NullString  `json:"lastError"`
-	LastSeen        time.Time       `json:"lastSeen"`
-	LastHeartbeat   time.Time       `json:"lastHeartbeat"`
-	Version         string          `json:"version"`
-	Hardware        Hardware        `json:"hardware"`
-	CreatedByID     uuid.UUID       `json:"createdById"`
-	CreatedBy       *User           `json:"createdBy,omitempty"`
-	Teams           []Team          `json:"teams,omitempty"`
-	CreatedAt       time.Time       `json:"createdAt"`
-	UpdatedAt       time.Time       `json:"updatedAt"`
-	Certificate     sql.NullString  `json:"-"`
-	PrivateKey      sql.NullString  `json:"-"`
-	CertificateInfo CertificateInfo `json:"certificate_info"`
+	ID              int               `json:"id"`
+	Name            string            `json:"name"`
+	Status          string            `json:"status"`
+	LastError       sql.NullString    `json:"lastError"`
+	LastSeen        time.Time         `json:"lastSeen"`
+	LastHeartbeat   time.Time         `json:"lastHeartbeat"`
+	Version         string            `json:"version"`
+	Hardware        Hardware          `json:"hardware"`
+	OSInfo          json.RawMessage   `json:"os_info"`
+	CreatedByID     uuid.UUID         `json:"createdById"`
+	CreatedBy       *User             `json:"createdBy,omitempty"`
+	Teams           []Team            `json:"teams,omitempty"`
+	CreatedAt       time.Time         `json:"createdAt"`
+	UpdatedAt       time.Time         `json:"updatedAt"`
+	APIKey          sql.NullString    `json:"-"`
+	APIKeyCreatedAt sql.NullTime      `json:"-"`
+	APIKeyLastUsed  sql.NullTime      `json:"-"`
+	Metadata        map[string]string `json:"metadata,omitempty"`
 }
 
 // Hardware represents the hardware configuration of an agent
@@ -54,16 +49,22 @@ type Hardware struct {
 
 // CPU represents a CPU in the agent's hardware
 type CPU struct {
-	Model   string `json:"model"`
-	Cores   int    `json:"cores"`
-	Threads int    `json:"threads"`
+	Model       string  `json:"model"`
+	Cores       int     `json:"cores"`
+	Threads     int     `json:"threads"`
+	Frequency   float64 `json:"frequency"`
+	Temperature float64 `json:"temperature"`
 }
 
 // GPU represents a GPU in the agent's hardware
 type GPU struct {
-	Model  string `json:"model"`
-	Memory string `json:"memory"`
-	Driver string `json:"driver"`
+	Vendor      string  `json:"vendor"`
+	Model       string  `json:"model"`
+	Memory      int64   `json:"memory"`
+	Driver      string  `json:"driver"`
+	Temperature float64 `json:"temperature"`
+	PowerUsage  float64 `json:"powerUsage"`
+	Utilization float64 `json:"utilization"`
 }
 
 // NetworkInterface represents a network interface in the agent's hardware
@@ -72,14 +73,16 @@ type NetworkInterface struct {
 	IPAddress string `json:"ip_address"`
 }
 
-// AgentMetrics represents real-time metrics from an agent
+// AgentMetrics represents metrics collected from an agent
 type AgentMetrics struct {
-	AgentID     string    `json:"agent_id"`
-	CPUUsage    float64   `json:"cpu_usage"`
-	GPUUsage    float64   `json:"gpu_usage"`
-	GPUTemp     float64   `json:"gpu_temp"`
-	MemoryUsage float64   `json:"memory_usage"`
-	Timestamp   time.Time `json:"timestamp"`
+	ID             int             `json:"id"`
+	AgentID        int             `json:"agent_id"`
+	CPUUsage       float64         `json:"cpu_usage"`
+	MemoryUsage    float64         `json:"memory_usage"`
+	GPUUtilization float64         `json:"gpu_utilization"`
+	GPUTemp        float64         `json:"gpu_temp"`
+	GPUMetrics     json.RawMessage `json:"gpu_metrics"`
+	Timestamp      time.Time       `json:"timestamp"`
 }
 
 // ScanHardware scans a JSON-encoded hardware string into the Hardware struct
@@ -102,26 +105,4 @@ func (a *Agent) ScanHardware(value interface{}) error {
 // Value returns the JSON encoding of Hardware for database storage
 func (h Hardware) Value() (driver.Value, error) {
 	return json.Marshal(h)
-}
-
-// Scan implements the sql.Scanner interface for CertificateInfo
-func (ci *CertificateInfo) Scan(value interface{}) error {
-	if value == nil {
-		*ci = CertificateInfo{}
-		return nil
-	}
-
-	switch v := value.(type) {
-	case []byte:
-		return json.Unmarshal(v, ci)
-	case string:
-		return json.Unmarshal([]byte(v), ci)
-	default:
-		return fmt.Errorf("unsupported type for certificate_info: %T", value)
-	}
-}
-
-// Value implements the driver.Valuer interface for CertificateInfo
-func (ci CertificateInfo) Value() (driver.Value, error) {
-	return json.Marshal(ci)
 }

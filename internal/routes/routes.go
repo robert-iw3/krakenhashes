@@ -1,15 +1,20 @@
 package routes
 
 import (
+	"bufio"
 	"database/sql"
+	"fmt"
+	"net"
 	"net/http"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/ZerkerEOD/hashdom-backend/internal/auth"
+	"github.com/ZerkerEOD/hashdom-backend/internal/config"
 	"github.com/ZerkerEOD/hashdom-backend/internal/db"
 	"github.com/ZerkerEOD/hashdom-backend/internal/handlers"
 	"github.com/ZerkerEOD/hashdom-backend/internal/handlers/agent"
-	"github.com/ZerkerEOD/hashdom-backend/internal/handlers/api"
 	"github.com/ZerkerEOD/hashdom-backend/internal/handlers/dashboard"
 	"github.com/ZerkerEOD/hashdom-backend/internal/handlers/hashlists"
 	"github.com/ZerkerEOD/hashdom-backend/internal/handlers/jobs"
@@ -50,36 +55,43 @@ import (
  */
 func CORSMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		debug.Debug("Processing CORS middleware for request: %s %s", r.Method, r.URL.Path)
+		debug.Info("Processing CORS for %s %s from %s", r.Method, r.URL.Path, r.RemoteAddr)
 
-		// Special handling for WebSocket connections
-		if r.Header.Get("Upgrade") == "websocket" {
-			debug.Debug("WebSocket connection detected, bypassing CORS restrictions")
-			next.ServeHTTP(w, r)
-			return
-		}
-
+		// Get allowed origin from environment
 		allowedOrigin := os.Getenv("CORS_ALLOWED_ORIGIN")
 		if allowedOrigin == "" {
 			allowedOrigin = "http://localhost:3000" // fallback default
 			debug.Warning("CORS_ALLOWED_ORIGIN not set, using default: %s", allowedOrigin)
-			debug.Debug("Using fallback CORS origin: %s", allowedOrigin)
 		}
 
-		debug.Debug("Setting CORS headers with allowed origin: %s", allowedOrigin)
-		w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
+		// Get request origin
+		origin := r.Header.Get("Origin")
+		debug.Debug("Request origin: %s, Allowed origin: %s", origin, allowedOrigin)
+
+		// Check if origin is allowed
+		if origin == allowedOrigin {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+		} else {
+			debug.Warning("Origin mismatch - Request: %s, Allowed: %s", origin, allowedOrigin)
+			w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
+		}
+
+		// Set standard CORS headers
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Claim-Code, X-Download-Token")
+		w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, X-API-Key, X-Agent-ID")
 		w.Header().Set("Access-Control-Allow-Credentials", "true")
+		w.Header().Set("Access-Control-Max-Age", "3600")
 
 		// Handle preflight requests
 		if r.Method == "OPTIONS" {
-			debug.Debug("Handling OPTIONS preflight request from origin: %s", r.Header.Get("Origin"))
+			debug.Info("Handling OPTIONS preflight request from origin: %s", origin)
 			w.WriteHeader(http.StatusOK)
 			return
 		}
 
-		debug.Debug("CORS headers set, proceeding with request")
+		// Log headers for debugging
+		debug.Debug("Response headers: %v", w.Header())
+
 		next.ServeHTTP(w, r)
 	})
 }
@@ -99,9 +111,7 @@ func CORSMiddleware(next http.Handler) http.Handler {
  * Middleware Applied:
  *   - CORS middleware (all routes)
  *   - JWT authentication (protected routes)
- *
- * Parameters:
- *   - r: The root router to configure
+ *   - API Key authentication (agent routes)
  */
 func SetupRoutes(r *mux.Router, sqlDB *sql.DB) {
 	debug.Info("Initializing route configuration")
@@ -110,89 +120,140 @@ func SetupRoutes(r *mux.Router, sqlDB *sql.DB) {
 	database := &db.DB{DB: sqlDB}
 	debug.Debug("Created custom DB wrapper")
 
-	// Apply CORS middleware to all routes
+	// Apply CORS middleware at the root level
 	r.Use(CORSMiddleware)
-	debug.Debug("Applied CORS middleware to all routes")
+	debug.Info("Applied CORS middleware to root router")
 
-	// Configure public routes
-	debug.Debug("Setting up public routes")
-	r.HandleFunc("/api/login", auth.LoginHandler).Methods("POST", "OPTIONS")
-	r.HandleFunc("/api/logout", auth.LogoutHandler).Methods("POST", "OPTIONS")
-	r.HandleFunc("/api/check-auth", auth.CheckAuthHandler).Methods("GET", "OPTIONS")
-
-	// Agent routes
-	debug.Debug("Setting up agent routes")
+	// Initialize repositories and services
+	debug.Debug("Initializing repositories and services")
 	agentRepo := repository.NewAgentRepository(database)
 	voucherRepo := repository.NewClaimVoucherRepository(database)
 	agentService := services.NewAgentService(agentRepo, voucherRepo)
-	agentHandler := agent.NewAgentHandler(agentService)
-
-	// Initialize CA manager for certificate operations
-	caCertPath := os.Getenv("CA_CERT_PATH")
-	if caCertPath == "" {
-		debug.Error("CA_CERT_PATH environment variable is not set")
-		return
-	}
-
-	caKeyPath := os.Getenv("CA_KEY_PATH")
-	if caKeyPath == "" {
-		debug.Error("CA_KEY_PATH environment variable is not set")
-		return
-	}
-
-	caManager, err := auth.NewCAManager(caCertPath, caKeyPath)
-	if err != nil {
-		debug.Error("Failed to initialize CA manager: %v", err)
-		return
-	}
-
-	// Create registration handler
-	registrationHandler := handlers.NewRegistrationHandler(agentService, caManager)
-
-	// Agent registration endpoints (unprotected)
-	r.HandleFunc("/api/agent/register", registrationHandler.HandleRegistration).Methods("POST", "OPTIONS")
-	r.HandleFunc("/api/agent/cert", registrationHandler.HandleCertificateDownload).Methods("GET", "OPTIONS")
-
-	// Configure protected routes
-	debug.Debug("Setting up protected routes")
-	protected := r.PathPrefix("/api").Subrouter()
-	protected.Use(auth.JWTMiddleware)
-
-	// Main feature routes
-	debug.Debug("Configuring main feature routes")
-	protected.HandleFunc("/dashboard", dashboard.GetDashboard).Methods("GET")
-	protected.HandleFunc("/hashlists", hashlists.GetHashlists).Methods("GET")
-	protected.HandleFunc("/jobs", jobs.GetJobs).Methods("GET")
-
-	protected.HandleFunc("/agents", agentHandler.ListAgents).Methods("GET", "OPTIONS")
-	protected.HandleFunc("/agents/{id}", agentHandler.GetAgent).Methods("GET", "OPTIONS")
-	protected.HandleFunc("/agents/{id}", agentHandler.DeleteAgent).Methods("DELETE", "OPTIONS")
-
-	// WebSocket route for agent connections (requires certificate auth)
-	debug.Debug("Setting up WebSocket route for agent connections")
-	wsService := wsservice.NewService(agentService)
-	wsHandler := wshandler.NewHandler(wsService)
-
-	// Add certificate authentication middleware for WebSocket connections
-	wsRouter := r.PathPrefix("/ws").Subrouter()
-	wsRouter.Use(auth.CertificateAuthMiddleware)
-	wsRouter.HandleFunc("/agent", wsHandler.ServeWS)
-
-	// Voucher routes
-	debug.Debug("Setting up voucher routes")
 	voucherService := services.NewClaimVoucherService(voucherRepo)
+
+	// Initialize configuration
+	appConfig := config.NewConfig()
+	debug.Info("Application configuration initialized")
+
+	// Create API router with logging
+	apiRouter := r.PathPrefix("/api").Subrouter()
+	apiRouter.Use(loggingMiddleware)
+	debug.Info("Created API router with logging middleware")
+
+	// 1. Public routes (no authentication required)
+	debug.Debug("Setting up public routes")
+	// Auth endpoints
+	apiRouter.HandleFunc("/login", auth.LoginHandler).Methods("POST", "OPTIONS")
+	apiRouter.HandleFunc("/logout", auth.LogoutHandler).Methods("POST", "OPTIONS")
+	apiRouter.HandleFunc("/check-auth", auth.CheckAuthHandler).Methods("GET", "OPTIONS")
+	debug.Info("Configured authentication endpoints: /login, /logout, /check-auth")
+
+	// Agent registration endpoint
+	registrationHandler := handlers.NewRegistrationHandler(agentService, appConfig)
+	apiRouter.HandleFunc("/agent/register", registrationHandler.HandleRegistration).Methods("POST", "OPTIONS")
+	debug.Info("Configured agent registration endpoint: /agent/register")
+
+	// 2. JWT Protected routes (frontend access)
+	debug.Debug("Setting up JWT protected routes")
+	jwtRouter := apiRouter.PathPrefix("").Subrouter()
+	jwtRouter.Use(auth.JWTMiddleware)
+	jwtRouter.Use(loggingMiddleware)
+	debug.Info("Applied JWT middleware to protected routes")
+
+	// Dashboard routes
+	jwtRouter.HandleFunc("/dashboard", dashboard.GetDashboard).Methods("GET", "OPTIONS")
+	debug.Info("Configured dashboard endpoint: /dashboard")
+
+	// Hashlist routes
+	jwtRouter.HandleFunc("/hashlists", hashlists.GetHashlists).Methods("GET", "OPTIONS")
+	debug.Info("Configured hashlists endpoint: /hashlists")
+
+	// Job routes
+	jwtRouter.HandleFunc("/jobs", jobs.GetJobs).Methods("GET", "OPTIONS")
+	debug.Info("Configured jobs endpoint: /jobs")
+
+	// Agent management routes
+	agentHandler := agent.NewAgentHandler(agentService)
+	jwtRouter.HandleFunc("/agents", agentHandler.ListAgents).Methods("GET", "OPTIONS")
+	jwtRouter.HandleFunc("/agents/{id}", agentHandler.GetAgent).Methods("GET", "OPTIONS")
+	jwtRouter.HandleFunc("/agents/{id}", agentHandler.DeleteAgent).Methods("DELETE", "OPTIONS")
+	debug.Info("Configured agent management endpoints: /agents")
+
+	// Voucher management routes
 	voucherHandler := vouchers.NewVoucherHandler(voucherService)
+	jwtRouter.HandleFunc("/vouchers/temp", voucherHandler.GenerateVoucher).Methods("POST", "OPTIONS")
+	jwtRouter.HandleFunc("/vouchers", voucherHandler.ListVouchers).Methods("GET", "OPTIONS")
+	jwtRouter.HandleFunc("/vouchers/{code}/disable", voucherHandler.DeactivateVoucher).Methods("DELETE", "OPTIONS")
+	debug.Info("Configured voucher management endpoints: /vouchers")
 
-	protected.HandleFunc("/vouchers/temp", voucherHandler.GenerateVoucher).Methods("POST", "OPTIONS")
-	protected.HandleFunc("/vouchers", voucherHandler.ListVouchers).Methods("GET", "OPTIONS")
-	protected.HandleFunc("/vouchers/{code}/disable", voucherHandler.DeactivateVoucher).Methods("DELETE", "OPTIONS")
+	// 3. API Key Protected routes (agent communication)
+	debug.Debug("Setting up API key protected routes")
+	wsService := wsservice.NewService(agentService)
+	wsHandler := wshandler.NewHandler(wsService, agentService)
 
-	// API subrouter configuration
-	debug.Debug("Setting up API subrouter")
-	apiRouter := protected.PathPrefix("/api").Subrouter()
-	apiRouter.HandleFunc("/some-endpoint", api.SomeAPIHandler).Methods("GET")
+	// WebSocket routes
+	wsRouter := r.PathPrefix("/ws").Subrouter()
+	wsRouter.Use(auth.APIKeyMiddleware(agentService))
+	wsRouter.Use(loggingMiddleware)
+	wsRouter.HandleFunc("/agent", wsHandler.ServeWS)
+	debug.Info("Configured WebSocket endpoint: /ws/agent")
 
 	debug.Info("Route configuration completed successfully")
+	logRegisteredRoutes(r)
+}
+
+// loggingMiddleware logs details about each request
+func loggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+
+		debug.Info("Request received: %s %s from %s", r.Method, r.URL.Path, r.RemoteAddr)
+		debug.Debug("Request headers: %v", r.Header)
+
+		// Create a response wrapper to capture the status code
+		rw := &responseWriter{w, http.StatusOK}
+		next.ServeHTTP(rw, r)
+
+		duration := time.Since(start)
+		debug.Info("Request completed: %s %s - Status: %d - Duration: %v",
+			r.Method, r.URL.Path, rw.statusCode, duration)
+	})
+}
+
+// responseWriter wraps http.ResponseWriter to capture the status code
+type responseWriter struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+func (rw *responseWriter) WriteHeader(code int) {
+	rw.statusCode = code
+	rw.ResponseWriter.WriteHeader(code)
+}
+
+// Hijack implements the http.Hijacker interface to support WebSocket connections
+func (rw *responseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if hijacker, ok := rw.ResponseWriter.(http.Hijacker); ok {
+		return hijacker.Hijack()
+	}
+	return nil, nil, fmt.Errorf("underlying ResponseWriter does not implement http.Hijacker")
+}
+
+// logRegisteredRoutes prints all registered routes for debugging
+func logRegisteredRoutes(r *mux.Router) {
+	debug.Info("Registered routes:")
+	r.Walk(func(route *mux.Route, router *mux.Router, ancestors []*mux.Route) error {
+		pathTemplate, err := route.GetPathTemplate()
+		if err != nil {
+			pathTemplate = "<unknown>"
+		}
+		methods, err := route.GetMethods()
+		if err != nil {
+			methods = []string{"ANY"}
+		}
+		debug.Info("Route: %s [%s]", pathTemplate, strings.Join(methods, ", "))
+		return nil
+	})
 }
 
 // TODO: Implement agent-related functionality

@@ -22,9 +22,8 @@ CREATE TABLE claim_vouchers (
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     is_continuous BOOLEAN NOT NULL DEFAULT false,
     is_active BOOLEAN NOT NULL DEFAULT true,
-    expires_at TIMESTAMP WITH TIME ZONE,
     used_at TIMESTAMP WITH TIME ZONE,
-    used_by_id UUID REFERENCES users(id)
+    used_by_agent_id INTEGER REFERENCES agents(id)
 );
 
 CREATE TABLE claim_voucher_usage (
@@ -49,7 +48,6 @@ CREATE INDEX idx_claim_voucher_usage_attempted_by ON claim_voucher_usage(attempt
 COMMENT ON TABLE claim_vouchers IS 'Stores active agent registration vouchers';
 COMMENT ON TABLE claim_voucher_usage IS 'Tracks usage attempts of claim vouchers';
 COMMENT ON COLUMN claim_vouchers.is_continuous IS 'Indicates if voucher can be used multiple times';
-COMMENT ON COLUMN claim_vouchers.expires_at IS 'Timestamp when voucher becomes invalid';
 
 -- Create trigger to automatically update updated_at
 CREATE OR REPLACE FUNCTION update_claim_vouchers_updated_at()

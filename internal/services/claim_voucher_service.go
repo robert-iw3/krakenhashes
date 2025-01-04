@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"math/rand"
 	"strings"
@@ -70,16 +69,12 @@ func (s *ClaimVoucherService) CreateTempVoucher(ctx context.Context, userID stri
 		return nil, fmt.Errorf("invalid user ID: %w", err)
 	}
 
-	// Generate expiration time
-	expiresAt := time.Now().Add(expiresIn)
-
 	// Create voucher with normalized code for storage
 	code := generateClaimCode()
 	voucher := &models.ClaimVoucher{
 		Code:         normalizeClaimCode(code),
 		IsActive:     true,
 		IsContinuous: isContinuous,
-		ExpiresAt:    sql.NullTime{Time: expiresAt, Valid: true},
 		CreatedByID:  userUUID,
 		CreatedAt:    time.Now(),
 		UpdatedAt:    time.Now(),
@@ -131,16 +126,75 @@ func (s *ClaimVoucherService) GetVoucher(ctx context.Context, code string) (*mod
 	return voucher, nil
 }
 
-// UseVoucher marks a voucher as used by a specific user
-func (s *ClaimVoucherService) UseVoucher(ctx context.Context, code string, userID string) error {
-	// Parse user ID to UUID
-	userUUID, err := uuid.Parse(userID)
-	if err != nil {
-		debug.Error("failed to parse user ID: %v", err)
-		return fmt.Errorf("invalid user ID: %w", err)
-	}
-
+// UseVoucher validates a voucher without marking it as used
+func (s *ClaimVoucherService) UseVoucher(ctx context.Context, code string, agentID int) error {
 	// Normalize code before using
 	normalizedCode := normalizeClaimCode(code)
-	return s.repo.Use(ctx, normalizedCode, userUUID)
+
+	// Get voucher to check if it's valid
+	voucher, err := s.repo.GetByCode(ctx, normalizedCode)
+	if err != nil {
+		return fmt.Errorf("invalid claim code")
+	}
+
+	if !voucher.IsValid() {
+		return fmt.Errorf("claim code is not active")
+	}
+
+	return nil
+}
+
+// MarkVoucherAsUsed marks a voucher as used by an agent after successful connection
+func (s *ClaimVoucherService) MarkVoucherAsUsed(ctx context.Context, code string, agentID int) error {
+	// Normalize code before using
+	normalizedCode := normalizeClaimCode(code)
+
+	// Get voucher to check if it's valid
+	voucher, err := s.repo.GetByCode(ctx, normalizedCode)
+	if err != nil {
+		return fmt.Errorf("invalid claim code")
+	}
+
+	if !voucher.IsValid() {
+		return fmt.Errorf("claim code is not active")
+	}
+
+	// Mark voucher as used by the agent
+	if err := s.repo.UseByAgent(ctx, normalizedCode, agentID); err != nil {
+		return fmt.Errorf("failed to mark voucher as used: %w", err)
+	}
+
+	// For single-use vouchers, deactivate after use
+	if !voucher.IsContinuous {
+		if err := s.repo.Deactivate(ctx, normalizedCode); err != nil {
+			return fmt.Errorf("failed to deactivate voucher: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// ValidateClaimCode validates a claim code
+func (s *ClaimVoucherService) ValidateClaimCode(ctx context.Context, claimCode string) error {
+	// Normalize claim code by removing hyphens and converting to uppercase
+	normalizedCode := normalizeClaimCode(claimCode)
+
+	voucher, err := s.repo.GetByCode(ctx, normalizedCode)
+	if err != nil {
+		debug.Error("Failed to get voucher: %v", err)
+		return fmt.Errorf("invalid claim code")
+	}
+
+	if !voucher.IsActive {
+		debug.Error("Claim code is not active")
+		return fmt.Errorf("claim code is not active")
+	}
+
+	if !voucher.IsValid() {
+		debug.Error("Claim code is not valid")
+		return fmt.Errorf("claim code is not valid")
+	}
+
+	debug.Info("Claim code validated successfully")
+	return nil
 }

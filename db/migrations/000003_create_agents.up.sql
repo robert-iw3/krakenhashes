@@ -18,21 +18,25 @@ CREATE TABLE IF NOT EXISTS agents (
     last_heartbeat TIMESTAMP WITH TIME ZONE,
     version VARCHAR(50) NOT NULL,
     hardware JSONB NOT NULL,
+    os_info JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_by_id UUID NOT NULL REFERENCES users(id),
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    certificate TEXT,
-    private_key TEXT,
-    last_error TEXT
+    api_key VARCHAR(64) UNIQUE,
+    api_key_created_at TIMESTAMP WITH TIME ZONE,
+    api_key_last_used TIMESTAMP WITH TIME ZONE,
+    last_error TEXT,
+    metadata JSONB DEFAULT '{}'::jsonb
 );
 
 -- Create agent_metrics table
 CREATE TABLE IF NOT EXISTS agent_metrics (
     agent_id INTEGER NOT NULL REFERENCES agents(id),
     cpu_usage FLOAT NOT NULL,
-    gpu_usage FLOAT NOT NULL,
+    gpu_utilization FLOAT NOT NULL,
     gpu_temp FLOAT NOT NULL,
     memory_usage FLOAT NOT NULL,
+    gpu_metrics JSONB NOT NULL DEFAULT '{}'::jsonb,
     timestamp TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (agent_id, timestamp)
 );
@@ -61,8 +65,8 @@ BEGIN
             CREATE INDEX idx_agents_last_heartbeat ON agents(last_heartbeat);
         END IF;
         
-        IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_agents_certificate') THEN
-            CREATE INDEX idx_agents_certificate ON agents(certificate);
+        IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_agents_api_key') THEN
+            CREATE INDEX idx_agents_api_key ON agents(api_key);
         END IF;
     END IF;
 

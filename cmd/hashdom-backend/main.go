@@ -2,56 +2,75 @@ package main
 
 import (
 	"context"
+	"database/sql"
+	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
-	"github.com/ZerkerEOD/hashdom-backend/internal/auth"
+	"github.com/ZerkerEOD/hashdom-backend/internal/db"
+	"github.com/ZerkerEOD/hashdom-backend/internal/repository"
 	"github.com/ZerkerEOD/hashdom-backend/internal/routes"
 	"github.com/ZerkerEOD/hashdom-backend/internal/services"
+	"github.com/ZerkerEOD/hashdom-backend/internal/tls"
 	"github.com/ZerkerEOD/hashdom-backend/pkg/debug"
+	"github.com/gorilla/mux"
 )
 
 func main() {
 	// Initialize logger
-	debug.Init(os.Stdout, true)
+	log.SetOutput(os.Stdout)
+	debug.Info("Logger initialized")
 
-	// Load environment variables
-	caCertPath := os.Getenv("CA_CERT_PATH")
-	if caCertPath == "" {
-		debug.Fatal("CA_CERT_PATH environment variable is not set")
+	// Initialize database connection
+	sqlDB, err := sql.Open("postgres", os.Getenv("DB_CONNECTION_STRING"))
+	if err != nil {
+		debug.Error("Failed to connect to database: %v", err)
+		os.Exit(1)
 	}
+	defer sqlDB.Close()
 
-	caKeyPath := os.Getenv("CA_KEY_PATH")
-	if caKeyPath == "" {
-		debug.Fatal("CA_KEY_PATH environment variable is not set")
-	}
+	// Initialize repositories
+	agentRepo := repository.NewAgentRepository(&db.DB{DB: sqlDB})
+	voucherRepo := repository.NewClaimVoucherRepository(&db.DB{DB: sqlDB})
 
 	// Initialize services
-	agentService := services.NewAgentService()
+	_ = services.NewAgentService(agentRepo, voucherRepo) // Service initialization handled in routes.SetupRoutes
 
-	// Initialize CA manager
-	caManager, err := auth.NewCAManager(caCertPath, caKeyPath)
-	if err != nil {
-		debug.Fatal("Failed to initialize CA manager: %v", err)
+	// Initialize TLS configuration
+	tlsConfig := tls.NewConfig()
+	if err := tlsConfig.GenerateCertificates(); err != nil {
+		debug.Error("Failed to generate certificates: %v", err)
+		os.Exit(1)
 	}
 
+	serverTLSConfig, err := tlsConfig.LoadTLSConfig()
+	if err != nil {
+		debug.Error("Failed to load TLS configuration: %v", err)
+		os.Exit(1)
+	}
+
+	// Create router
+	router := mux.NewRouter()
+
 	// Setup routes
-	handler := routes.SetupRoutes(agentService, caManager)
+	routes.SetupRoutes(router, sqlDB)
 
 	// Create server
 	server := &http.Server{
-		Addr:    ":8080",
-		Handler: handler,
+		Addr:      ":8080",
+		Handler:   router,
+		TLSConfig: serverTLSConfig,
 	}
 
 	// Start server in a goroutine
 	go func() {
 		debug.Info("Starting server on :8080")
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			debug.Fatal("Failed to start server: %v", err)
+		if err := server.ListenAndServeTLS(tlsConfig.CertFile, tlsConfig.KeyFile); err != nil && err != http.ErrServerClosed {
+			debug.Error("Failed to start server: %v", err)
+			os.Exit(1)
 		}
 	}()
 
@@ -66,7 +85,8 @@ func main() {
 	defer cancel()
 
 	if err := server.Shutdown(ctx); err != nil {
-		debug.Fatal("Server forced to shutdown: %v", err)
+		debug.Error("Server forced to shutdown: %v", err)
+		os.Exit(1)
 	}
 
 	debug.Info("Server stopped gracefully")

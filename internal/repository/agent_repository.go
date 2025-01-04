@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/ZerkerEOD/hashdom-backend/internal/db"
 	"github.com/ZerkerEOD/hashdom-backend/internal/db/queries"
@@ -29,27 +30,33 @@ func (r *AgentRepository) Create(ctx context.Context, agent *models.Agent) error
 		return fmt.Errorf("failed to marshal hardware: %w", err)
 	}
 
-	// Convert certificate info to JSON
-	certInfoJSON, err := json.Marshal(agent.CertificateInfo)
+	// Convert OS info to JSON
+	osInfoJSON, err := json.Marshal(agent.OSInfo)
 	if err != nil {
-		return fmt.Errorf("failed to marshal certificate info: %w", err)
+		return fmt.Errorf("failed to marshal OS info: %w", err)
+	}
+
+	// Convert metadata to JSON
+	metadataJSON, err := json.Marshal(agent.Metadata)
+	if err != nil {
+		return fmt.Errorf("failed to marshal metadata: %w", err)
 	}
 
 	err = r.db.QueryRowContext(ctx, queries.CreateAgent,
-		agent.ID,
 		agent.Name,
 		agent.Status,
-		agent.LastError,
-		agent.LastSeen,
 		agent.LastHeartbeat,
 		agent.Version,
 		hardwareJSON,
+		osInfoJSON,
 		agent.CreatedByID,
 		agent.CreatedAt,
 		agent.UpdatedAt,
-		agent.Certificate,
-		agent.PrivateKey,
-		certInfoJSON,
+		agent.APIKey,
+		agent.APIKeyCreatedAt,
+		agent.APIKeyLastUsed,
+		agent.LastError,
+		metadataJSON,
 	).Scan(&agent.ID)
 
 	if err != nil {
@@ -60,9 +67,9 @@ func (r *AgentRepository) Create(ctx context.Context, agent *models.Agent) error
 }
 
 // GetByID retrieves an agent by ID
-func (r *AgentRepository) GetByID(ctx context.Context, id string) (*models.Agent, error) {
+func (r *AgentRepository) GetByID(ctx context.Context, id int) (*models.Agent, error) {
 	agent := &models.Agent{}
-	var hardwareJSON, certInfoJSON []byte
+	var hardwareJSON, osInfoJSON, metadataJSON []byte
 	var createdByUser models.User
 
 	err := r.db.QueryRowContext(ctx, queries.GetAgentByID, id).Scan(
@@ -70,16 +77,17 @@ func (r *AgentRepository) GetByID(ctx context.Context, id string) (*models.Agent
 		&agent.Name,
 		&agent.Status,
 		&agent.LastError,
-		&agent.LastSeen,
 		&agent.LastHeartbeat,
 		&agent.Version,
 		&hardwareJSON,
+		&osInfoJSON,
 		&agent.CreatedByID,
 		&agent.CreatedAt,
 		&agent.UpdatedAt,
-		&agent.Certificate,
-		&agent.PrivateKey,
-		&certInfoJSON,
+		&agent.APIKey,
+		&agent.APIKeyCreatedAt,
+		&agent.APIKeyLastUsed,
+		&metadataJSON,
 		&createdByUser.ID,
 		&createdByUser.Username,
 		&createdByUser.Email,
@@ -87,7 +95,7 @@ func (r *AgentRepository) GetByID(ctx context.Context, id string) (*models.Agent
 	)
 
 	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("agent not found: %s", id)
+		return nil, fmt.Errorf("agent not found: %d", id)
 	} else if err != nil {
 		return nil, fmt.Errorf("failed to get agent: %w", err)
 	}
@@ -97,9 +105,14 @@ func (r *AgentRepository) GetByID(ctx context.Context, id string) (*models.Agent
 		return nil, fmt.Errorf("failed to unmarshal hardware: %w", err)
 	}
 
-	// Unmarshal certificate info JSON
-	if err := json.Unmarshal(certInfoJSON, &agent.CertificateInfo); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal certificate info: %w", err)
+	// Unmarshal OS info JSON
+	if err := json.Unmarshal(osInfoJSON, &agent.OSInfo); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal OS info: %w", err)
+	}
+
+	// Unmarshal metadata JSON
+	if err := json.Unmarshal(metadataJSON, &agent.Metadata); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal metadata: %w", err)
 	}
 
 	agent.CreatedBy = &createdByUser
@@ -124,10 +137,16 @@ func (r *AgentRepository) Update(ctx context.Context, agent *models.Agent) error
 		return fmt.Errorf("failed to marshal hardware: %w", err)
 	}
 
-	// Convert certificate info to JSON
-	certInfoJSON, err := json.Marshal(agent.CertificateInfo)
+	// Convert OS info to JSON
+	osInfoJSON, err := json.Marshal(agent.OSInfo)
 	if err != nil {
-		return fmt.Errorf("failed to marshal certificate info: %w", err)
+		return fmt.Errorf("failed to marshal OS info: %w", err)
+	}
+
+	// Convert metadata to JSON
+	metadataJSON, err := json.Marshal(agent.Metadata)
+	if err != nil {
+		return fmt.Errorf("failed to marshal metadata: %w", err)
 	}
 
 	result, err := r.db.ExecContext(ctx, queries.UpdateAgent,
@@ -135,14 +154,15 @@ func (r *AgentRepository) Update(ctx context.Context, agent *models.Agent) error
 		agent.Name,
 		agent.Status,
 		agent.LastError,
-		agent.LastSeen,
 		agent.LastHeartbeat,
 		agent.Version,
 		hardwareJSON,
+		osInfoJSON,
 		agent.UpdatedAt,
-		agent.Certificate,
-		agent.PrivateKey,
-		certInfoJSON,
+		agent.APIKey,
+		agent.APIKeyCreatedAt,
+		agent.APIKeyLastUsed,
+		metadataJSON,
 	)
 
 	if err != nil {
@@ -155,15 +175,44 @@ func (r *AgentRepository) Update(ctx context.Context, agent *models.Agent) error
 	}
 
 	if rows == 0 {
-		return fmt.Errorf("agent not found: %s", agent.ID)
+		return fmt.Errorf("agent not found: %d", agent.ID)
 	}
 
 	return nil
 }
 
-// Delete deletes an agent
-func (r *AgentRepository) Delete(ctx context.Context, id string) error {
-	result, err := r.db.ExecContext(ctx, queries.DeleteAgent, id)
+// Delete deletes an agent and its related records
+func (r *AgentRepository) Delete(ctx context.Context, id int) error {
+	// Start a transaction
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to start transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Delete agent metrics
+	_, err = tx.ExecContext(ctx, `DELETE FROM agent_metrics WHERE agent_id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("failed to delete agent metrics: %w", err)
+	}
+
+	// Delete agent team associations
+	_, err = tx.ExecContext(ctx, `DELETE FROM agent_teams WHERE agent_id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("failed to delete agent team associations: %w", err)
+	}
+
+	// Update claim vouchers to remove reference to this agent
+	_, err = tx.ExecContext(ctx, `
+		UPDATE claim_vouchers 
+		SET used_by_agent_id = NULL, used_at = NULL 
+		WHERE used_by_agent_id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("failed to update claim vouchers: %w", err)
+	}
+
+	// Finally, delete the agent
+	result, err := tx.ExecContext(ctx, `DELETE FROM agents WHERE id = $1`, id)
 	if err != nil {
 		return fmt.Errorf("failed to delete agent: %w", err)
 	}
@@ -174,7 +223,12 @@ func (r *AgentRepository) Delete(ctx context.Context, id string) error {
 	}
 
 	if rows == 0 {
-		return fmt.Errorf("agent not found: %s", id)
+		return fmt.Errorf("agent not found: %d", id)
+	}
+
+	// Commit the transaction
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
 	return nil
@@ -196,7 +250,7 @@ func (r *AgentRepository) List(ctx context.Context, filters map[string]interface
 	var agents []models.Agent
 	for rows.Next() {
 		var agent models.Agent
-		var hardwareJSON, certInfoJSON []byte
+		var hardwareJSON, osInfoJSON, metadataJSON []byte
 		var createdByUser models.User
 
 		err := rows.Scan(
@@ -204,16 +258,17 @@ func (r *AgentRepository) List(ctx context.Context, filters map[string]interface
 			&agent.Name,
 			&agent.Status,
 			&agent.LastError,
-			&agent.LastSeen,
 			&agent.LastHeartbeat,
 			&agent.Version,
 			&hardwareJSON,
+			&osInfoJSON,
 			&agent.CreatedByID,
 			&agent.CreatedAt,
 			&agent.UpdatedAt,
-			&agent.Certificate,
-			&agent.PrivateKey,
-			&certInfoJSON,
+			&agent.APIKey,
+			&agent.APIKeyCreatedAt,
+			&agent.APIKeyLastUsed,
+			&metadataJSON,
 			&createdByUser.ID,
 			&createdByUser.Username,
 			&createdByUser.Email,
@@ -229,16 +284,21 @@ func (r *AgentRepository) List(ctx context.Context, filters map[string]interface
 			return nil, fmt.Errorf("failed to unmarshal hardware: %w", err)
 		}
 
-		// Unmarshal certificate info JSON
-		if err := json.Unmarshal(certInfoJSON, &agent.CertificateInfo); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal certificate info: %w", err)
+		// Unmarshal OS info JSON
+		if err := json.Unmarshal(osInfoJSON, &agent.OSInfo); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal OS info: %w", err)
+		}
+
+		// Unmarshal metadata JSON
+		if err := json.Unmarshal(metadataJSON, &agent.Metadata); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal metadata: %w", err)
 		}
 
 		agent.CreatedBy = &createdByUser
 		agents = append(agents, agent)
 	}
 
-	if err = rows.Err(); err != nil {
+	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating agents: %w", err)
 	}
 
@@ -246,7 +306,7 @@ func (r *AgentRepository) List(ctx context.Context, filters map[string]interface
 }
 
 // UpdateStatus updates an agent's status and last error
-func (r *AgentRepository) UpdateStatus(ctx context.Context, id string, status string, lastError *string) error {
+func (r *AgentRepository) UpdateStatus(ctx context.Context, id int, status string, lastError *string) error {
 	var nullLastError sql.NullString
 	if lastError != nil {
 		nullLastError = sql.NullString{String: *lastError, Valid: true}
@@ -263,14 +323,14 @@ func (r *AgentRepository) UpdateStatus(ctx context.Context, id string, status st
 	}
 
 	if rows == 0 {
-		return fmt.Errorf("agent not found: %s", id)
+		return fmt.Errorf("agent not found: %d", id)
 	}
 
 	return nil
 }
 
 // UpdateHeartbeat updates an agent's heartbeat timestamp
-func (r *AgentRepository) UpdateHeartbeat(ctx context.Context, id string) error {
+func (r *AgentRepository) UpdateHeartbeat(ctx context.Context, id int) error {
 	result, err := r.db.ExecContext(ctx, queries.UpdateAgentHeartbeat, id)
 	if err != nil {
 		return fmt.Errorf("failed to update agent heartbeat: %w", err)
@@ -282,7 +342,7 @@ func (r *AgentRepository) UpdateHeartbeat(ctx context.Context, id string) error 
 	}
 
 	if rows == 0 {
-		return fmt.Errorf("agent not found: %s", id)
+		return fmt.Errorf("agent not found: %d", id)
 	}
 
 	return nil
@@ -290,21 +350,102 @@ func (r *AgentRepository) UpdateHeartbeat(ctx context.Context, id string) error 
 
 // SaveMetrics saves agent metrics
 func (r *AgentRepository) SaveMetrics(ctx context.Context, metrics *models.AgentMetrics) error {
-	_, err := r.db.ExecContext(ctx, `
+	// Convert GPU metrics to JSON
+	gpuMetricsJSON, err := json.Marshal(metrics.GPUMetrics)
+	if err != nil {
+		return fmt.Errorf("failed to marshal GPU metrics: %w", err)
+	}
+
+	_, err = r.db.ExecContext(ctx, `
 		INSERT INTO agent_metrics (
-			agent_id, cpu_usage, gpu_usage, gpu_temp,
-			memory_usage, timestamp
-		) VALUES ($1, $2, $3, $4, $5, $6)`,
+			agent_id, cpu_usage, memory_usage, gpu_metrics, timestamp
+		) VALUES ($1, $2, $3, $4, $5)`,
 		metrics.AgentID,
 		metrics.CPUUsage,
-		metrics.GPUUsage,
-		metrics.GPUTemp,
 		metrics.MemoryUsage,
+		gpuMetricsJSON,
 		metrics.Timestamp,
 	)
 
 	if err != nil {
 		return fmt.Errorf("failed to save agent metrics: %w", err)
+	}
+
+	return nil
+}
+
+// GetByAPIKey retrieves an agent by API key
+func (r *AgentRepository) GetByAPIKey(ctx context.Context, apiKey string) (*models.Agent, error) {
+	agent := &models.Agent{}
+	var hardwareJSON, osInfoJSON, metadataJSON []byte
+	var createdByUser models.User
+
+	err := r.db.QueryRowContext(ctx, queries.GetAgentByAPIKey, apiKey).Scan(
+		&agent.ID,
+		&agent.Name,
+		&agent.Status,
+		&agent.LastError,
+		&agent.LastHeartbeat,
+		&agent.Version,
+		&hardwareJSON,
+		&osInfoJSON,
+		&agent.CreatedByID,
+		&agent.CreatedAt,
+		&agent.UpdatedAt,
+		&agent.APIKey,
+		&agent.APIKeyCreatedAt,
+		&agent.APIKeyLastUsed,
+		&metadataJSON,
+		&createdByUser.ID,
+		&createdByUser.Username,
+		&createdByUser.Email,
+		&createdByUser.Role,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("agent not found with API key")
+	} else if err != nil {
+		return nil, fmt.Errorf("failed to get agent: %w", err)
+	}
+
+	// Unmarshal hardware JSON
+	if err := json.Unmarshal(hardwareJSON, &agent.Hardware); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal hardware: %w", err)
+	}
+
+	// Unmarshal OS info JSON
+	if err := json.Unmarshal(osInfoJSON, &agent.OSInfo); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal OS info: %w", err)
+	}
+
+	// Unmarshal metadata JSON
+	if err := json.Unmarshal(metadataJSON, &agent.Metadata); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal metadata: %w", err)
+	}
+
+	agent.CreatedBy = &createdByUser
+	return agent, nil
+}
+
+// UpdateAPIKeyLastUsed updates the last used timestamp for an API key
+func (r *AgentRepository) UpdateAPIKeyLastUsed(ctx context.Context, apiKey string, lastUsed time.Time) error {
+	result, err := r.db.ExecContext(ctx, `
+		UPDATE agents 
+		SET api_key_last_used = $2
+		WHERE api_key = $1`,
+		apiKey, lastUsed)
+
+	if err != nil {
+		return fmt.Errorf("failed to update API key last used: %w", err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rows == 0 {
+		return fmt.Errorf("agent not found with API key")
 	}
 
 	return nil

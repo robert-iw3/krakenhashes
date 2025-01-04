@@ -50,19 +50,18 @@ func (nu NullUUID) Value() (driver.Value, error) {
 	return nu.UUID.String(), nil
 }
 
-// ClaimVoucher represents a voucher that can be claimed by an agent
+// ClaimVoucher represents a claim voucher in the system
 type ClaimVoucher struct {
-	Code         string       `json:"code"`
-	IsActive     bool         `json:"isActive"`
-	IsContinuous bool         `json:"isContinuous"`
-	ExpiresAt    sql.NullTime `json:"expiresAt,omitempty"`
-	CreatedByID  uuid.UUID    `json:"createdById"`
-	CreatedBy    *User        `json:"createdBy,omitempty"`
-	UsedByID     NullUUID     `json:"usedById,omitempty"`
-	UsedBy       *User        `json:"usedBy,omitempty"`
-	UsedAt       sql.NullTime `json:"usedAt,omitempty"`
-	CreatedAt    time.Time    `json:"createdAt"`
-	UpdatedAt    time.Time    `json:"updatedAt"`
+	Code          string        `json:"code"`
+	IsActive      bool          `json:"is_active"`
+	IsContinuous  bool          `json:"is_continuous"`
+	CreatedByID   uuid.UUID     `json:"created_by_id"`
+	CreatedBy     *User         `json:"created_by,omitempty"`
+	UsedByAgentID sql.NullInt64 `json:"used_by_agent_id,omitempty"`
+	UsedByAgent   *Agent        `json:"used_by_agent,omitempty"`
+	UsedAt        sql.NullTime  `json:"used_at,omitempty"`
+	CreatedAt     time.Time     `json:"created_at"`
+	UpdatedAt     time.Time     `json:"updated_at"`
 }
 
 // ClaimVoucherUsage tracks usage attempts of claim vouchers
@@ -80,27 +79,15 @@ type ClaimVoucherUsage struct {
 
 // IsValid checks if the voucher is valid for use
 func (v *ClaimVoucher) IsValid() bool {
+	// Only check if the voucher is active
 	if !v.IsActive {
 		return false
 	}
 
-	if v.ExpiresAt.Valid && time.Now().After(v.ExpiresAt.Time) {
-		return false
-	}
-
-	if !v.IsContinuous && v.UsedByID.Valid {
+	// For single-use codes, check if they've been used
+	if !v.IsContinuous && v.UsedByAgentID.Valid {
 		return false
 	}
 
 	return true
-}
-
-// Use marks the voucher as used
-func (v *ClaimVoucher) Use(userID uuid.UUID) {
-	if !v.IsContinuous {
-		v.IsActive = false
-		now := time.Now()
-		v.UsedAt = sql.NullTime{Time: now, Valid: true}
-		v.UsedByID = NullUUID{UUID: userID, Valid: true}
-	}
 }

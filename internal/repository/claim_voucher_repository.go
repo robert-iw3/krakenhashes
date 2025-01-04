@@ -9,7 +9,7 @@ import (
 	"github.com/ZerkerEOD/hashdom-backend/internal/db"
 	"github.com/ZerkerEOD/hashdom-backend/internal/db/queries"
 	"github.com/ZerkerEOD/hashdom-backend/internal/models"
-	"github.com/google/uuid"
+	"github.com/ZerkerEOD/hashdom-backend/pkg/debug"
 )
 
 // ClaimVoucherRepository handles database operations for claim vouchers
@@ -28,7 +28,6 @@ func (r *ClaimVoucherRepository) Create(ctx context.Context, voucher *models.Cla
 		voucher.Code,
 		voucher.IsActive,
 		voucher.IsContinuous,
-		sql.NullTime{Time: voucher.ExpiresAt.Time, Valid: voucher.ExpiresAt.Valid},
 		voucher.CreatedByID,
 		voucher.CreatedAt,
 		voucher.UpdatedAt,
@@ -43,54 +42,73 @@ func (r *ClaimVoucherRepository) Create(ctx context.Context, voucher *models.Cla
 
 // GetByCode retrieves a claim voucher by code
 func (r *ClaimVoucherRepository) GetByCode(ctx context.Context, code string) (*models.ClaimVoucher, error) {
+	debug.Debug("GetByCode: Looking up voucher with code: %q", code)
 	voucher := &models.ClaimVoucher{}
-	var createdByUser, usedByUser models.User
-	var usedByID models.NullUUID
-	var usedAt, expiresAt sql.NullTime
+	var createdByUser models.User
+	var usedByAgent models.Agent
+	var usedByAgentID sql.NullInt64
+	var usedAt sql.NullTime
+	var createdByUsername, createdByEmail, createdByRole sql.NullString
+	var agentID sql.NullInt64
+	var agentName, agentStatus sql.NullString
 
 	err := r.db.QueryRowContext(ctx, queries.GetClaimVoucherByCode, code).Scan(
 		&voucher.Code,
 		&voucher.IsActive,
 		&voucher.IsContinuous,
-		&expiresAt,
 		&voucher.CreatedByID,
-		&usedByID,
+		&usedByAgentID,
 		&usedAt,
 		&voucher.CreatedAt,
 		&voucher.UpdatedAt,
 		&createdByUser.ID,
-		&createdByUser.Username,
-		&createdByUser.Email,
-		&createdByUser.Role,
-		&usedByUser.ID,
-		&usedByUser.Username,
-		&usedByUser.Email,
-		&usedByUser.Role,
+		&createdByUsername,
+		&createdByEmail,
+		&createdByRole,
+		&agentID,
+		&agentName,
+		&agentStatus,
 	)
 
 	if err == sql.ErrNoRows {
+		debug.Debug("GetByCode: No voucher found with code: %q", code)
 		return nil, fmt.Errorf("claim voucher not found with code: %s", code)
 	} else if err != nil {
+		debug.Error("GetByCode: Failed to get voucher: %v", err)
 		return nil, fmt.Errorf("failed to get claim voucher: %w", err)
 	}
 
-	voucher.ExpiresAt = expiresAt
+	debug.Debug("GetByCode: Found voucher - Active: %v, Continuous: %v, Used: %v",
+		voucher.IsActive, voucher.IsContinuous, usedByAgentID.Valid)
+
 	voucher.UsedAt = usedAt
-	voucher.UsedByID = usedByID
-	voucher.CreatedBy = &createdByUser
-	if usedByID.Valid {
-		voucher.UsedBy = &usedByUser
+	voucher.UsedByAgentID = usedByAgentID
+
+	// Only set the created by user if we have valid data
+	if createdByUsername.Valid {
+		createdByUser.Username = createdByUsername.String
+		createdByUser.Email = createdByEmail.String
+		createdByUser.Role = createdByRole.String
+		voucher.CreatedBy = &createdByUser
+	}
+
+	// Only set the used by agent if we have valid data
+	if agentID.Valid && agentName.Valid {
+		usedByAgent.ID = int(agentID.Int64)
+		usedByAgent.Name = agentName.String
+		usedByAgent.Status = agentStatus.String
+		voucher.UsedByAgent = &usedByAgent
 	}
 
 	return voucher, nil
 }
 
-// Use marks a claim voucher as used
-func (r *ClaimVoucherRepository) Use(ctx context.Context, code string, userID uuid.UUID) error {
+// UseByAgent marks a claim voucher as used by an agent
+func (r *ClaimVoucherRepository) UseByAgent(ctx context.Context, code string, agentID int) error {
 	now := time.Now()
-	result, err := r.db.ExecContext(ctx, queries.UseClaimVoucher,
+	result, err := r.db.ExecContext(ctx, queries.UseClaimVoucherByAgent,
 		code,
-		userID,
+		agentID,
 		now,
 	)
 
@@ -140,19 +158,20 @@ func (r *ClaimVoucherRepository) ListActive(ctx context.Context) ([]models.Claim
 	var vouchers []models.ClaimVoucher
 	for rows.Next() {
 		var voucher models.ClaimVoucher
-		var createdByUser, usedByUser models.User
-		var usedByID models.NullUUID
-		var usedAt, expiresAt sql.NullTime
-		var usedByUsername, usedByEmail, usedByRole sql.NullString
+		var createdByUser models.User
+		var usedByAgent models.Agent
+		var usedByAgentID sql.NullInt64
+		var usedAt sql.NullTime
 		var createdByUsername, createdByEmail, createdByRole sql.NullString
+		var agentID sql.NullInt64
+		var agentName, agentStatus sql.NullString
 
 		err := rows.Scan(
 			&voucher.Code,
 			&voucher.IsActive,
 			&voucher.IsContinuous,
-			&expiresAt,
 			&voucher.CreatedByID,
-			&usedByID,
+			&usedByAgentID,
 			&usedAt,
 			&voucher.CreatedAt,
 			&voucher.UpdatedAt,
@@ -160,18 +179,16 @@ func (r *ClaimVoucherRepository) ListActive(ctx context.Context) ([]models.Claim
 			&createdByUsername,
 			&createdByEmail,
 			&createdByRole,
-			&usedByUser.ID,
-			&usedByUsername,
-			&usedByEmail,
-			&usedByRole,
+			&agentID,
+			&agentName,
+			&agentStatus,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan claim voucher: %w", err)
 		}
 
-		voucher.ExpiresAt = expiresAt
 		voucher.UsedAt = usedAt
-		voucher.UsedByID = usedByID
+		voucher.UsedByAgentID = usedByAgentID
 
 		// Only set the created by user if we have valid data
 		if createdByUsername.Valid {
@@ -181,12 +198,12 @@ func (r *ClaimVoucherRepository) ListActive(ctx context.Context) ([]models.Claim
 			voucher.CreatedBy = &createdByUser
 		}
 
-		// Only set the used by user if we have valid data
-		if usedByID.Valid && usedByUsername.Valid {
-			usedByUser.Username = usedByUsername.String
-			usedByUser.Email = usedByEmail.String
-			usedByUser.Role = usedByRole.String
-			voucher.UsedBy = &usedByUser
+		// Only set the used by agent if we have valid data
+		if agentID.Valid && agentName.Valid {
+			usedByAgent.ID = int(agentID.Int64)
+			usedByAgent.Name = agentName.String
+			usedByAgent.Status = agentStatus.String
+			voucher.UsedByAgent = &usedByAgent
 		}
 
 		vouchers = append(vouchers, voucher)
@@ -197,27 +214,4 @@ func (r *ClaimVoucherRepository) ListActive(ctx context.Context) ([]models.Claim
 	}
 
 	return vouchers, nil
-}
-
-// LogUsageAttempt logs an attempt to use a claim voucher
-func (r *ClaimVoucherRepository) LogUsageAttempt(ctx context.Context, usage *models.ClaimVoucherUsage) error {
-	_, err := r.db.ExecContext(ctx, `
-		INSERT INTO claimVoucherUsage (
-			voucherCode, attemptedById, attemptedAt,
-			success, ipAddress, userAgent, errorMessage
-		) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-		usage.VoucherCode,
-		usage.AttemptedByID,
-		usage.AttemptedAt,
-		usage.Success,
-		usage.IPAddress,
-		usage.UserAgent,
-		usage.ErrorMessage,
-	)
-
-	if err != nil {
-		return fmt.Errorf("failed to log claim voucher usage: %w", err)
-	}
-
-	return nil
 }

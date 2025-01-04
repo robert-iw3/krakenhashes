@@ -2,14 +2,15 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
-	"github.com/ZerkerEOD/hashdom-backend/internal/auth"
+	"github.com/ZerkerEOD/hashdom-backend/internal/config"
 	"github.com/ZerkerEOD/hashdom-backend/internal/services"
 	"github.com/ZerkerEOD/hashdom-backend/pkg/debug"
 )
 
-// RegistrationRequest represents the data received from an agent during registration
+// RegistrationRequest represents the data sent by the agent during registration
 type RegistrationRequest struct {
 	ClaimCode string `json:"claim_code"`
 	Hostname  string `json:"hostname"`
@@ -17,78 +18,54 @@ type RegistrationRequest struct {
 
 // RegistrationResponse represents the data sent back to the agent after successful registration
 type RegistrationResponse struct {
-	AgentID       string            `json:"agent_id"`
-	DownloadToken string            `json:"download_token"`
-	Endpoints     map[string]string `json:"endpoints"`
+	AgentID   int               `json:"agent_id"`
+	APIKey    string            `json:"api_key"`
+	Endpoints map[string]string `json:"endpoints"`
 }
 
-// CertificateResponse represents the certificate data sent to the agent
-type CertificateResponse struct {
-	Certificate   string `json:"certificate"`
-	PrivateKey    string `json:"private_key"`
-	CACertificate string `json:"ca_certificate"`
-}
-
-// RegistrationHandler handles agent registration and certificate distribution
+// RegistrationHandler handles agent registration and API key distribution
 type RegistrationHandler struct {
 	agentService *services.AgentService
-	caManager    *auth.CAManager
+	config       *config.Config
 }
 
 // NewRegistrationHandler creates a new instance of RegistrationHandler
-func NewRegistrationHandler(agentService *services.AgentService, caManager *auth.CAManager) *RegistrationHandler {
+func NewRegistrationHandler(agentService *services.AgentService, config *config.Config) *RegistrationHandler {
 	return &RegistrationHandler{
 		agentService: agentService,
-		caManager:    caManager,
+		config:       config,
 	}
 }
 
-// HandleRegistration processes agent registration requests
+// HandleRegistration handles agent registration requests
 func (h *RegistrationHandler) HandleRegistration(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
+	debug.Info("Received agent registration request")
 
-	ctx := r.Context()
-
-	// Parse request
+	// Parse request body
 	var req RegistrationRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		debug.Error("Failed to decode registration request: %v", err)
-		http.Error(w, "Invalid request format", http.StatusBadRequest)
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
-
-	// Validate claim code
-	if err := h.agentService.ValidateClaimCode(ctx, req.ClaimCode); err != nil {
-		debug.Error("Invalid claim code: %v", err)
-		http.Error(w, "Invalid claim code", http.StatusUnauthorized)
-		return
-	}
+	debug.Debug("Registration request - Claim Code: %s, Hostname: %s", req.ClaimCode, req.Hostname)
 
 	// Register agent
-	agent, err := h.agentService.RegisterAgent(ctx, req.ClaimCode, req.Hostname)
+	agent, err := h.agentService.RegisterAgent(r.Context(), req.ClaimCode, req.Hostname)
 	if err != nil {
-		debug.Error("Failed to register agent: %v", err)
-		http.Error(w, "Registration failed", http.StatusInternalServerError)
+		debug.Error("Agent registration failed: %v", err)
+		http.Error(w, fmt.Sprintf("Registration failed: %v", err), http.StatusBadRequest)
 		return
 	}
-
-	// Generate download token
-	downloadToken, err := h.agentService.CreateDownloadToken(ctx, agent.ID)
-	if err != nil {
-		debug.Error("Failed to generate download token: %v", err)
-		http.Error(w, "Failed to generate download token", http.StatusInternalServerError)
-		return
-	}
+	debug.Info("Successfully registered agent with ID: %d", agent.ID)
 
 	// Prepare response
 	resp := RegistrationResponse{
-		AgentID:       agent.ID,
-		DownloadToken: downloadToken,
+		AgentID: agent.ID,
+		APIKey:  agent.APIKey.String,
 		Endpoints: map[string]string{
-			"cert": "/api/agent/cert",
+			"websocket": h.config.GetWSEndpoint(),
+			"api":       h.config.GetAPIEndpoint(),
 		},
 	}
 
@@ -99,71 +76,5 @@ func (h *RegistrationHandler) HandleRegistration(w http.ResponseWriter, r *http.
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-
-	debug.Info("Agent registered successfully: %s", agent.ID)
-}
-
-// HandleCertificateDownload processes certificate download requests
-func (h *RegistrationHandler) HandleCertificateDownload(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	ctx := r.Context()
-
-	// Get download token from header
-	downloadToken := r.Header.Get("X-Download-Token")
-	if downloadToken == "" {
-		debug.Error("No download token provided")
-		http.Error(w, "Download token required", http.StatusUnauthorized)
-		return
-	}
-
-	// Validate download token and get agent ID
-	agentID, err := h.agentService.ValidateDownloadToken(ctx, downloadToken)
-	if err != nil {
-		debug.Error("Invalid download token: %v", err)
-		http.Error(w, "Invalid download token", http.StatusUnauthorized)
-		return
-	}
-
-	// Generate agent certificate
-	cert, key, err := h.caManager.GenerateAgentCertificate(ctx, agentID)
-	if err != nil {
-		debug.Error("Failed to generate agent certificate: %v", err)
-		http.Error(w, "Failed to generate certificate", http.StatusInternalServerError)
-		return
-	}
-
-	// Get CA certificate
-	caCert, err := h.caManager.GetCACertificate()
-	if err != nil {
-		debug.Error("Failed to get CA certificate: %v", err)
-		http.Error(w, "Failed to get CA certificate", http.StatusInternalServerError)
-		return
-	}
-
-	// Prepare response
-	resp := CertificateResponse{
-		Certificate:   string(cert),
-		PrivateKey:    string(key),
-		CACertificate: string(caCert),
-	}
-
-	// Invalidate download token
-	if err := h.agentService.InvalidateDownloadToken(ctx, downloadToken); err != nil {
-		debug.Error("Failed to invalidate download token: %v", err)
-		// Continue with response since the certificate generation was successful
-	}
-
-	// Send response
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		debug.Error("Failed to encode certificate response: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	debug.Info("Certificates sent successfully to agent: %s", agentID)
+	debug.Info("Successfully sent registration response")
 }
