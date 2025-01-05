@@ -91,9 +91,10 @@ interface PrivateRouteProps {
 
 const PrivateRoute: React.FC<PrivateRouteProps> = ({ children }) => {
   const location = useLocation();
-  const { isAuth, authChecked } = useAuth();
+  const { isAuthenticated } = useAuth();
 
-  if (!authChecked) {
+  // Show loading state while checking authentication
+  if (typeof isAuthenticated === 'undefined') {
     return (
       <Box
         display="flex"
@@ -106,8 +107,8 @@ const PrivateRoute: React.FC<PrivateRouteProps> = ({ children }) => {
     );
   }
 
-  if (!isAuth) {
-    return<Navigate to="/login" state={{ from: location }} replace />;
+  if (!isAuthenticated) {
+    return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
   return <>{children}</>;

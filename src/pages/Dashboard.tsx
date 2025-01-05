@@ -42,7 +42,7 @@
  * @returns {JSX.Element} Dashboard component
  */
 
-import React, { useCallback, useMemo } from 'react';
+import React, { useMemo } from 'react';
 import {
   Box,
   Typography,

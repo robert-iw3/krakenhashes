@@ -38,8 +38,8 @@
  * @returns {JSX.Element} Root application component
  */
 
-import React from 'react';
-import { BrowserRouter as Router, Route, Routes, Navigate } from 'react-router-dom';
+import React, { useState } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { ThemeProvider } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 import theme from './styles/theme';
@@ -48,9 +48,24 @@ import Dashboard from './pages/Dashboard';
 import Login from './pages/Login';
 import AgentManagement from './pages/AgentManagement';
 import PrivateRoute from './components/PrivateRoute';
+import CertificateCheck from './components/CertificateCheck';
 import { AuthProvider } from './hooks/useAuth';
 
 const App: React.FC = () => {
+  const [certVerified, setCertVerified] = useState(() => {
+    // Check if we've already verified the cert
+    return localStorage.getItem('cert_valid') === 'true';
+  });
+
+  if (!certVerified) {
+    return (
+      <ThemeProvider theme={theme}>
+        <CssBaseline />
+        <CertificateCheck onCertVerified={() => setCertVerified(true)} />
+      </ThemeProvider>
+    );
+  }
+
   return (
     <AuthProvider>
       <ThemeProvider theme={theme}>

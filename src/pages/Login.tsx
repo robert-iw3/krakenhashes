@@ -45,8 +45,8 @@ import {
   Checkbox
 } from '@mui/material';
 import { login } from '../services/auth';
-import { LoginProps, LoginCredentials } from '../types/auth';
 import { useAuth } from '../hooks/useAuth';
+import { LoginCredentials } from '../types/auth';
 
 // Rate limiting configuration
 const RATE_LIMIT = {
