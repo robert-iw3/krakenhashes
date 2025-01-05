@@ -1,21 +1,4 @@
-# Node.js
-node_modules/
-npm-debug.log
-yarn-error.log
-
-# React build
-/build
-
-# Go
-*.exe
-*.exe~
-*.dll
-*.so
-*.dylib
-*.test
-*.out
-/vendor/
-
+# Common ignores
 # IDEs and editors
 .idea/
 .vscode/
@@ -27,20 +10,64 @@ yarn-error.log
 .DS_Store
 Thumbs.db
 
-# Env files
+# Environment files
 .env
 .env.local
-.env.development.local
-.env.test.local
-.env.production.local
-
-# Docker
-docker-compose.yml
+.env.*.local
 
 # Cursor
 .cursorignore
 .cursorrules
 
+# Frontend specific
+# Node.js dependencies and build artifacts
+node_modules/
+frontend/node_modules/
+npm-debug.log
+frontend/npm-debug.log
+yarn-error.log
+frontend/yarn-error.log
+/build/
+frontend/build/
+
+# Backend specific
+# Go binaries and artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+/vendor/
+backend/*.exe
+backend/*.exe~
+backend/*.dll
+backend/*.so
+backend/*.dylib
+backend/*.test
+backend/*.out
+backend/vendor/
+
+# Go build directories
+/bin/
+/dist/
+/build/
+backend/bin/
+backend/dist/
+backend/build/
+
+# Go debug files
+*.test
+*.prof
+*.trace
+*.cover
+backend/**/*.test
+backend/**/*.prof
+backend/**/*.trace
+backend/**/*.cover
+
 # Certificate storage
-certs/
+/certs/
+backend/certs/
 .hashdom/ 
