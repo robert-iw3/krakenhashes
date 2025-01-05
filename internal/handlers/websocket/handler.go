@@ -2,6 +2,8 @@ package websocket
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -69,12 +71,14 @@ var upgrader = websocket.Upgrader{
 		return true
 	},
 	HandshakeTimeout: writeWait,
+	// TLS configuration is handled by the server
 }
 
 // Handler manages WebSocket connections for agents
 type Handler struct {
 	wsService    *wsservice.Service
 	agentService *services.AgentService
+	tlsConfig    *tls.Config
 	clients      map[int]*Client
 	mu           sync.RWMutex
 }
@@ -90,13 +94,14 @@ type Client struct {
 }
 
 // NewHandler creates a new WebSocket handler
-func NewHandler(wsService *wsservice.Service, agentService *services.AgentService) *Handler {
+func NewHandler(wsService *wsservice.Service, agentService *services.AgentService, tlsConfig *tls.Config) *Handler {
 	// Initialize timing configuration
 	initTimingConfig()
 
 	return &Handler{
 		wsService:    wsService,
 		agentService: agentService,
+		tlsConfig:    tlsConfig,
 		clients:      make(map[int]*Client),
 	}
 }
@@ -110,6 +115,56 @@ func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) {
 
 	debug.Info("New WebSocket connection attempt received from %s", r.RemoteAddr)
 	debug.Debug("Request headers: %v", r.Header)
+
+	// Verify TLS connection
+	if h.tlsConfig != nil {
+		if r.TLS == nil {
+			debug.Error("TLS connection required but not provided from %s", r.RemoteAddr)
+			http.Error(w, "TLS required", http.StatusBadRequest)
+			return
+		}
+
+		// Verify client certificate if required
+		if h.tlsConfig.ClientAuth >= tls.VerifyClientCertIfGiven {
+			if len(r.TLS.PeerCertificates) == 0 {
+				debug.Error("Client certificate required but not provided from %s", r.RemoteAddr)
+				http.Error(w, "Client certificate required", http.StatusUnauthorized)
+				return
+			}
+
+			// Log certificate details for debugging
+			cert := r.TLS.PeerCertificates[0]
+			debug.Debug("Client certificate details:")
+			debug.Debug("- Subject: %s", cert.Subject)
+			debug.Debug("- Issuer: %s", cert.Issuer)
+			debug.Debug("- Serial: %s", cert.SerialNumber)
+			debug.Debug("- Not Before: %s", cert.NotBefore)
+			debug.Debug("- Not After: %s", cert.NotAfter)
+
+			// Verify certificate is not expired
+			if time.Now().After(cert.NotAfter) || time.Now().Before(cert.NotBefore) {
+				debug.Error("Client certificate from %s is not valid at this time", r.RemoteAddr)
+				http.Error(w, "Client certificate expired or not yet valid", http.StatusUnauthorized)
+				return
+			}
+
+			// Verify certificate was issued by our CA
+			opts := x509.VerifyOptions{
+				Roots:     h.tlsConfig.ClientCAs,
+				KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+			}
+
+			if _, err := cert.Verify(opts); err != nil {
+				debug.Error("Client certificate verification failed: %v", err)
+				http.Error(w, "Client certificate verification failed", http.StatusUnauthorized)
+				return
+			}
+
+			debug.Info("Client certificate verified for %s", r.RemoteAddr)
+		}
+
+		debug.Info("TLS connection verified for %s", r.RemoteAddr)
+	}
 
 	// Get API key from header
 	apiKey := r.Header.Get("X-API-Key")
@@ -143,6 +198,9 @@ func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	debug.Info("API key validated for agent %d from %s", agent.ID, r.RemoteAddr)
+
+	// Configure WebSocket upgrader
+	upgrader.EnableCompression = true
 
 	// Upgrade connection to WebSocket
 	conn, err := upgrader.Upgrade(w, r, nil)

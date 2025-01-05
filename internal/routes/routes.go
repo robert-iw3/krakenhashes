@@ -2,6 +2,7 @@ package routes
 
 import (
 	"bufio"
+	cryptotls "crypto/tls"
 	"database/sql"
 	"fmt"
 	"net"
@@ -18,11 +19,13 @@ import (
 	"github.com/ZerkerEOD/hashdom-backend/internal/handlers/dashboard"
 	"github.com/ZerkerEOD/hashdom-backend/internal/handlers/hashlists"
 	"github.com/ZerkerEOD/hashdom-backend/internal/handlers/jobs"
+	tlshandler "github.com/ZerkerEOD/hashdom-backend/internal/handlers/tls"
 	"github.com/ZerkerEOD/hashdom-backend/internal/handlers/vouchers"
 	wshandler "github.com/ZerkerEOD/hashdom-backend/internal/handlers/websocket"
 	"github.com/ZerkerEOD/hashdom-backend/internal/repository"
 	"github.com/ZerkerEOD/hashdom-backend/internal/services"
 	wsservice "github.com/ZerkerEOD/hashdom-backend/internal/services/websocket"
+	"github.com/ZerkerEOD/hashdom-backend/internal/tls"
 	"github.com/ZerkerEOD/hashdom-backend/pkg/debug"
 	"github.com/gorilla/mux"
 )
@@ -60,7 +63,7 @@ func CORSMiddleware(next http.Handler) http.Handler {
 		// Get allowed origin from environment
 		allowedOrigin := os.Getenv("CORS_ALLOWED_ORIGIN")
 		if allowedOrigin == "" {
-			allowedOrigin = "http://localhost:3000" // fallback default
+			allowedOrigin = "https://localhost:3000" // fallback default
 			debug.Warning("CORS_ALLOWED_ORIGIN not set, using default: %s", allowedOrigin)
 		}
 
@@ -68,16 +71,17 @@ func CORSMiddleware(next http.Handler) http.Handler {
 		origin := r.Header.Get("Origin")
 		debug.Debug("Request origin: %s, Allowed origin: %s", origin, allowedOrigin)
 
-		// Check if origin is allowed
-		if origin == allowedOrigin {
+		// Always use the actual origin if it matches our expected host
+		if origin != "" && (strings.HasPrefix(origin, "https://localhost:") || strings.HasPrefix(origin, "http://localhost:")) {
+			debug.Debug("Using request origin: %s", origin)
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 		} else {
-			debug.Warning("Origin mismatch - Request: %s, Allowed: %s", origin, allowedOrigin)
+			debug.Warning("Using default allowed origin: %s", allowedOrigin)
 			w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
 		}
 
 		// Set standard CORS headers
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, X-API-Key, X-Agent-ID")
 		w.Header().Set("Access-Control-Allow-Credentials", "true")
 		w.Header().Set("Access-Control-Max-Age", "3600")
@@ -113,7 +117,7 @@ func CORSMiddleware(next http.Handler) http.Handler {
  *   - JWT authentication (protected routes)
  *   - API Key authentication (agent routes)
  */
-func SetupRoutes(r *mux.Router, sqlDB *sql.DB) {
+func SetupRoutes(r *mux.Router, sqlDB *sql.DB, tlsProvider tls.Provider) {
 	debug.Info("Initializing route configuration")
 
 	// Create our custom DB wrapper
@@ -130,6 +134,10 @@ func SetupRoutes(r *mux.Router, sqlDB *sql.DB) {
 	voucherRepo := repository.NewClaimVoucherRepository(database)
 	agentService := services.NewAgentService(agentRepo, voucherRepo)
 	voucherService := services.NewClaimVoucherService(voucherRepo)
+
+	// Initialize TLS handler
+	tlsHandler := tlshandler.NewHandler(tlsProvider)
+	debug.Info("TLS handler initialized")
 
 	// Initialize configuration
 	appConfig := config.NewConfig()
@@ -148,8 +156,24 @@ func SetupRoutes(r *mux.Router, sqlDB *sql.DB) {
 	apiRouter.HandleFunc("/check-auth", auth.CheckAuthHandler).Methods("GET", "OPTIONS")
 	debug.Info("Configured authentication endpoints: /login, /logout, /check-auth")
 
+	// CA certificate endpoint - publicly accessible over HTTP
+	publicRouter := r.PathPrefix("").Subrouter()
+	publicRouter.Use(CORSMiddleware)
+	publicRouter.HandleFunc("/ca.crt", tlsHandler.ServeCACertificate).Methods("GET", "HEAD", "OPTIONS")
+	debug.Info("Configured public CA certificate endpoint: /ca.crt")
+
+	// Health check endpoint - publicly accessible
+	publicRouter.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
+		debug.Info("Health check request from %s", r.RemoteAddr)
+		debug.Debug("Health check request headers: %v", r.Header)
+
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+	}).Methods("GET", "OPTIONS")
+	debug.Info("Configured health check endpoint: /api/health")
+
 	// Agent registration endpoint
-	registrationHandler := handlers.NewRegistrationHandler(agentService, appConfig)
+	registrationHandler := handlers.NewRegistrationHandler(agentService, appConfig, tlsProvider)
 	apiRouter.HandleFunc("/agent/register", registrationHandler.HandleRegistration).Methods("POST", "OPTIONS")
 	debug.Info("Configured agent registration endpoint: /agent/register")
 
@@ -159,6 +183,10 @@ func SetupRoutes(r *mux.Router, sqlDB *sql.DB) {
 	jwtRouter.Use(auth.JWTMiddleware)
 	jwtRouter.Use(loggingMiddleware)
 	debug.Info("Applied JWT middleware to protected routes")
+
+	// Client certificate endpoint - protected by JWT
+	jwtRouter.HandleFunc("/client-cert", tlsHandler.ServeClientCertificate).Methods("GET", "OPTIONS")
+	debug.Info("Configured protected client certificate endpoint: /api/client-cert")
 
 	// Dashboard routes
 	jwtRouter.HandleFunc("/dashboard", dashboard.GetDashboard).Methods("GET", "OPTIONS")
@@ -189,14 +217,29 @@ func SetupRoutes(r *mux.Router, sqlDB *sql.DB) {
 	// 3. API Key Protected routes (agent communication)
 	debug.Debug("Setting up API key protected routes")
 	wsService := wsservice.NewService(agentService)
-	wsHandler := wshandler.NewHandler(wsService, agentService)
 
-	// WebSocket routes
+	// Get TLS configuration for WebSocket handler
+	tlsConfig, err := tlsProvider.GetTLSConfig()
+	if err != nil {
+		debug.Error("Failed to get TLS configuration: %v", err)
+		return
+	}
+
 	wsRouter := r.PathPrefix("/ws").Subrouter()
 	wsRouter.Use(auth.APIKeyMiddleware(agentService))
 	wsRouter.Use(loggingMiddleware)
+	// Create a copy of the TLS config with required client certs for agent connections
+	agentTLSConfig := *tlsConfig // Make a copy
+	agentTLSConfig.ClientAuth = cryptotls.RequireAndVerifyClientCert
+	wsHandler := wshandler.NewHandler(wsService, agentService, &agentTLSConfig)
 	wsRouter.HandleFunc("/agent", wsHandler.ServeWS)
-	debug.Info("Configured WebSocket endpoint: /ws/agent")
+	debug.Info("Configured WebSocket endpoint: /ws/agent with TLS: %v", tlsConfig != nil)
+	if tlsConfig != nil {
+		debug.Debug("WebSocket TLS Configuration:")
+		debug.Debug("- Client Auth: %v", agentTLSConfig.ClientAuth)
+		debug.Debug("- Client CAs: %v", agentTLSConfig.ClientCAs != nil)
+		debug.Debug("- Certificates: %d", len(agentTLSConfig.Certificates))
+	}
 
 	debug.Info("Route configuration completed successfully")
 	logRegisteredRoutes(r)

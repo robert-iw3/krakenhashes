@@ -15,10 +15,10 @@ Instructions for setting up and running each component can be found in their res
 ## Version 1.0 Roadmap
 
 ### Core Infrastructure
-- [ ] Implement TLS support
-  - [ ] Self-signed certificate support
-  - [ ] User-provided certificate support
-  - [ ] Certbot integration
+- [x] Implement TLS support
+  - [x] Self-signed certificate support
+  - [x] User-provided certificate support (Not Tested - Should work)
+  - [x] Certbot integration (Written but not tested - Please open an issue if you have issues)
 - [ ] Docker containerization
   - [ ] Environment variable configuration
   - [ ] Database initialization handling
