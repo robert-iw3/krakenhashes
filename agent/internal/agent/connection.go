@@ -12,11 +12,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/ZerkerEOD/hashdom-agent/internal/auth"
-	"github.com/ZerkerEOD/hashdom-agent/internal/config"
-	"github.com/ZerkerEOD/hashdom-agent/internal/hardware"
-	"github.com/ZerkerEOD/hashdom-agent/internal/hardware/types"
-	"github.com/ZerkerEOD/hashdom-agent/pkg/debug"
+	"github.com/ZerkerEOD/hashdom/agent/internal/auth"
+	"github.com/ZerkerEOD/hashdom/agent/internal/config"
+	"github.com/ZerkerEOD/hashdom/agent/internal/hardware"
+	"github.com/ZerkerEOD/hashdom/agent/internal/hardware/types"
+	"github.com/ZerkerEOD/hashdom/agent/pkg/debug"
 	"github.com/gorilla/websocket"
 )
 

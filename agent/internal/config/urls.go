@@ -8,7 +8,7 @@ import (
 	"net/url"
 	"os"
 
-	"github.com/ZerkerEOD/hashdom-agent/pkg/debug"
+	"github.com/ZerkerEOD/hashdom/agent/pkg/debug"
 )
 
 // URLConfig holds the server URL configuration

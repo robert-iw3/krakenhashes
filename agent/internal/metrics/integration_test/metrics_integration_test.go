@@ -38,9 +38,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ZerkerEOD/hashdom-agent/internal/agent"
-	"github.com/ZerkerEOD/hashdom-agent/internal/config"
-	"github.com/ZerkerEOD/hashdom-agent/internal/metrics"
+	"github.com/ZerkerEOD/hashdom/agent/internal/agent"
+	"github.com/ZerkerEOD/hashdom/agent/internal/config"
+	"github.com/ZerkerEOD/hashdom/agent/internal/metrics"
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

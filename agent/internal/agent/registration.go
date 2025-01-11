@@ -20,9 +20,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ZerkerEOD/hashdom-agent/internal/auth"
-	"github.com/ZerkerEOD/hashdom-agent/internal/config"
-	"github.com/ZerkerEOD/hashdom-agent/pkg/debug"
+	"github.com/ZerkerEOD/hashdom/agent/internal/auth"
+	"github.com/ZerkerEOD/hashdom/agent/internal/config"
+	"github.com/ZerkerEOD/hashdom/agent/pkg/debug"
 )
 
 // Add file lock management

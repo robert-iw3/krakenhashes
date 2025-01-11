@@ -6,7 +6,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/ZerkerEOD/hashdom-agent/pkg/debug"
+	"github.com/ZerkerEOD/hashdom/agent/pkg/debug"
 )
 
 // Dependency represents a system dependency

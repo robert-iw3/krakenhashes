@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/ZerkerEOD/hashdom-agent/internal/hardware/types"
-	"github.com/ZerkerEOD/hashdom-agent/pkg/debug"
+	"github.com/ZerkerEOD/hashdom/agent/internal/hardware/types"
+	"github.com/ZerkerEOD/hashdom/agent/pkg/debug"
 )
 
 // LinuxDetector implements OS-specific hardware detection for Linux

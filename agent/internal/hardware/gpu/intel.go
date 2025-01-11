@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/ZerkerEOD/hashdom-agent/internal/hardware/types"
-	"github.com/ZerkerEOD/hashdom-agent/pkg/debug"
+	"github.com/ZerkerEOD/hashdom/agent/internal/hardware/types"
+	"github.com/ZerkerEOD/hashdom/agent/pkg/debug"
 )
 
 // IntelDetector implements GPU detection for Intel GPUs

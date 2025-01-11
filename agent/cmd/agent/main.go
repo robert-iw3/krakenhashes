@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ZerkerEOD/hashdom-agent/internal/agent"
-	"github.com/ZerkerEOD/hashdom-agent/internal/config"
-	"github.com/ZerkerEOD/hashdom-agent/internal/metrics"
-	"github.com/ZerkerEOD/hashdom-agent/pkg/debug"
+	"github.com/ZerkerEOD/hashdom/agent/internal/agent"
+	"github.com/ZerkerEOD/hashdom/agent/internal/config"
+	"github.com/ZerkerEOD/hashdom/agent/internal/metrics"
+	"github.com/ZerkerEOD/hashdom/agent/pkg/debug"
 	"github.com/joho/godotenv"
 )
 

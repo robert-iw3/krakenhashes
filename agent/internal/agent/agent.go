@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/ZerkerEOD/hashdom-agent/internal/config"
+	"github.com/ZerkerEOD/hashdom/agent/internal/config"
 )
 
 const (
