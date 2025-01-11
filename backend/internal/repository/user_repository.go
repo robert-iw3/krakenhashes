@@ -5,9 +5,9 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/ZerkerEOD/hashdom-backend/internal/db"
-	"github.com/ZerkerEOD/hashdom-backend/internal/db/queries"
-	"github.com/ZerkerEOD/hashdom-backend/internal/models"
+	"github.com/ZerkerEOD/hashdom/backend/internal/db"
+	"github.com/ZerkerEOD/hashdom/backend/internal/db/queries"
+	"github.com/ZerkerEOD/hashdom/backend/internal/models"
 	"github.com/google/uuid"
 )
 

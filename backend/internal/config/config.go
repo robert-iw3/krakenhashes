@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/ZerkerEOD/hashdom-backend/pkg/debug"
-	"github.com/ZerkerEOD/hashdom-backend/pkg/env"
+	"github.com/ZerkerEOD/hashdom/backend/pkg/debug"
+	"github.com/ZerkerEOD/hashdom/backend/pkg/env"
 )
 
 // Config holds the application configuration

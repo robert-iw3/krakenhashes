@@ -4,10 +4,10 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/ZerkerEOD/hashdom-backend/internal/config"
-	"github.com/ZerkerEOD/hashdom-backend/internal/handlers"
-	"github.com/ZerkerEOD/hashdom-backend/internal/services"
-	"github.com/ZerkerEOD/hashdom-backend/pkg/debug"
+	"github.com/ZerkerEOD/hashdom/backend/internal/config"
+	"github.com/ZerkerEOD/hashdom/backend/internal/handlers"
+	"github.com/ZerkerEOD/hashdom/backend/internal/services"
+	"github.com/ZerkerEOD/hashdom/backend/pkg/debug"
 )
 
 // Handler handles agent registration and API key distribution

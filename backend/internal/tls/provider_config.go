@@ -5,9 +5,9 @@ import (
 	"path/filepath"
 	"strconv"
 
-	"github.com/ZerkerEOD/hashdom-backend/internal/config"
-	"github.com/ZerkerEOD/hashdom-backend/pkg/debug"
-	"github.com/ZerkerEOD/hashdom-backend/pkg/env"
+	"github.com/ZerkerEOD/hashdom/backend/internal/config"
+	"github.com/ZerkerEOD/hashdom/backend/pkg/debug"
+	"github.com/ZerkerEOD/hashdom/backend/pkg/env"
 )
 
 // LoadProviderConfig loads the TLS provider configuration from environment variables

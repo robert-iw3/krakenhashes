@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/ZerkerEOD/hashdom-backend/internal/tls"
-	"github.com/ZerkerEOD/hashdom-backend/pkg/debug"
+	"github.com/ZerkerEOD/hashdom/backend/internal/tls"
+	"github.com/ZerkerEOD/hashdom/backend/pkg/debug"
 )
 
 // Handler manages TLS-related HTTP endpoints

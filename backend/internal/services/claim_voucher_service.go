@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ZerkerEOD/hashdom-backend/internal/models"
-	"github.com/ZerkerEOD/hashdom-backend/internal/repository"
-	"github.com/ZerkerEOD/hashdom-backend/pkg/debug"
+	"github.com/ZerkerEOD/hashdom/backend/internal/models"
+	"github.com/ZerkerEOD/hashdom/backend/internal/repository"
+	"github.com/ZerkerEOD/hashdom/backend/pkg/debug"
 	"github.com/google/uuid"
 )
 

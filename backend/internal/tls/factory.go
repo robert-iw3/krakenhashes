@@ -3,8 +3,8 @@ package tls
 import (
 	"fmt"
 
-	"github.com/ZerkerEOD/hashdom-backend/internal/config"
-	"github.com/ZerkerEOD/hashdom-backend/pkg/debug"
+	"github.com/ZerkerEOD/hashdom/backend/internal/config"
+	"github.com/ZerkerEOD/hashdom/backend/pkg/debug"
 )
 
 // NewProvider creates a new TLS provider based on the configuration

@@ -3,7 +3,7 @@ package main
 import (
 	"log"
 
-	"github.com/ZerkerEOD/hashdom-backend/internal/database"
+	"github.com/ZerkerEOD/hashdom/backend/internal/database"
 	"github.com/joho/godotenv"
 )
 

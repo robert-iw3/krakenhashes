@@ -1,0 +1,22 @@
+services:
+  db:
+    image: postgres:15
+    container_name: hashdom-postgres
+    environment:
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_DB: ${DB_NAME}
+    ports:
+      - "${DB_PORT}:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    networks:
+      - hashdom-net
+
+networks:
+  hashdom-net:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.enable_icc: "true"
+      com.docker.network.bridge.enable_ip_masquerade: "true"
+      com.docker.network.driver.mtu: "1500"

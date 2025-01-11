@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ZerkerEOD/hashdom-backend/internal/db"
-	"github.com/ZerkerEOD/hashdom-backend/internal/db/queries"
-	"github.com/ZerkerEOD/hashdom-backend/internal/models"
+	"github.com/ZerkerEOD/hashdom/backend/internal/db"
+	"github.com/ZerkerEOD/hashdom/backend/internal/db/queries"
+	"github.com/ZerkerEOD/hashdom/backend/internal/models"
 )
 
 // AgentRepository handles database operations for agents

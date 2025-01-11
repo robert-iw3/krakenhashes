@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/ZerkerEOD/hashdom-backend/internal/database"
-	"github.com/ZerkerEOD/hashdom-backend/pkg/debug"
-	"github.com/ZerkerEOD/hashdom-backend/pkg/jwt"
+	"github.com/ZerkerEOD/hashdom/backend/internal/database"
+	"github.com/ZerkerEOD/hashdom/backend/pkg/debug"
+	"github.com/ZerkerEOD/hashdom/backend/pkg/jwt"
 	"golang.org/x/crypto/bcrypt"
 )
 

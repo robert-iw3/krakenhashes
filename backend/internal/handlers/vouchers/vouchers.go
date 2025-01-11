@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/ZerkerEOD/hashdom-backend/internal/services"
-	"github.com/ZerkerEOD/hashdom-backend/pkg/debug"
+	"github.com/ZerkerEOD/hashdom/backend/internal/services"
+	"github.com/ZerkerEOD/hashdom/backend/pkg/debug"
 	"github.com/gorilla/mux"
 )
 

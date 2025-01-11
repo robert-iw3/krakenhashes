@@ -11,10 +11,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ZerkerEOD/hashdom-backend/internal/models"
-	"github.com/ZerkerEOD/hashdom-backend/internal/services"
-	wsservice "github.com/ZerkerEOD/hashdom-backend/internal/services/websocket"
-	"github.com/ZerkerEOD/hashdom-backend/pkg/debug"
+	"github.com/ZerkerEOD/hashdom/backend/internal/models"
+	"github.com/ZerkerEOD/hashdom/backend/internal/services"
+	wsservice "github.com/ZerkerEOD/hashdom/backend/internal/services/websocket"
+	"github.com/ZerkerEOD/hashdom/backend/pkg/debug"
 	"github.com/gorilla/websocket"
 )
 
