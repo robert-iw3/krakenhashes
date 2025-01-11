@@ -109,7 +109,7 @@ func loadConfig() agentConfig {
 			port = "8080" // Default port if not specified
 		}
 
-		env := fmt.Sprintf(`# HashDom Agent Configuration
+		env := fmt.Sprintf(`# KrakenHashes Agent Configuration
 # Generated on: %s
 
 # Server Configuration
@@ -174,7 +174,7 @@ func commentOutClaimCode() error {
 }
 
 /*
- * main is the entry point for the HashDom agent.
+ * main is the entry point for the KrakenHashes agent.
  *
  * It performs the following operations:
  * 1. Loads and validates configuration

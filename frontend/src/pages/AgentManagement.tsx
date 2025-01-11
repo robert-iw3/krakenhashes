@@ -1,5 +1,5 @@
 /**
- * Agent Management page component for HashDom frontend.
+ * Agent Management page component for KrakenHashes frontend.
  * 
  * Features:
  *   - Agent registration with claim code generation
@@ -39,7 +39,7 @@ import { Agent, ClaimVoucher } from '../types/agent';
 import { api } from '../services/api';
 
 /**
- * AgentManagement component handles the display and management of HashDom agents.
+ * AgentManagement component handles the display and management of KrakenHashes agents.
  * 
  * Features:
  *   - Register new agents

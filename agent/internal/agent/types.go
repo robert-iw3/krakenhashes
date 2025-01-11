@@ -1,6 +1,6 @@
 /*
  * Package agent provides WebSocket communication types and structures
- * for the HashDom agent.
+ * for the KrakenHashes agent.
  *
  * Message Types:
  *   - Job assignments

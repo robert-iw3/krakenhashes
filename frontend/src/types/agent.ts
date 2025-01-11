@@ -1,5 +1,5 @@
 /**
- * Agent types and interfaces for the HashDom frontend.
+ * Agent types and interfaces for the KrakenHashes frontend.
  * 
  * @packageDocumentation
  */

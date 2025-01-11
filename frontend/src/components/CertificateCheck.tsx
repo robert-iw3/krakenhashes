@@ -107,7 +107,7 @@ const CertificateCheck: React.FC<CertificateCheckProps> = ({ onCertVerified }) =
       const caUrl = window.URL.createObjectURL(caBlob);
       const caLink = document.createElement('a');
       caLink.href = caUrl;
-      caLink.download = 'hashdom-ca.crt';
+      caLink.download = 'krakenhashes-ca.crt';
       document.body.appendChild(caLink);
       caLink.click();
       window.URL.revokeObjectURL(caUrl);
@@ -115,7 +115,7 @@ const CertificateCheck: React.FC<CertificateCheckProps> = ({ onCertVerified }) =
 
       // After downloading, show instructions for installation
       setError(`Please follow these steps:
-1. Open the downloaded certificate (hashdom-ca.crt)
+1. Open the downloaded certificate (krakenhashes-ca.crt)
 2. When prompted, select "Trust this CA to identify websites"
 3. Complete the installation
 4. Restart your browser
@@ -173,7 +173,7 @@ const CertificateCheck: React.FC<CertificateCheckProps> = ({ onCertVerified }) =
             )}
 
             <Typography>
-              To ensure secure communication with HashDom, you need to install our certificate authority (CA) certificate.
+              To ensure secure communication with KrakenHashes, you need to install our certificate authority (CA) certificate.
               Please follow these steps:
             </Typography>
 
@@ -193,7 +193,7 @@ const CertificateCheck: React.FC<CertificateCheckProps> = ({ onCertVerified }) =
                 </ListItemIcon>
                 <ListItemText 
                   primary="Install CA Certificate"
-                  secondary="Import the CA certificate (hashdom-ca.crt) into your browser's trusted certificate authorities"
+                  secondary="Import the CA certificate (krakenhashes-ca.crt) into your browser's trusted certificate authorities"
                 />
               </ListItem>
               <ListItem>

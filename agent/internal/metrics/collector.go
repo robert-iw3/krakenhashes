@@ -1,6 +1,6 @@
 /*
  * Package metrics implements system resource monitoring and metrics collection
- * for the HashDom agent.
+ * for the KrakenHashes agent.
  *
  * Usage:
  *   collector := metrics.New(metrics.Config{

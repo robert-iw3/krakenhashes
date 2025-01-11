@@ -1,5 +1,5 @@
 /**
- * Application Entry Point - Root configuration and rendering for HashDom frontend
+ * Application Entry Point - Root configuration and rendering for KrakenHashes frontend
  * 
  * Features:
  *   - React 18 concurrent rendering

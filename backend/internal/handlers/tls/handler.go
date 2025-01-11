@@ -34,7 +34,7 @@ func (h *Handler) ServeCACertificate(w http.ResponseWriter, r *http.Request) {
 
 	// Set headers for browser download
 	w.Header().Set("Content-Type", "application/x-x509-ca-cert")
-	w.Header().Set("Content-Disposition", "attachment; filename=hashdom-ca.crt")
+	w.Header().Set("Content-Disposition", "attachment; filename=krakenhashes-ca.crt")
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(cert)))
 
 	// Write certificate
@@ -60,7 +60,7 @@ func (h *Handler) ServeClientCertificate(w http.ResponseWriter, r *http.Request)
 
 	// Set headers for browser download
 	w.Header().Set("Content-Type", "application/x-pem-file")
-	w.Header().Set("Content-Disposition", "attachment; filename=hashdom-client.pem")
+	w.Header().Set("Content-Disposition", "attachment; filename=krakenhashes-client.pem")
 
 	// Write certificate and key
 	if _, err := w.Write(certPEM); err != nil {

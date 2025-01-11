@@ -1,6 +1,6 @@
 /*
  * Package agent implements agent registration and management functionality
- * for the HashDom agent service.
+ * for the KrakenHashes agent service.
  */
 package agent
 

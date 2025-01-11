@@ -1,5 +1,5 @@
 /**
- * Theme - Global theme configuration for HashDom frontend
+ * Theme - Global theme configuration for KrakenHashes frontend
  * 
  * Features:
  *   - Dark mode configuration

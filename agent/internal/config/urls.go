@@ -1,5 +1,5 @@
 /*
- * Package config provides configuration and URL handling for the HashDom agent.
+ * Package config provides configuration and URL handling for the KrakenHashes agent.
  */
 package config
 

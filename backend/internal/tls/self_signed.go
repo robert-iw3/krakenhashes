@@ -392,8 +392,8 @@ func (p *SelfSignedProvider) generateNewCertificates() error {
 		Subject: pkix.Name{
 			Country:            []string{p.config.CADetails.Country},
 			Organization:       []string{p.config.CADetails.Organization},
-			OrganizationalUnit: []string{"HashDom Server"},
-			CommonName:         "HashDom Server",
+			OrganizationalUnit: []string{"KrakenHashes Server"},
+			CommonName:         "KrakenHashes Server",
 		},
 		NotBefore:             time.Now(),
 		NotAfter:              time.Now().AddDate(0, 0, p.config.Validity.Server),
@@ -433,8 +433,8 @@ func (p *SelfSignedProvider) generateNewCertificates() error {
 		Subject: pkix.Name{
 			Country:            []string{p.config.CADetails.Country},
 			Organization:       []string{p.config.CADetails.Organization},
-			OrganizationalUnit: []string{"HashDom Client"},
-			CommonName:         "HashDom Client",
+			OrganizationalUnit: []string{"KrakenHashes Client"},
+			CommonName:         "KrakenHashes Client",
 		},
 		NotBefore:             time.Now(),
 		NotAfter:              time.Now().AddDate(0, 0, p.config.Validity.Server),
@@ -660,7 +660,7 @@ func (p *SelfSignedProvider) GenerateClientCertificate(commonName string) (*tls.
 		Subject: pkix.Name{
 			Country:            []string{p.config.CADetails.Country},
 			Organization:       []string{p.config.CADetails.Organization},
-			OrganizationalUnit: []string{"HashDom Agents"},
+			OrganizationalUnit: []string{"KrakenHashes Agents"},
 			CommonName:         commonName,
 		},
 		NotBefore:             time.Now(),

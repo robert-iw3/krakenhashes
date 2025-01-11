@@ -1,5 +1,5 @@
 /**
- * Login - Authentication component for HashDom frontend
+ * Login - Authentication component for KrakenHashes frontend
  * 
  * Features:
  *   - User authentication
@@ -126,7 +126,7 @@ const Login: React.FC = () => {
         }}
       >
         <Typography component="h1" variant="h5">
-          Log in to HashDom
+          Log in to KrakenHashes
         </Typography>
         <Box component="form" onSubmit={handleSubmit} noValidate sx={{ mt: 1 }}>
           {error && (

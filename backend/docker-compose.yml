@@ -1,7 +1,7 @@
 services:
   db:
     image: postgres:15
-    container_name: hashdom-postgres
+    container_name: krakenhashes-postgres
     environment:
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_USER: ${DB_USER}
@@ -11,10 +11,10 @@ services:
     tmpfs:
       - /var/lib/postgresql/data
     networks:
-      - hashdom-net
+      - krakenhashes-net
 
 networks:
-  hashdom-net:
+  krakenhashes-net:
     driver: bridge
     driver_opts:
       com.docker.network.bridge.enable_icc: "true"

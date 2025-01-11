@@ -1,5 +1,5 @@
 /*
- * Package integration_test provides comprehensive integration testing for the HashDom agent metrics system.
+ * Package integration_test provides comprehensive integration testing for the KrakenHashes agent metrics system.
  *
  * Job Processing:
  *   - Input: System metrics collection configuration

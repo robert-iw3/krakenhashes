@@ -127,7 +127,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             {open ? <ChevronLeftIcon /> : <MenuIcon />}
           </IconButton>
           <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1 }}>
-            HashDom
+            KrakenHashes
           </Typography>
           <Button 
             color="inherit" 

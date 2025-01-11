@@ -39,9 +39,9 @@ func LoadProviderConfig(appConfig *config.Config) (*ProviderConfig, error) {
 	// Create CA details
 	caDetails := &CertificateAuthority{
 		Country:            env.GetOrDefault("KH_CA_COUNTRY", "US"),
-		Organization:       env.GetOrDefault("KH_CA_ORGANIZATION", "HashDom"),
-		OrganizationalUnit: env.GetOrDefault("KH_CA_ORGANIZATIONAL_UNIT", "HashDom CA"),
-		CommonName:         env.GetOrDefault("KH_CA_COMMON_NAME", "HashDom Root CA"),
+		Organization:       env.GetOrDefault("KH_CA_ORGANIZATION", "KrakenHashes"),
+		OrganizationalUnit: env.GetOrDefault("KH_CA_ORGANIZATIONAL_UNIT", "KrakenHashes CA"),
+		CommonName:         env.GetOrDefault("KH_CA_COMMON_NAME", "KrakenHashes Root CA"),
 	}
 
 	config := &ProviderConfig{

@@ -34,7 +34,7 @@ const fetchCACertificate = async (): Promise<void> => {
     const downloadUrl = window.URL.createObjectURL(certBlob);
     const link = document.createElement('a');
     link.href = downloadUrl;
-    link.download = 'hashdom-ca.crt';
+    link.download = 'krakenhashes-ca.crt';
     
     // Add instructions for the user
     const instructions = document.createElement('div');
@@ -49,10 +49,10 @@ const fetchCACertificate = async (): Promise<void> => {
     instructions.style.zIndex = '9999';
     instructions.innerHTML = `
       <h3>Security Certificate Required</h3>
-      <p>To use HashDom securely, you need to install our CA certificate:</p>
+      <p>To use KrakenHashes securely, you need to install our CA certificate:</p>
       <ol>
         <li>Click "Download Certificate" below</li>
-        <li>Open the downloaded certificate (hashdom-ca.crt)</li>
+        <li>Open the downloaded certificate (krakenhashes-ca.crt)</li>
         <li>When prompted, select "Trust this CA to identify websites"</li>
         <li>Complete the installation</li>
         <li>Restart your browser</li>
