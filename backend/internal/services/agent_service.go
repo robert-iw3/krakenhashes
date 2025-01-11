@@ -11,9 +11,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ZerkerEOD/hashdom/backend/internal/models"
-	"github.com/ZerkerEOD/hashdom/backend/internal/repository"
-	"github.com/ZerkerEOD/hashdom/backend/pkg/debug"
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/models"
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/repository"
+	"github.com/ZerkerEOD/krakenhashes/backend/pkg/debug"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 )

@@ -43,4 +43,4 @@ docker-compose.yml
 
 # Certificate storage
 certs/
-.hashdom/ 
+.krakenhashes/ 

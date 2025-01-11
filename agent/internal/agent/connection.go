@@ -12,11 +12,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/ZerkerEOD/hashdom/agent/internal/auth"
-	"github.com/ZerkerEOD/hashdom/agent/internal/config"
-	"github.com/ZerkerEOD/hashdom/agent/internal/hardware"
-	"github.com/ZerkerEOD/hashdom/agent/internal/hardware/types"
-	"github.com/ZerkerEOD/hashdom/agent/pkg/debug"
+	"github.com/ZerkerEOD/krakenhashes/agent/internal/auth"
+	"github.com/ZerkerEOD/krakenhashes/agent/internal/config"
+	"github.com/ZerkerEOD/krakenhashes/agent/internal/hardware"
+	"github.com/ZerkerEOD/krakenhashes/agent/internal/hardware/types"
+	"github.com/ZerkerEOD/krakenhashes/agent/pkg/debug"
 	"github.com/gorilla/websocket"
 )
 
@@ -137,9 +137,9 @@ func getEnvDuration(key string, defaultValue time.Duration) time.Duration {
 // initTimingConfig initializes the timing configuration from environment variables
 func initTimingConfig() {
 	debug.Info("Initializing WebSocket timing configuration")
-	writeWait = getEnvDuration("HASHDOM_WRITE_WAIT", defaultWriteWait)
-	pongWait = getEnvDuration("HASHDOM_PONG_WAIT", defaultPongWait)
-	pingPeriod = getEnvDuration("HASHDOM_PING_PERIOD", defaultPingPeriod)
+	writeWait = getEnvDuration("KH_WRITE_WAIT", defaultWriteWait)
+	pongWait = getEnvDuration("KH_PONG_WAIT", defaultPongWait)
+	pingPeriod = getEnvDuration("KH_PING_PERIOD", defaultPingPeriod)
 	debug.Info("WebSocket timing configuration initialized:")
 	debug.Info("- Write Wait: %v", writeWait)
 	debug.Info("- Pong Wait: %v", pongWait)

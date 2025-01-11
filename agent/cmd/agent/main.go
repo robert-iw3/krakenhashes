@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ZerkerEOD/hashdom/agent/internal/agent"
-	"github.com/ZerkerEOD/hashdom/agent/internal/config"
-	"github.com/ZerkerEOD/hashdom/agent/internal/metrics"
-	"github.com/ZerkerEOD/hashdom/agent/pkg/debug"
+	"github.com/ZerkerEOD/krakenhashes/agent/internal/agent"
+	"github.com/ZerkerEOD/krakenhashes/agent/internal/config"
+	"github.com/ZerkerEOD/krakenhashes/agent/internal/metrics"
+	"github.com/ZerkerEOD/krakenhashes/agent/pkg/debug"
 	"github.com/joho/godotenv"
 )
 
@@ -65,8 +65,8 @@ func loadConfig() agentConfig {
 
 	// Override with environment variables if not set by flags
 	if cfg.host == "" {
-		host := os.Getenv("HASHDOM_HOST")
-		port := os.Getenv("HASHDOM_PORT")
+		host := os.Getenv("KH_HOST")
+		port := os.Getenv("KH_PORT")
 		if host != "" {
 			if port != "" {
 				cfg.host = fmt.Sprintf("%s:%s", host, port)
@@ -89,7 +89,7 @@ func loadConfig() agentConfig {
 		}
 	}
 	if cfg.claimCode == "" {
-		cfg.claimCode = os.Getenv("HASHDOM_CLAIM_CODE")
+		cfg.claimCode = os.Getenv("KH_CLAIM_CODE")
 	}
 	if !cfg.debug {
 		cfg.debug = os.Getenv("DEBUG") == "true"
@@ -113,14 +113,14 @@ func loadConfig() agentConfig {
 # Generated on: %s
 
 # Server Configuration
-HASHDOM_HOST=%s  # Backend server hostname
-HASHDOM_PORT=%s  # Backend server port
+KH_HOST=%s  # Backend server hostname
+KH_PORT=%s  # Backend server port
 USE_TLS=%t       # Use TLS for secure communication (wss:// and https://)
 LISTEN_INTERFACE=%s
 HEARTBEAT_INTERVAL=%d
 
 # Agent Configuration
-HASHDOM_CLAIM_CODE=%s
+KH_CLAIM_CODE=%s
 
 # Logging Configuration
 DEBUG=%t
@@ -152,10 +152,10 @@ func commentOutClaimCode() error {
 		return fmt.Errorf("failed to create backup file: %w", err)
 	}
 
-	// Split into lines and modify the HASHDOM_CLAIM_CODE line
+	// Split into lines and modify the KH_CLAIM_CODE line
 	lines := strings.Split(string(content), "\n")
 	for i, line := range lines {
-		if strings.HasPrefix(line, "HASHDOM_CLAIM_CODE=") {
+		if strings.HasPrefix(line, "KH_CLAIM_CODE=") {
 			lines[i] = "# " + line + " # Commented out after successful registration"
 		}
 	}
@@ -229,8 +229,8 @@ func main() {
 		host = cfg.host
 		port = "8080" // Default port if not specified
 	}
-	os.Setenv("HASHDOM_HOST", host)
-	os.Setenv("HASHDOM_PORT", port)
+	os.Setenv("KH_HOST", host)
+	os.Setenv("KH_PORT", port)
 	os.Setenv("USE_TLS", strconv.FormatBool(cfg.useTLS))
 
 	// Create URL configuration

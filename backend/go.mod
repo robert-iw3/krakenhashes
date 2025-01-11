@@ -1,4 +1,4 @@
-module github.com/ZerkerEOD/hashdom/backend
+module github.com/ZerkerEOD/krakenhashes/backend
 
 go 1.23.1
 

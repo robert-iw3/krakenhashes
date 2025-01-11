@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/ZerkerEOD/hashdom/backend/internal/config"
-	"github.com/ZerkerEOD/hashdom/backend/internal/services"
-	"github.com/ZerkerEOD/hashdom/backend/internal/tls"
-	"github.com/ZerkerEOD/hashdom/backend/pkg/debug"
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/config"
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/services"
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/tls"
+	"github.com/ZerkerEOD/krakenhashes/backend/pkg/debug"
 )
 
 // RegistrationRequest represents the data sent by the agent during registration

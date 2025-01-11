@@ -38,9 +38,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ZerkerEOD/hashdom/agent/internal/agent"
-	"github.com/ZerkerEOD/hashdom/agent/internal/config"
-	"github.com/ZerkerEOD/hashdom/agent/internal/metrics"
+	"github.com/ZerkerEOD/krakenhashes/agent/internal/agent"
+	"github.com/ZerkerEOD/krakenhashes/agent/internal/config"
+	"github.com/ZerkerEOD/krakenhashes/agent/internal/metrics"
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -126,7 +126,7 @@ func TestMetricsIntegration(t *testing.T) {
 	defer collector.Close()
 
 	// Create test URL configuration
-	os.Setenv("HASHDOM_SERVER_URL", "ws://localhost:8080")
+	os.Setenv("KH_SERVER_URL", "ws://localhost:8080")
 	urlConfig := config.NewURLConfig()
 
 	// Try to register the agent

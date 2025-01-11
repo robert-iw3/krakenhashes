@@ -1,4 +1,4 @@
-module github.com/ZerkerEOD/hashdom/agent
+module github.com/ZerkerEOD/krakenhashes/agent
 
 go 1.23.1
 

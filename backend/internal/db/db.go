@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ZerkerEOD/hashdom/backend/pkg/debug"
+	"github.com/ZerkerEOD/krakenhashes/backend/pkg/debug"
 	_ "github.com/lib/pq" // PostgreSQL driver
 )
 

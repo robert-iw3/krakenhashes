@@ -31,7 +31,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ZerkerEOD/hashdom/agent/internal/metrics"
+	"github.com/ZerkerEOD/krakenhashes/agent/internal/metrics"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

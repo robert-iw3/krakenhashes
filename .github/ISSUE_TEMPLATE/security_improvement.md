@@ -9,7 +9,7 @@ assignees: ''
 ## Security Improvement: CA Certificate Directory Permissions
 
 ### Current Behavior
-- Backend attempts to create and access `/etc/hashdom/ca` directory directly
+- Backend attempts to create and access `/etc/krakenhashes/ca` directory directly
 - Requires elevated privileges to create/write to `/etc` directory
 - Application needs to run with higher privileges than necessary
 - No separation between setup and runtime permissions
@@ -18,7 +18,7 @@ assignees: ''
 Implement a secure permission model that separates initial setup from runtime:
 
 1. **Setup Phase (Elevated Privileges)**
-   - Create a separate `hashdom-setup` binary for initialization
+   - Create a separate `krakenhashes-setup` binary for initialization
    - Create required directories
    - Generate initial CA certificates if needed
    - Set proper ownership and permissions
@@ -31,16 +31,16 @@ Implement a secure permission model that separates initial setup from runtime:
    - Clear documentation of required permissions
 
 3. **Implementation Details**
-   - Create dedicated service user/group (`hashdom`)
+   - Create dedicated service user/group (`krakenhashes`)
    - Directory structure:
      ```
-     /etc/hashdom/
+     /etc/krakenhashes/
      ├── ca/
      │   ├── ca.crt (0644)
      │   └── ca.key (0600)
      └── ... (other configs)
      ```
-   - Ownership: `hashdom:hashdom`
+   - Ownership: `krakenhashes:krakenhashes`
    - Directory permissions: `0700`
 
 4. **Deployment Configuration**
@@ -57,7 +57,7 @@ Implement a secure permission model that separates initial setup from runtime:
 5. Easier security auditing
 
 ### Implementation Steps
-1. [ ] Create `hashdom-setup` command
+1. [ ] Create `krakenhashes-setup` command
 2. [ ] Implement permission checks in main application
 3. [ ] Update installation documentation
 4. [ ] Create SystemD service definition

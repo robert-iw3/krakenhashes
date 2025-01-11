@@ -8,7 +8,7 @@ import (
 	"net/url"
 	"os"
 
-	"github.com/ZerkerEOD/hashdom/agent/pkg/debug"
+	"github.com/ZerkerEOD/krakenhashes/agent/pkg/debug"
 )
 
 // URLConfig holds the server URL configuration
@@ -21,20 +21,20 @@ type URLConfig struct {
 // NewURLConfig creates a new URL configuration from environment variables
 func NewURLConfig() *URLConfig {
 	// Get host and port
-	host := os.Getenv("HASHDOM_HOST")
+	host := os.Getenv("KH_HOST")
 	if host == "" {
 		host = "localhost" // Default for development
 		debug.Debug("Using default host: %s", host)
 	}
 
-	port := os.Getenv("HASHDOM_PORT")
+	port := os.Getenv("KH_PORT")
 	if port == "" {
 		port = "31337" // Default for development
 		debug.Debug("Using default port: %s", port)
 	}
 
 	// Get HTTP port for CA certificate
-	httpPort := os.Getenv("HASHDOM_HTTP_PORT")
+	httpPort := os.Getenv("KH_HTTP_PORT")
 	if httpPort == "" {
 		httpPort = "1337" // Default to match backend's HTTP server
 		debug.Debug("Using default HTTP port: %s", httpPort)

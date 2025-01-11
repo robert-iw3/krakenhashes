@@ -1,6 +1,6 @@
-# HashDom Agent
+# KrakenHashes Agent
 
-The HashDom Agent is responsible for hardware monitoring and management.
+The KrakenHashes Agent is responsible for hardware monitoring and management.
 
 ## Dependencies
 

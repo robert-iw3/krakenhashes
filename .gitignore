@@ -70,4 +70,4 @@ backend/**/*.cover
 # Certificate storage
 /certs/
 backend/certs/
-.hashdom/ 
+.krakenhashes/ 

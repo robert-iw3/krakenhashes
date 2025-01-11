@@ -8,11 +8,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/ZerkerEOD/hashdom/backend/internal/config"
-	"github.com/ZerkerEOD/hashdom/backend/internal/database"
-	"github.com/ZerkerEOD/hashdom/backend/internal/routes"
-	"github.com/ZerkerEOD/hashdom/backend/internal/tls"
-	"github.com/ZerkerEOD/hashdom/backend/pkg/debug"
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/config"
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/database"
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/routes"
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/tls"
+	"github.com/ZerkerEOD/krakenhashes/backend/pkg/debug"
 	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
 )

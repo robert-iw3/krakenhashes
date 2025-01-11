@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/ZerkerEOD/hashdom/backend/pkg/debug"
-	"github.com/ZerkerEOD/hashdom/backend/pkg/env"
+	"github.com/ZerkerEOD/krakenhashes/backend/pkg/debug"
+	"github.com/ZerkerEOD/krakenhashes/backend/pkg/env"
 )
 
 // Config holds the application configuration
@@ -22,34 +22,34 @@ type Config struct {
 // NewConfig creates a new Config instance with values from environment variables
 func NewConfig() *Config {
 	httpsPort := 31337 // Default HTTPS port
-	if portStr := os.Getenv("HASHDOM_HTTPS_PORT"); portStr != "" {
+	if portStr := os.Getenv("KH_HTTPS_PORT"); portStr != "" {
 		if p, err := strconv.Atoi(portStr); err == nil {
 			httpsPort = p
 		}
 	}
 
 	httpPort := 1337 // Default HTTP port
-	if portStr := os.Getenv("HASHDOM_HTTP_PORT"); portStr != "" {
+	if portStr := os.Getenv("KH_HTTP_PORT"); portStr != "" {
 		if p, err := strconv.Atoi(portStr); err == nil {
 			httpPort = p
 		}
 	}
 
-	host := os.Getenv("HASHDOM_HOST")
+	host := os.Getenv("KH_HOST")
 	if host == "" {
 		host = "localhost" // Default host
 	}
 
 	// Get config directory from environment or use default
-	configDir := os.Getenv("HASHDOM_CONFIG_DIR")
+	configDir := os.Getenv("KH_CONFIG_DIR")
 	if configDir == "" {
 		// Try to get user's home directory
 		home, err := os.UserHomeDir()
 		if err != nil {
 			// Fallback to current directory
-			configDir = ".hashdom"
+			configDir = ".krakenhashes"
 		} else {
-			configDir = filepath.Join(home, ".hashdom")
+			configDir = filepath.Join(home, ".krakenhashes")
 		}
 	}
 
@@ -57,7 +57,7 @@ func NewConfig() *Config {
 	if err := os.MkdirAll(configDir, 0755); err != nil {
 		debug.Error("Failed to create config directory: %v", err)
 		// Fallback to current directory
-		configDir = ".hashdom"
+		configDir = ".krakenhashes"
 		if err := os.MkdirAll(configDir, 0755); err != nil {
 			debug.Error("Failed to create fallback config directory: %v", err)
 		}
@@ -100,7 +100,7 @@ func (c *Config) GetAddress() string {
 
 // GetCertsDir returns the path to the certificates directory
 func (c *Config) GetCertsDir() string {
-	certsDir := os.Getenv("HASHDOM_CERTS_DIR")
+	certsDir := os.Getenv("KH_CERTS_DIR")
 	if certsDir == "" {
 		certsDir = filepath.Join(c.ConfigDir, "certs")
 	}
@@ -110,7 +110,7 @@ func (c *Config) GetCertsDir() string {
 // GetAdditionalDNSNames returns a list of additional DNS names from environment variables
 func GetAdditionalDNSNames() []string {
 	// Get comma-separated list of DNS names from environment variable
-	dnsNamesStr := env.GetOrDefault("HASHDOM_ADDITIONAL_DNS_NAMES", "")
+	dnsNamesStr := env.GetOrDefault("KH_ADDITIONAL_DNS_NAMES", "")
 	if dnsNamesStr == "" {
 		return nil
 	}
@@ -127,7 +127,7 @@ func GetAdditionalDNSNames() []string {
 // GetAdditionalIPAddresses returns a list of additional IP addresses from environment variables
 func GetAdditionalIPAddresses() []string {
 	// Get comma-separated list of IP addresses from environment variable
-	ipAddressesStr := env.GetOrDefault("HASHDOM_ADDITIONAL_IP_ADDRESSES", "")
+	ipAddressesStr := env.GetOrDefault("KH_ADDITIONAL_IP_ADDRESSES", "")
 	if ipAddressesStr == "" {
 		return nil
 	}

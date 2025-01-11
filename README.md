@@ -1,12 +1,12 @@
-# HashDom
+# KrakenHashes
 
-HashDom is a multi-facet application consisting of a frontend, backend, and agent components.
+KrakenHashes is a multi-facet application consisting of a frontend, backend, and agent components.
 
 ## Components
 
-- hashdom-frontend: React-based frontend application
-- hashdom-backend: Go-based backend server
-- hashdom-agent: Go-based agent for distributed job processing
+- krakenhashes-frontend: React-based frontend application
+- krakenhashes-backend: Go-based backend server
+- krakenhashes-agent: Go-based agent for distributed job processing
 
 ## Development
 

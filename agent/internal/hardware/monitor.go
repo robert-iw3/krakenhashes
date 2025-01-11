@@ -5,10 +5,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ZerkerEOD/hashdom/agent/internal/hardware/gpu"
-	"github.com/ZerkerEOD/hashdom/agent/internal/hardware/os"
-	"github.com/ZerkerEOD/hashdom/agent/internal/hardware/types"
-	"github.com/ZerkerEOD/hashdom/agent/pkg/debug"
+	"github.com/ZerkerEOD/krakenhashes/agent/internal/hardware/gpu"
+	"github.com/ZerkerEOD/krakenhashes/agent/internal/hardware/os"
+	"github.com/ZerkerEOD/krakenhashes/agent/internal/hardware/types"
+	"github.com/ZerkerEOD/krakenhashes/agent/pkg/debug"
 )
 
 // Monitor manages hardware monitoring

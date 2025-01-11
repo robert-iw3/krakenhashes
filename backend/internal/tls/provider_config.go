@@ -5,9 +5,9 @@ import (
 	"path/filepath"
 	"strconv"
 
-	"github.com/ZerkerEOD/hashdom/backend/internal/config"
-	"github.com/ZerkerEOD/hashdom/backend/pkg/debug"
-	"github.com/ZerkerEOD/hashdom/backend/pkg/env"
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/config"
+	"github.com/ZerkerEOD/krakenhashes/backend/pkg/debug"
+	"github.com/ZerkerEOD/krakenhashes/backend/pkg/env"
 )
 
 // LoadProviderConfig loads the TLS provider configuration from environment variables
@@ -15,7 +15,7 @@ func LoadProviderConfig(appConfig *config.Config) (*ProviderConfig, error) {
 	debug.Info("Loading TLS provider configuration from environment")
 
 	// Load TLS mode
-	mode := ProviderMode(env.GetOrDefault("HASHDOM_TLS_MODE", string(ModeSelfSigned)))
+	mode := ProviderMode(env.GetOrDefault("KH_TLS_MODE", string(ModeSelfSigned)))
 	debug.Debug("TLS mode: %s", mode)
 
 	// Get certificates directory from app config
@@ -38,18 +38,18 @@ func LoadProviderConfig(appConfig *config.Config) (*ProviderConfig, error) {
 
 	// Create CA details
 	caDetails := &CertificateAuthority{
-		Country:            env.GetOrDefault("HASHDOM_CA_COUNTRY", "US"),
-		Organization:       env.GetOrDefault("HASHDOM_CA_ORGANIZATION", "HashDom"),
-		OrganizationalUnit: env.GetOrDefault("HASHDOM_CA_ORGANIZATIONAL_UNIT", "HashDom CA"),
-		CommonName:         env.GetOrDefault("HASHDOM_CA_COMMON_NAME", "HashDom Root CA"),
+		Country:            env.GetOrDefault("KH_CA_COUNTRY", "US"),
+		Organization:       env.GetOrDefault("KH_CA_ORGANIZATION", "HashDom"),
+		OrganizationalUnit: env.GetOrDefault("KH_CA_ORGANIZATIONAL_UNIT", "HashDom CA"),
+		CommonName:         env.GetOrDefault("KH_CA_COMMON_NAME", "HashDom Root CA"),
 	}
 
 	config := &ProviderConfig{
 		Mode:                  mode,
 		CertsDir:              certsDir,
-		CertFile:              env.GetOrDefault("HASHDOM_CERT_FILE", filepath.Join(certsDir, "server.crt")),
-		KeyFile:               env.GetOrDefault("HASHDOM_KEY_FILE", filepath.Join(certsDir, "server.key")),
-		CAFile:                env.GetOrDefault("HASHDOM_CA_FILE", filepath.Join(certsDir, "ca.crt")),
+		CertFile:              env.GetOrDefault("KH_CERT_FILE", filepath.Join(certsDir, "server.crt")),
+		KeyFile:               env.GetOrDefault("KH_KEY_FILE", filepath.Join(certsDir, "server.key")),
+		CAFile:                env.GetOrDefault("KH_CA_FILE", filepath.Join(certsDir, "ca.crt")),
 		KeySize:               4096, // Default key size
 		Validity:              validity,
 		CADetails:             caDetails,
@@ -59,7 +59,7 @@ func LoadProviderConfig(appConfig *config.Config) (*ProviderConfig, error) {
 	debug.Debug("Base configuration loaded: certs_dir=%s", config.CertsDir)
 
 	// Load key size from environment if provided
-	if keySize := env.GetOrDefault("HASHDOM_KEY_SIZE", "4096"); keySize != "" {
+	if keySize := env.GetOrDefault("KH_KEY_SIZE", "4096"); keySize != "" {
 		size, err := strconv.Atoi(keySize)
 		if err != nil {
 			debug.Error("Invalid key size: %v", err)
@@ -70,7 +70,7 @@ func LoadProviderConfig(appConfig *config.Config) (*ProviderConfig, error) {
 	debug.Debug("Key size: %d", config.KeySize)
 
 	// Load validity periods from environment if provided
-	if serverValidity := env.GetOrDefault("HASHDOM_SERVER_CERT_VALIDITY", "365"); serverValidity != "" {
+	if serverValidity := env.GetOrDefault("KH_SERVER_CERT_VALIDITY", "365"); serverValidity != "" {
 		days, err := strconv.Atoi(serverValidity)
 		if err != nil {
 			debug.Error("Invalid server certificate validity: %v", err)
@@ -79,7 +79,7 @@ func LoadProviderConfig(appConfig *config.Config) (*ProviderConfig, error) {
 		config.Validity.Server = days
 	}
 
-	if caValidity := env.GetOrDefault("HASHDOM_CA_CERT_VALIDITY", "3650"); caValidity != "" {
+	if caValidity := env.GetOrDefault("KH_CA_CERT_VALIDITY", "3650"); caValidity != "" {
 		days, err := strconv.Atoi(caValidity)
 		if err != nil {
 			debug.Error("Invalid CA certificate validity: %v", err)
@@ -101,7 +101,7 @@ func LoadProviderConfig(appConfig *config.Config) (*ProviderConfig, error) {
 		debug.Debug("Loading provided certificate configuration")
 		if config.CertFile == "" || config.KeyFile == "" {
 			debug.Error("Missing required certificate files for provided mode")
-			return nil, fmt.Errorf("HASHDOM_CERT_FILE and HASHDOM_KEY_FILE are required for provided mode")
+			return nil, fmt.Errorf("KH_CERT_FILE and KH_KEY_FILE are required for provided mode")
 		}
 		debug.Debug("Certificate files - Cert: %s, Key: %s, CA: %s",
 			config.CertFile,
@@ -110,19 +110,19 @@ func LoadProviderConfig(appConfig *config.Config) (*ProviderConfig, error) {
 
 	case ModeCertbot:
 		debug.Debug("Loading certbot configuration")
-		domain := env.GetOrDefault("HASHDOM_CERTBOT_DOMAIN", "")
-		email := env.GetOrDefault("HASHDOM_CERTBOT_EMAIL", "")
+		domain := env.GetOrDefault("KH_CERTBOT_DOMAIN", "")
+		email := env.GetOrDefault("KH_CERTBOT_EMAIL", "")
 		certbotConfig := &CertbotConfig{
 			Domain:    domain,
 			Email:     email,
-			Staging:   env.GetBool("HASHDOM_CERTBOT_STAGING"),
-			AutoRenew: env.GetBool("HASHDOM_CERTBOT_AUTO_RENEW"),
-			RenewHook: env.GetOrDefault("HASHDOM_CERTBOT_RENEW_HOOK", ""),
+			Staging:   env.GetBool("KH_CERTBOT_STAGING"),
+			AutoRenew: env.GetBool("KH_CERTBOT_AUTO_RENEW"),
+			RenewHook: env.GetOrDefault("KH_CERTBOT_RENEW_HOOK", ""),
 		}
 
 		if domain == "" || email == "" {
 			debug.Error("Missing required certbot configuration")
-			return nil, fmt.Errorf("HASHDOM_CERTBOT_DOMAIN and HASHDOM_CERTBOT_EMAIL are required for certbot mode")
+			return nil, fmt.Errorf("KH_CERTBOT_DOMAIN and KH_CERTBOT_EMAIL are required for certbot mode")
 		}
 		debug.Debug("Certbot configuration - Domain: %s, Email: %s, Staging: %v, AutoRenew: %v",
 			domain,

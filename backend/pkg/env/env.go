@@ -3,7 +3,7 @@ package env
 import (
 	"os"
 
-	"github.com/ZerkerEOD/hashdom/backend/pkg/debug"
+	"github.com/ZerkerEOD/krakenhashes/backend/pkg/debug"
 )
 
 // GetOrDefault returns the environment variable value or the default if not set

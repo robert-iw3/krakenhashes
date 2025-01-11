@@ -4,7 +4,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/ZerkerEOD/hashdom/agent/pkg/debug"
+	"github.com/ZerkerEOD/krakenhashes/agent/pkg/debug"
 )
 
 const (
@@ -14,13 +14,13 @@ const (
 )
 
 // GetConfigDir returns the path to the agent's configuration directory
-// It checks HASHDOM_CONFIG_DIR environment variable first, then falls back to default
+// It checks KH_CONFIG_DIR environment variable first, then falls back to default
 // The directory will be created if it doesn't exist
 func GetConfigDir() string {
 	var configDir string
 
 	// Check environment variable first (useful for testing)
-	if envDir := os.Getenv("HASHDOM_CONFIG_DIR"); envDir != "" {
+	if envDir := os.Getenv("KH_CONFIG_DIR"); envDir != "" {
 		debug.Debug("Using config directory from environment: %s", envDir)
 		configDir = envDir
 	} else {

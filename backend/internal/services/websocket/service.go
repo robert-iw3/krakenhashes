@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ZerkerEOD/hashdom/backend/internal/models"
-	"github.com/ZerkerEOD/hashdom/backend/internal/services"
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/models"
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/services"
 )
 
 // MessageType represents the type of WebSocket message

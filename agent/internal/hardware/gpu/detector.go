@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/ZerkerEOD/hashdom/agent/internal/hardware/types"
-	"github.com/ZerkerEOD/hashdom/agent/pkg/debug"
+	"github.com/ZerkerEOD/krakenhashes/agent/internal/hardware/types"
+	"github.com/ZerkerEOD/krakenhashes/agent/pkg/debug"
 )
 
 // DetectorFactory manages GPU detectors for different vendors

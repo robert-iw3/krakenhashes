@@ -20,9 +20,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ZerkerEOD/hashdom/agent/internal/auth"
-	"github.com/ZerkerEOD/hashdom/agent/internal/config"
-	"github.com/ZerkerEOD/hashdom/agent/pkg/debug"
+	"github.com/ZerkerEOD/krakenhashes/agent/internal/auth"
+	"github.com/ZerkerEOD/krakenhashes/agent/internal/config"
+	"github.com/ZerkerEOD/krakenhashes/agent/pkg/debug"
 )
 
 // Add file lock management
@@ -316,7 +316,7 @@ func commentOutClaimCode() error {
 
 	lines := strings.Split(string(content), "\n")
 	for i, line := range lines {
-		if strings.HasPrefix(line, "HASHDOM_CLAIM_CODE=") && !strings.HasPrefix(line, "#") {
+		if strings.HasPrefix(line, "KH_CLAIM_CODE=") && !strings.HasPrefix(line, "#") {
 			lines[i] = "# " + line + " # Commented out after successful registration"
 			break
 		}
