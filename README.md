@@ -22,7 +22,7 @@ Instructions for setting up and running each component can be found in their res
 - [x] Docker containerization
   - [x] Environment variable configuration
   - [x] Database initialization handling
-  - [ ] Deployment to DockerHub with documentation
+  - [x] Deployment to DockerHub with documentation
 - [ ] Email notification system
   - [ ] Security event notifications
   - [ ] Job completion notifications
