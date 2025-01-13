@@ -26,6 +26,7 @@ type ProviderConfig struct {
 	CertFile string
 	KeyFile  string
 	CAFile   string
+	Host     string // Host to include in certificate SANs
 
 	// Self-signed certificate settings
 	CADetails *CertificateAuthority

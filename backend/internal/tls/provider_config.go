@@ -55,6 +55,7 @@ func LoadProviderConfig(appConfig *config.Config) (*ProviderConfig, error) {
 		CADetails:             caDetails,
 		AdditionalDNSNames:    dnsNames,
 		AdditionalIPAddresses: ipAddresses,
+		Host:                  appConfig.Host,
 	}
 	debug.Debug("Base configuration loaded: certs_dir=%s", config.CertsDir)
 
@@ -136,6 +137,16 @@ func LoadProviderConfig(appConfig *config.Config) (*ProviderConfig, error) {
 		err := fmt.Errorf("unsupported TLS mode: %s", mode)
 		debug.Error("Configuration error: %v", err)
 		return nil, err
+	}
+
+	if config.CertFile == "" {
+		config.CertFile = filepath.Join(certsDir, "cert.pem")
+	}
+	if config.KeyFile == "" {
+		config.KeyFile = filepath.Join(certsDir, "key.pem")
+	}
+	if config.CAFile == "" {
+		config.CAFile = filepath.Join(certsDir, "ca.pem")
 	}
 
 	debug.Info("Successfully loaded TLS provider configuration")

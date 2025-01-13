@@ -368,7 +368,6 @@ func (p *SelfSignedProvider) generateNewCertificates() error {
 	// Start with default DNS names
 	dnsNames := []string{
 		"localhost",
-		"127.0.0.1",
 		p.config.CADetails.CommonName,
 	}
 	// Add additional DNS names from config
@@ -378,6 +377,15 @@ func (p *SelfSignedProvider) generateNewCertificates() error {
 	ipAddresses := []net.IP{
 		net.ParseIP("127.0.0.1"),
 	}
+
+	// Add host as IP address if it's an IP
+	if ip := net.ParseIP(p.config.Host); ip != nil {
+		ipAddresses = append(ipAddresses, ip)
+	} else {
+		// If host is not an IP, add it as DNS name
+		dnsNames = append(dnsNames, p.config.Host)
+	}
+
 	// Add additional IP addresses from config
 	for _, ipStr := range p.config.AdditionalIPAddresses {
 		if ip := net.ParseIP(ipStr); ip != nil {

@@ -81,17 +81,35 @@ func RunMigrations() error {
 	connStr := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable",
 		dbUser, dbPassword, dbHost, dbPort, dbName)
 
-	m, err := migrate.New(
-		"file://db/migrations",
-		connStr)
+	// Try different migration paths
+	migrationPaths := []string{
+		"file:///usr/local/share/krakenhashes/migrations", // Docker container path
+		"file://db/migrations",                            // Local development path
+	}
+
+	var m *migrate.Migrate
+	var err error
+
+	for _, path := range migrationPaths {
+		debug.Debug("Trying migrations path: %s", path)
+		m, err = migrate.New(path, connStr)
+		if err == nil {
+			debug.Info("Found migrations at: %s", path)
+			break
+		}
+		debug.Debug("Migration path not found: %s", err)
+	}
+
 	if err != nil {
 		debug.Error("Failed to create migration instance: %v", err)
 		return err
 	}
+
 	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
 		debug.Error("Migration failed: %v", err)
 		return err
 	}
+
 	debug.Info("Database migrations completed successfully")
 	return nil
 }

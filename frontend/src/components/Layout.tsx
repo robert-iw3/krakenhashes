@@ -65,6 +65,7 @@ import {
   Dashboard as DashboardIcon,
   Computer as ComputerIcon,
   Logout as LogoutIcon,
+  Info as InfoIcon,
 } from '@mui/icons-material';
 import { logout } from '../services/auth';
 import { useAuth } from '../hooks/useAuth';
@@ -84,6 +85,10 @@ const drawerWidth = 240;
 const menuItems: MenuItem[] = [
   { text: 'Dashboard', icon: <DashboardIcon />, path: '/dashboard' },
   { text: 'Agents', icon: <ComputerIcon />, path: '/agents' },
+];
+
+const bottomMenuItems: MenuItem[] = [
+  { text: 'About', icon: <InfoIcon />, path: '/about' },
 ];
 
 const Layout: React.FC<LayoutProps> = ({ children }) => {
@@ -195,6 +200,33 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         
         <Divider />
         <List>
+          {bottomMenuItems.map((item) => (
+            <ListItem
+              button
+              key={item.text}
+              onClick={() => navigate(item.path)}
+              selected={location.pathname === item.path}
+              sx={{
+                minHeight: 48,
+                justifyContent: open ? 'initial' : 'center',
+                px: 2.5,
+              }}
+            >
+              <ListItemIcon
+                sx={{
+                  minWidth: 0,
+                  mr: open ? 3 : 'auto',
+                  justifyContent: 'center',
+                }}
+              >
+                {item.icon}
+              </ListItemIcon>
+              <ListItemText 
+                primary={item.text} 
+                sx={{ opacity: open ? 1 : 0 }}
+              />
+            </ListItem>
+          ))}
           <ListItem 
             button 
             onClick={handleLogout}

@@ -1,0 +1,82 @@
+# Version control
+.git
+.gitignore
+.gitattributes
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Dependencies
+**/node_modules
+**/vendor
+
+# Build artifacts
+**/dist
+**/build
+**/.next
+**/.nuxt
+**/.output
+
+# Development files
+**/.vscode
+**/.idea
+**/.DS_Store
+**/coverage
+**/*.log
+**/*.pid
+**/*.seed
+**/*.pid.lock
+
+# Test files
+**/__tests__
+**/*.test.*
+**/*.spec.*
+**/coverage
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Temporary files
+**/tmp
+**/temp
+**/*.tmp
+**/*.temp
+
+# Debug files
+**/*.debug
+**/debug.log
+**/*.pprof
+
+# Certificate files (except examples)
+**/*.pem
+**/*.key
+**/*.crt
+**/*.csr
+**/*.srl
+!**/examples/*.pem
+!**/examples/*.key
+!**/examples/*.crt
+
+# Database files
+**/*.db
+**/*.sqlite
+**/*.sqlite3
+dump.rdb
+
+# Editor specific
+**/.editorconfig
+**/.prettierrc
+**/.eslintrc
+**/.eslintignore
+
+# Misc
+**/.dockerignore
+**/Dockerfile*
+**/docker-compose*
+**/*.sh
+!docker/scripts/*.sh
+``` 

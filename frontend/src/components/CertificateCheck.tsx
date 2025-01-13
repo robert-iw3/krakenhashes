@@ -37,7 +37,7 @@ const CertificateCheck: React.FC<CertificateCheckProps> = ({ onCertVerified }) =
       const apiUrl = process.env.REACT_APP_API_URL || 'https://localhost:31337';
 
       // First try to fetch the CA cert to see if it exists
-      const caResponse = await fetch(`${httpApiUrl}/ca.crt`, {
+      const caResponse = await fetch(`http://${window.location.hostname}:1337/ca.crt`, {
         method: 'HEAD',
         credentials: 'include',
         mode: 'cors',
@@ -90,7 +90,7 @@ const CertificateCheck: React.FC<CertificateCheckProps> = ({ onCertVerified }) =
       const httpApiUrl = process.env.REACT_APP_HTTP_API_URL || 'http://localhost:1337';
 
       // Download CA certificate
-      const caResponse = await fetch(`${httpApiUrl}/ca.crt`, {
+      const caResponse = await fetch(`http://${window.location.hostname}:1337/ca.crt`, {
         method: 'GET',
         credentials: 'include',
         mode: 'cors',

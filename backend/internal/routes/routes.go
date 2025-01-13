@@ -63,7 +63,7 @@ func CORSMiddleware(next http.Handler) http.Handler {
 		// Get allowed origin from environment
 		allowedOrigin := os.Getenv("CORS_ALLOWED_ORIGIN")
 		if allowedOrigin == "" {
-			allowedOrigin = "https://localhost:3000" // fallback default
+			allowedOrigin = "https://localhost" // fallback default
 			debug.Warning("CORS_ALLOWED_ORIGIN not set, using default: %s", allowedOrigin)
 		}
 
@@ -71,8 +71,8 @@ func CORSMiddleware(next http.Handler) http.Handler {
 		origin := r.Header.Get("Origin")
 		debug.Debug("Request origin: %s, Allowed origin: %s", origin, allowedOrigin)
 
-		// Always use the actual origin if it matches our expected host
-		if origin != "" && (strings.HasPrefix(origin, "https://localhost:") || strings.HasPrefix(origin, "http://localhost:")) {
+		// Always allow localhost origins (both http and https)
+		if origin != "" && strings.Contains(origin, "localhost") {
 			debug.Debug("Using request origin: %s", origin)
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 		} else {
@@ -171,6 +171,10 @@ func SetupRoutes(r *mux.Router, sqlDB *sql.DB, tlsProvider tls.Provider) {
 		w.Write([]byte("OK"))
 	}).Methods("GET", "OPTIONS")
 	debug.Info("Configured health check endpoint: /api/health")
+
+	// Version endpoint - publicly accessible
+	publicRouter.HandleFunc("/api/version", handlers.GetVersion).Methods("GET", "OPTIONS")
+	debug.Info("Configured version endpoint: /api/version")
 
 	// Agent registration endpoint
 	registrationHandler := handlers.NewRegistrationHandler(agentService, appConfig, tlsProvider)

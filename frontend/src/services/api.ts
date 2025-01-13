@@ -14,7 +14,7 @@ const fetchCACertificate = async (): Promise<void> => {
   try {
     console.debug('[API] Fetching CA certificate...');
     // Use HTTP API URL specifically for CA certificate
-    const response = await fetch(`${HTTP_API_URL}/ca.crt`, {
+    const response = await fetch(`http://${window.location.hostname}:1337/ca.crt`, {
       method: 'GET',
       credentials: 'include',
       mode: 'cors',

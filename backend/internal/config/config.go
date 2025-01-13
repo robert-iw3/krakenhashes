@@ -37,7 +37,12 @@ func NewConfig() *Config {
 
 	host := os.Getenv("KH_HOST")
 	if host == "" {
-		host = "localhost" // Default host
+		// In Docker, bind to all interfaces
+		if env.GetBool("KH_IN_DOCKER") {
+			host = "0.0.0.0"
+		} else {
+			host = "localhost" // Default host for local development
+		}
 	}
 
 	// Get config directory from environment or use default
@@ -100,10 +105,19 @@ func (c *Config) GetAddress() string {
 
 // GetCertsDir returns the path to the certificates directory
 func (c *Config) GetCertsDir() string {
-	certsDir := os.Getenv("KH_CERTS_DIR")
-	if certsDir == "" {
-		certsDir = filepath.Join(c.ConfigDir, "certs")
+	// Check if running in Docker
+	if env.GetBool("KH_IN_DOCKER") {
+		return "/etc/krakenhashes/certs"
 	}
+
+	// For non-Docker installations, use the configured path
+	certsDir := env.GetOrDefault("KH_CERTS_DIR", filepath.Join(c.ConfigDir, "certs"))
+
+	// If the path is relative, make it absolute based on config directory
+	if !filepath.IsAbs(certsDir) {
+		certsDir = filepath.Join(c.ConfigDir, certsDir)
+	}
+
 	return certsDir
 }
 
