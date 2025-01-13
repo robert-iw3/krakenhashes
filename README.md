@@ -19,9 +19,9 @@ Instructions for setting up and running each component can be found in their res
   - [x] Self-signed certificate support
   - [x] User-provided certificate support (Not Tested - Should work)
   - [x] Certbot integration (Written but not tested - Please open an issue if you have issues)
-- [ ] Docker containerization
-  - [ ] Environment variable configuration
-  - [ ] Database initialization handling
+- [x] Docker containerization
+  - [x] Environment variable configuration
+  - [x] Database initialization handling
   - [ ] Deployment to DockerHub with documentation
 - [ ] Email notification system
   - [ ] Security event notifications
