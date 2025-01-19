@@ -51,6 +51,7 @@ import PrivateRoute from './components/PrivateRoute';
 import CertificateCheck from './components/CertificateCheck';
 import { AuthProvider } from './hooks/useAuth';
 import About from './pages/About';
+import { Settings } from './pages/Settings';
 
 const App: React.FC = () => {
   const [certVerified, setCertVerified] = useState(() => {
@@ -96,6 +97,16 @@ const App: React.FC = () => {
                 <PrivateRoute>
                   <Layout>
                     <AgentManagement />
+                  </Layout>
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/settings"
+              element={
+                <PrivateRoute>
+                  <Layout>
+                    <Settings />
                   </Layout>
                 </PrivateRoute>
               }

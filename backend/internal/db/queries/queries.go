@@ -196,3 +196,97 @@ const (
 			updated_at = NOW()
 		WHERE code = $1`
 )
+
+// Email Queries
+const (
+	// EmailConfigQueries handles email provider configuration
+	EmailConfigExists = `
+		SELECT EXISTS (SELECT 1 FROM email_config WHERE provider_type = $1)
+	`
+
+	EmailConfigUpdate = `
+		UPDATE email_config
+		SET api_key = $1,
+			additional_config = $2,
+			monthly_limit = $3,
+			reset_date = $4,
+			is_active = $5,
+			updated_at = NOW()
+		WHERE provider_type = $6
+	`
+
+	EmailConfigInsert = `
+		INSERT INTO email_config (
+			provider_type, api_key, additional_config, monthly_limit,
+			reset_date, is_active
+		) VALUES ($1, $2, $3, $4, $5, $6)
+	`
+
+	EmailConfigGet = `
+		SELECT id, provider_type, api_key, additional_config, monthly_limit,
+			   reset_date, is_active, created_at, updated_at
+		FROM email_config
+		WHERE is_active = true
+		LIMIT 1
+	`
+
+	// EmailTemplateQueries handles email templates
+	EmailTemplateInsert = `
+		INSERT INTO email_templates (
+			template_type, name, subject, html_content,
+			text_content, last_modified_by
+		) VALUES ($1, $2, $3, $4, $5, $6)
+	`
+
+	EmailTemplateUpdate = `
+		UPDATE email_templates
+		SET template_type = $1,
+			name = $2,
+			subject = $3,
+			html_content = $4,
+			text_content = $5,
+			last_modified_by = $6,
+			updated_at = NOW()
+		WHERE id = $7
+	`
+
+	EmailTemplateGet = `
+		SELECT id, template_type, name, subject, html_content,
+			   text_content, created_at, updated_at, last_modified_by
+		FROM email_templates
+		WHERE id = $1
+	`
+
+	EmailTemplateList = `
+		SELECT id, template_type, name, subject, html_content,
+			   text_content, created_at, updated_at, last_modified_by
+		FROM email_templates
+		%s
+		ORDER BY name
+	`
+
+	EmailTemplateDelete = `
+		DELETE FROM email_templates WHERE id = $1
+	`
+
+	// EmailUsageQueries handles email usage tracking
+	EmailUsageGetMonthlyLimit = `
+		SELECT monthly_limit FROM email_config WHERE is_active = true
+	`
+
+	EmailUsageUpsert = `
+		INSERT INTO email_usage (month_year, count, last_reset)
+		VALUES ($1, 1, NOW())
+		ON CONFLICT (month_year)
+		DO UPDATE SET
+			count = email_usage.count + 1,
+			last_reset = CASE
+				WHEN email_usage.last_reset < $1 THEN NOW()
+				ELSE email_usage.last_reset
+			END
+	`
+
+	EmailUsageGetCount = `
+		SELECT count FROM email_usage WHERE month_year = $1
+	`
+)

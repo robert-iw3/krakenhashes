@@ -6,8 +6,6 @@ import type { AxiosError } from 'axios';
 
 // Use HTTPS API URL for all secure endpoints
 const API_URL = process.env.REACT_APP_API_URL || 'https://localhost:31337';
-// Use HTTP API URL only for CA certificate
-const HTTP_API_URL = process.env.REACT_APP_HTTP_API_URL || 'http://localhost:1337';
 
 // Function to fetch and store CA certificate
 const fetchCACertificate = async (): Promise<void> => {
@@ -121,11 +119,12 @@ export const api = axios.create({
 api.interceptors.request.use((config) => {
   // Log the request
   logApiCall(config.method?.toUpperCase() || 'UNKNOWN', config.url || '', config.data);
-
-  const token = localStorage.getItem('token');
-  if (token && config.headers) {
-    config.headers.Authorization = `Bearer ${token}`;
+  
+  // Add debug info for auth-related requests
+  if (config.url?.includes('auth') || config.url?.includes('login') || config.url?.includes('logout')) {
+    console.debug('[API] Auth request cookies:', document.cookie);
   }
+  
   return config;
 });
 
@@ -152,10 +151,28 @@ api.interceptors.response.use(
       return Promise.reject(error);
     }
 
+    // Handle authentication errors
     if (error.response?.status === 401) {
-      localStorage.removeItem('token');
-      window.location.href = '/login';
+      console.debug('[API] Auth error, current cookies:', document.cookie);
+      
+      // Don't handle 401s from login/logout endpoints to prevent loops
+      if (!error.config?.url?.includes('login') && !error.config?.url?.includes('logout')) {
+        try {
+          // Call logout endpoint to clean up server-side session
+          await api.post('/api/logout');
+        } catch (logoutError) {
+          console.error('[API] Error during logout:', logoutError);
+        }
+      }
+      
+      // Only redirect if we're not already on the login page
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login';
+      }
+      
+      return Promise.reject(error);
     }
+
     return Promise.reject(error);
   }
 ); 

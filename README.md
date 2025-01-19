@@ -27,7 +27,7 @@ Instructions for setting up and running each component can be found in their res
   - [ ] Security event notifications
   - [ ] Job completion notifications
   - [ ] Admin error notifications
-  - [ ] Email-based MFA (optional)
+  - [ ] Email-based MFA
 
 ### Authentication & Authorization
 - [ ] Enhanced user management

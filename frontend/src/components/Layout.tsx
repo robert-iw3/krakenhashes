@@ -66,6 +66,7 @@ import {
   Computer as ComputerIcon,
   Logout as LogoutIcon,
   Info as InfoIcon,
+  Settings as SettingsIcon,
 } from '@mui/icons-material';
 import { logout } from '../services/auth';
 import { useAuth } from '../hooks/useAuth';
@@ -85,6 +86,7 @@ const drawerWidth = 240;
 const menuItems: MenuItem[] = [
   { text: 'Dashboard', icon: <DashboardIcon />, path: '/dashboard' },
   { text: 'Agents', icon: <ComputerIcon />, path: '/agents' },
+  { text: 'Settings', icon: <SettingsIcon />, path: '/settings' },
 ];
 
 const bottomMenuItems: MenuItem[] = [
