@@ -41,8 +41,8 @@
  * @returns {JSX.Element} Layout wrapper with navigation
  */
 
-import React, { ReactNode, useState, useCallback } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import React, { useState, useCallback } from 'react';
+import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import {
   AppBar,
   Box,
@@ -55,7 +55,6 @@ import {
   ListItemText,
   Toolbar,
   Typography,
-  Button,
   Divider,
   Theme
 } from '@mui/material';
@@ -66,10 +65,11 @@ import {
   Computer as ComputerIcon,
   Logout as LogoutIcon,
   Info as InfoIcon,
-  Settings as SettingsIcon,
 } from '@mui/icons-material';
 import { logout } from '../services/auth';
-import { useAuth } from '../hooks/useAuth';
+import { useAuth } from '../contexts/AuthContext';
+import AdminMenu from './AdminMenu';
+import UserMenu from './common/UserMenu';
 
 interface MenuItem {
   text: string;
@@ -77,27 +77,24 @@ interface MenuItem {
   path: string;
 }
 
-interface LayoutProps {
-  children: ReactNode;
-}
+interface LayoutProps {}
 
 const drawerWidth = 240;
 
 const menuItems: MenuItem[] = [
   { text: 'Dashboard', icon: <DashboardIcon />, path: '/dashboard' },
   { text: 'Agents', icon: <ComputerIcon />, path: '/agents' },
-  { text: 'Settings', icon: <SettingsIcon />, path: '/settings' },
 ];
 
 const bottomMenuItems: MenuItem[] = [
   { text: 'About', icon: <InfoIcon />, path: '/about' },
 ];
 
-const Layout: React.FC<LayoutProps> = ({ children }) => {
+const Layout: React.FC<LayoutProps> = () => {
   const [open, setOpen] = useState<boolean>(true);
   const navigate = useNavigate();
   const location = useLocation();
-  const { setAuth } = useAuth();
+  const { setAuth, setUser, setUserRole, userRole } = useAuth();
 
   const handleDrawerToggle = (): void => {
     setOpen(!open);
@@ -107,11 +104,13 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     try {
       await logout();
       setAuth(false);
+      setUser(null);
+      setUserRole(null);
       navigate('/login', { replace: true });
     } catch (error) {
       console.error('Logout failed:', error);
     }
-  }, [navigate, setAuth]);
+  }, [navigate, setAuth, setUser, setUserRole]);
 
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh' }}>
@@ -120,7 +119,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         position="fixed" 
         sx={{ 
           zIndex: (theme: Theme) => theme.zIndex.drawer + 1,
-          width: '100%',  // Always full width
+          width: '100%',
         }}
       >
         <Toolbar>
@@ -136,13 +135,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1 }}>
             KrakenHashes
           </Typography>
-          <Button 
-            color="inherit" 
-            onClick={handleLogout}
-            startIcon={<LogoutIcon />}
-          >
-            Logout
-          </Button>
+          <UserMenu />
         </Toolbar>
       </AppBar>
       <Drawer
@@ -197,6 +190,13 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             </ListItem>
           ))}
         </List>
+
+        {userRole === 'admin' && (
+          <>
+            <Divider />
+            <AdminMenu />
+          </>
+        )}
 
         <Box sx={{ flexGrow: 1 }} />
         
@@ -267,7 +267,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         }}
       >
         <Toolbar /> {/* Spacer for AppBar */}
-        {children}
+        <Outlet />
       </Box>
     </Box>
   );

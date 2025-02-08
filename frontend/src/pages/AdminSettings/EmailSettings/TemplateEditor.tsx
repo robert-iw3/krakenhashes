@@ -5,15 +5,17 @@ import {
   Button,
   Grid,
   Typography,
-  List,
-  ListItem,
-  ListItemText,
-  ListItemSecondaryAction,
-  IconButton,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
+  /* TODO: These components are preserved for planned dialog-based template editing features
+   * and will be used in future UI improvements
+   * List,
+   * ListItem,
+   * ListItemText,
+   * ListItemSecondaryAction,
+   * Dialog,
+   * DialogTitle,
+   * DialogContent,
+   * DialogActions,
+   */
   Paper,
   FormControl,
   InputLabel,
@@ -26,11 +28,19 @@ import {
   TableRow,
   TableCell,
   CircularProgress,
+  IconButton,
 } from '@mui/material';
 import LoadingButton from '@mui/lab/LoadingButton';
-import DeleteIcon from '@mui/icons-material/Delete';
-import EditIcon from '@mui/icons-material/Edit';
-import { api } from '../../../services/api';
+import {
+  Edit as EditIcon,
+  Delete as DeleteIcon,
+} from '@mui/icons-material';
+import { 
+  getEmailTemplates, 
+  createEmailTemplate, 
+  updateEmailTemplate, 
+  deleteEmailTemplate 
+} from '../../../services/api';
 
 interface TemplateEditorProps {
   onNotification: (message: string, severity: 'success' | 'error') => void;
@@ -85,10 +95,9 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({ onNotification }
     try {
       console.debug('[TemplateEditor] Loading templates...');
       setLoading(true);
-      const response = await api.get('/api/email/templates');
+      const response = await getEmailTemplates();
       console.debug('[TemplateEditor] Templates loaded:', response.data);
 
-      // Transform the data to match our frontend model
       const transformedTemplates = response.data.map((template: any) => ({
         id: template.id,
         templateType: template.template_type,
@@ -108,23 +117,22 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({ onNotification }
     }
   }, [onNotification]);
 
-  // Load templates and restore edit state on mount
-  useEffect(() => {
-    const restoreState = () => {
-      const savedState = localStorage.getItem(STORAGE_KEY);
-      if (savedState) {
-        const { template, editing } = JSON.parse(savedState);
-        if (template && editing) {
-          console.debug('[TemplateEditor] Restoring edit state:', template);
-          setSelectedTemplate(template);
-          setIsEditing(true);
-        }
+  const restoreState = useCallback(() => {
+    const savedState = localStorage.getItem(STORAGE_KEY);
+    if (savedState) {
+      const { template, editing } = JSON.parse(savedState);
+      if (template && editing) {
+        console.debug('[TemplateEditor] Restoring edit state:', template);
+        setSelectedTemplate(template);
+        setIsEditing(true);
       }
-    };
+    }
+  }, []);
 
+  useEffect(() => {
     loadData();
     restoreState();
-  }, []);
+  }, [loadData, restoreState]);
 
   // Save edit state to localStorage whenever it changes
   useEffect(() => {
@@ -148,7 +156,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({ onNotification }
   const handleDeleteTemplate = async (id: number) => {
     try {
       setLoading(true);
-      await api.delete(`/api/email/templates/${id}`);
+      await deleteEmailTemplate(id);
       onNotification('Template deleted successfully', 'success');
       await loadData();
     } catch (error) {
@@ -173,10 +181,10 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({ onNotification }
       };
 
       if (selectedTemplate.id) {
-        await api.put(`/api/email/templates/${selectedTemplate.id}`, payload);
+        await updateEmailTemplate(selectedTemplate.id, payload);
         onNotification('Template updated successfully', 'success');
       } else {
-        await api.post('/api/email/templates', payload);
+        await createEmailTemplate(payload);
         onNotification('Template created successfully', 'success');
       }
 

@@ -1,10 +1,12 @@
 package email
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
+	"text/template"
 	"time"
 
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/db/queries"
@@ -23,12 +25,12 @@ var (
 
 // Service handles email configuration and template management
 type Service struct {
-	db *sql.DB
+	db *queries.DB
 }
 
 // NewService creates a new email service
 func NewService(db *sql.DB) *Service {
-	return &Service{db: db}
+	return &Service{db: &queries.DB{DB: db}}
 }
 
 // ConfigureProvider sets up or updates the email provider configuration
@@ -124,6 +126,20 @@ func (s *Service) TestConnection(ctx context.Context, testEmail string) error {
 
 	if err := provider.Initialize(cfg); err != nil {
 		return err
+	}
+
+	return provider.TestConnection(ctx, testEmail)
+}
+
+// TestConnectionWithConfig tests the connection using a provided configuration without saving it
+func (s *Service) TestConnectionWithConfig(ctx context.Context, cfg *emailtypes.Config, testEmail string) error {
+	provider, err := providers.New(cfg.ProviderType)
+	if err != nil {
+		return fmt.Errorf("invalid provider: %w", err)
+	}
+
+	if err := provider.Initialize(cfg); err != nil {
+		return fmt.Errorf("failed to initialize provider: %w", err)
 	}
 
 	return provider.TestConnection(ctx, testEmail)
@@ -409,4 +425,50 @@ func (s *Service) SendEmail(ctx context.Context, data *emailtypes.EmailData) err
 
 	debug.Info("successfully sent email to %v", data.To)
 	return nil
+}
+
+// SendTemplatedEmail sends an email using a template
+func (s *Service) SendTemplatedEmail(ctx context.Context, to string, templateID int, data map[string]interface{}) error {
+	template, err := s.GetTemplate(ctx, templateID)
+	if err != nil {
+		return fmt.Errorf("failed to get template: %w", err)
+	}
+
+	// Parse template
+	subject, err := s.parseTemplate(template.Subject, data)
+	if err != nil {
+		return fmt.Errorf("failed to parse subject template: %w", err)
+	}
+
+	// Convert data to string map
+	variables := make(map[string]string)
+	for k, v := range data {
+		variables[k] = fmt.Sprintf("%v", v)
+	}
+
+	// Send email
+	emailData := &emailtypes.EmailData{
+		To:         []string{to},
+		Subject:    subject,
+		Variables:  variables,
+		TemplateID: templateID,
+		Template:   template,
+	}
+	return s.SendEmail(ctx, emailData)
+}
+
+// parseTemplate parses a template string with the given data
+func (s *Service) parseTemplate(tmpl string, data map[string]interface{}) (string, error) {
+	t := template.New("email")
+	parsed, err := t.Parse(tmpl)
+	if err != nil {
+		return "", err
+	}
+
+	var buf bytes.Buffer
+	if err := parsed.Execute(&buf, data); err != nil {
+		return "", err
+	}
+
+	return buf.String(), nil
 }

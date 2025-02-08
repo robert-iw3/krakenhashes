@@ -42,11 +42,13 @@ import {
   Typography, 
   Container,
   FormControlLabel,
-  Checkbox
+  Checkbox,
+  CircularProgress
 } from '@mui/material';
 import { login } from '../services/auth';
-import { useAuth } from '../hooks/useAuth';
+import { useAuth } from '../contexts/AuthContext';
 import { LoginCredentials } from '../types/auth';
+import MFAVerification from '../components/auth/MFAVerification';
 
 // Rate limiting configuration
 const RATE_LIMIT = {
@@ -55,13 +57,20 @@ const RATE_LIMIT = {
 };
 
 const Login: React.FC = () => {
-  const { setAuth } = useAuth();
+  const { setAuth, setUserRole, checkAuthStatus } = useAuth();
   const [credentials, setCredentials] = useState<LoginCredentials>({
     username: '',
     password: ''
   });
   const [error, setError] = useState<string>('');
   const [rememberMe, setRememberMe] = useState<boolean>(false);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [mfaRequired, setMfaRequired] = useState<boolean>(false);
+  const [mfaSession, setMfaSession] = useState<{
+    sessionToken: string;
+    mfaType: string;
+    mfaMethods: string[];
+  } | null>(null);
   const requestCount = useRef<number>(0);
   const lastRequestTime = useRef<number>(Date.now());
   const navigate = useNavigate();
@@ -96,24 +105,77 @@ const Login: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault();
     setError('');
+    setLoading(true);
 
     try {
       checkRateLimit();
 
       const response = await login(credentials.username, credentials.password);
-      if (response.success) {
-        if (rememberMe) {
-          localStorage.setItem('rememberMe', 'true');
+      
+      // Check if MFA is required
+      if (response.mfa_required) {
+        // Verify required MFA fields are present
+        if (!response.session_token || !response.mfa_type || !response.preferred_method) {
+          throw new Error('Invalid MFA response from server');
         }
-        setAuth(true);
-        navigate('/dashboard', { replace: true });
+        
+        setMfaRequired(true);
+        setMfaSession({
+          sessionToken: response.session_token,
+          mfaType: response.mfa_type,
+          mfaMethods: [response.preferred_method]
+        });
+      } else if (response.token) {
+        handleLoginSuccess(response.token);
       } else {
         setError(response.message || 'Login failed');
       }
     } catch (error) {
       setError(error instanceof Error ? error.message : 'An error occurred');
+    } finally {
+      setLoading(false);
     }
   };
+
+  const handleMFASuccess = (token: string) => {
+    handleLoginSuccess(token);
+  };
+
+  const handleLoginSuccess = (token: string) => {
+    if (rememberMe) {
+      localStorage.setItem('rememberMe', 'true');
+    }
+    setAuth(true);
+    checkAuthStatus(); // This will fetch the user profile and set the role
+    navigate('/dashboard', { replace: true });
+  };
+
+  const handleMFAError = (error: string) => {
+    setError(error);
+  };
+
+  if (mfaRequired && mfaSession) {
+    return (
+      <Container component="main" maxWidth="xs">
+        <Box
+          sx={{
+            marginTop: 8,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+          }}
+        >
+          <MFAVerification
+            sessionToken={mfaSession.sessionToken}
+            mfaType={mfaSession.mfaType}
+            mfaMethods={mfaSession.mfaMethods}
+            onSuccess={handleMFASuccess}
+            onError={handleMFAError}
+          />
+        </Box>
+      </Container>
+    );
+  }
 
   return (
     <Container component="main" maxWidth="xs">
@@ -144,10 +206,11 @@ const Login: React.FC = () => {
             autoComplete="username"
             autoFocus
             value={credentials.username}
-            onChange={(e) => setCredentials((prev: LoginCredentials) => ({
+            onChange={(e) => setCredentials((prev) => ({
               ...prev,
               username: e.target.value
             }))}
+            disabled={loading}
           />
           <TextField
             margin="normal"
@@ -160,11 +223,12 @@ const Login: React.FC = () => {
             autoComplete="current-password"
             value={credentials.password}
             onChange={(e) => {
-              setCredentials((prev: LoginCredentials) => ({
+              setCredentials((prev) => ({
                 ...prev,
                 password: e.target.value
               }));
             }}
+            disabled={loading}
           />
           <FormControlLabel
             control={
@@ -173,6 +237,7 @@ const Login: React.FC = () => {
                 color="primary"
                 checked={rememberMe}
                 onChange={(e) => setRememberMe(e.target.checked)}
+                disabled={loading}
               />
             }
             label="Remember me"
@@ -182,8 +247,9 @@ const Login: React.FC = () => {
             fullWidth
             variant="contained"
             sx={{ mt: 3, mb: 2 }}
+            disabled={loading || !credentials.username || !credentials.password}
           >
-            Log In
+            {loading ? <CircularProgress size={24} /> : 'Log In'}
           </Button>
         </Box>
       </Box>

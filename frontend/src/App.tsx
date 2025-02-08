@@ -49,9 +49,12 @@ import Login from './pages/Login';
 import AgentManagement from './pages/AgentManagement';
 import PrivateRoute from './components/PrivateRoute';
 import CertificateCheck from './components/CertificateCheck';
-import { AuthProvider } from './hooks/useAuth';
+import { AuthProvider } from './contexts/AuthContext';
 import About from './pages/About';
-import { Settings } from './pages/Settings';
+import AuthSettingsPage from './pages/admin/AuthSettings';
+import { SnackbarProvider } from 'notistack';
+import { AdminSettings } from './pages/AdminSettings';
+import ProfileSettings from './pages/settings/ProfileSettings';
 
 const App: React.FC = () => {
   const [certVerified, setCertVerified] = useState(() => {
@@ -72,69 +75,46 @@ const App: React.FC = () => {
     <AuthProvider>
       <ThemeProvider theme={theme}>
         <CssBaseline />
-        <Router>
-          <Routes>
-            {/* Public routes */}
-            <Route 
-              path="/login" 
-              element={<Login />} 
-            />
+        <SnackbarProvider maxSnack={3}>
+          <Router>
+            <Routes>
+              {/* Public routes */}
+              <Route 
+                path="/login" 
+                element={<Login />} 
+              />
 
-            {/* Protected routes */}
-            <Route
-              path="/dashboard"
-              element={
-                <PrivateRoute>
-                  <Layout>
-                    <Dashboard />
-                  </Layout>
-                </PrivateRoute>
-              }
-            />
-            <Route
-              path="/agents"
-              element={
-                <PrivateRoute>
-                  <Layout>
-                    <AgentManagement />
-                  </Layout>
-                </PrivateRoute>
-              }
-            />
-            <Route
-              path="/settings"
-              element={
-                <PrivateRoute>
-                  <Layout>
-                    <Settings />
-                  </Layout>
-                </PrivateRoute>
-              }
-            />
-            <Route
-              path="/about"
-              element={
-                <PrivateRoute>
-                  <Layout>
-                    <About />
-                  </Layout>
-                </PrivateRoute>
-              }
-            />
+              {/* Protected routes */}
+              <Route element={<PrivateRoute><Layout /></PrivateRoute>}>
+                <Route path="/dashboard" element={<Dashboard />} />
+                <Route path="/agents" element={<AgentManagement />} />
+                <Route path="/admin/settings" element={<AdminSettings />} />
+                <Route path="/about" element={<About />} />
+                <Route path="/settings/profile" element={<ProfileSettings />} />
+              </Route>
+              <Route
+                path="/admin/auth/settings"
+                element={
+                  <PrivateRoute>
+                    <AuthSettingsPage />
+                  </PrivateRoute>
+                }
+              />
 
-            {/* Root route */}
-            <Route
-              path="/"
-              element={<Navigate to="/dashboard" replace />}
-            />
+              {/* Root route */}
+              <Route
+                path="/"
+                element={<Navigate to="/dashboard" replace />}
+              />
 
-            {/* Catch all route */}
-            <Route
-              path="*"
-              element={<Navigate to="/dashboard" replace />}
-            />
-          </Routes>
-        </Router>
+              {/* Catch all route */}
+              <Route
+                path="*"
+                element={<Navigate to="/dashboard" replace />}
+              />
+            </Routes>
+          </Router>
+        </SnackbarProvider>
       </ThemeProvider>
     </AuthProvider>
   );

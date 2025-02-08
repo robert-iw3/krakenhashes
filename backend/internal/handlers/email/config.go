@@ -2,6 +2,7 @@ package email
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/email"
@@ -31,17 +32,37 @@ func (h *Handler) GetConfig(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(config)
 }
 
+// UpdateConfigRequest represents the request body for updating email configuration
+type UpdateConfigRequest struct {
+	Config    emailtypes.Config `json:"config"`
+	TestEmail string            `json:"test_email,omitempty"`
+	TestOnly  bool              `json:"test_only"`
+}
+
 // UpdateConfig handles POST/PUT /api/email/config
 func (h *Handler) UpdateConfig(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	var config emailtypes.Config
-	if err := json.NewDecoder(r.Body).Decode(&config); err != nil {
+	var req UpdateConfigRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		debug.Error("failed to decode request body: %v", err)
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	if err := h.emailService.ConfigureProvider(ctx, &config); err != nil {
+	// If test only, just test the configuration without saving
+	if req.TestOnly {
+		if err := h.emailService.TestConnectionWithConfig(ctx, &req.Config, req.TestEmail); err != nil {
+			debug.Error("email configuration test failed: %v", err)
+			http.Error(w, fmt.Sprintf("Email configuration test failed: %v", err), http.StatusBadRequest)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	// Save the configuration
+	if err := h.emailService.ConfigureProvider(ctx, &req.Config); err != nil {
 		switch err {
 		case email.ErrInvalidProvider:
 			http.Error(w, "Invalid email provider", http.StatusBadRequest)
@@ -52,28 +73,53 @@ func (h *Handler) UpdateConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// If test email is provided, test the saved configuration
+	if req.TestEmail != "" {
+		if err := h.emailService.TestConnection(ctx, req.TestEmail); err != nil {
+			debug.Error("email configuration test failed after save: %v", err)
+			http.Error(w, fmt.Sprintf("Email configuration saved but test failed: %v", err), http.StatusBadRequest)
+			return
+		}
+	}
+
 	w.WriteHeader(http.StatusOK)
 }
 
-// TestConfig handles POST /api/email/test
+// TestConfig handles POST /api/admin/email/test
 func (h *Handler) TestConfig(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	var testConfig emailtypes.TestConfig
-	if err := json.NewDecoder(r.Body).Decode(&testConfig); err != nil {
+	var testReq struct {
+		TestEmail string             `json:"test_email"`
+		TestOnly  bool               `json:"test_only"`
+		Config    *emailtypes.Config `json:"config,omitempty"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&testReq); err != nil {
+		debug.Error("failed to decode test request: %v", err)
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	if testConfig.TestEmail == "" {
+	if testReq.TestEmail == "" {
 		http.Error(w, "Test email address is required", http.StatusBadRequest)
 		return
 	}
 
-	if err := h.emailService.TestConnection(ctx, testConfig.TestEmail); err != nil {
-		debug.Error("email configuration test failed: %v", err)
-		http.Error(w, "Email configuration test failed", http.StatusInternalServerError)
-		return
+	// If config is provided, test with that config
+	if testReq.Config != nil {
+		if err := h.emailService.TestConnectionWithConfig(ctx, testReq.Config, testReq.TestEmail); err != nil {
+			debug.Error("email configuration test failed: %v", err)
+			http.Error(w, fmt.Sprintf("Email configuration test failed: %v", err), http.StatusBadRequest)
+			return
+		}
+	} else {
+		// Test using the active configuration
+		if err := h.emailService.TestConnection(ctx, testReq.TestEmail); err != nil {
+			debug.Error("email configuration test failed: %v", err)
+			http.Error(w, fmt.Sprintf("Email configuration test failed: %v", err), http.StatusBadRequest)
+			return
+		}
 	}
 
 	w.WriteHeader(http.StatusOK)

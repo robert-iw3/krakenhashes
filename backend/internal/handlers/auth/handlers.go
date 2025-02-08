@@ -6,9 +6,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ZerkerEOD/krakenhashes/backend/internal/database"
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/models"
 	"github.com/ZerkerEOD/krakenhashes/backend/pkg/debug"
 	"github.com/ZerkerEOD/krakenhashes/backend/pkg/jwt"
+	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -45,7 +46,7 @@ func setAuthCookie(w http.ResponseWriter, r *http.Request, token string, maxAge 
 		Name:     "token",
 		Value:    token,
 		HttpOnly: true,
-		Secure:   false,                // Allow both HTTP and HTTPS
+		Secure:   true,                 // Require HTTPS
 		SameSite: http.SameSiteLaxMode, // Allow cross-site (needed for different ports)
 		Path:     "/",
 		MaxAge:   maxAge,
@@ -61,8 +62,13 @@ func setAuthCookie(w http.ResponseWriter, r *http.Request, token string, maxAge 
 	}
 
 	http.SetCookie(w, cookie)
-	debug.Debug("Auth cookie set with attributes: domain=%s, secure=false, sameSite=lax, httpOnly=true, path=/",
+	debug.Debug("Auth cookie set with attributes: domain=%s, secure=true, sameSite=lax, httpOnly=true, path=/",
 		cookie.Domain)
+}
+
+// generateAuthToken creates a new JWT token for the user
+func (h *Handler) generateAuthToken(user *models.User) (string, error) {
+	return jwt.GenerateToken(user.ID.String(), user.Role)
 }
 
 /*
@@ -81,7 +87,7 @@ func setAuthCookie(w http.ResponseWriter, r *http.Request, token string, maxAge 
  *   - 401: Invalid credentials
  *   - 500: Server error (token generation/storage)
  */
-func LoginHandler(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 	debug.Debug("Processing login request")
 
 	var req LoginRequest
@@ -92,45 +98,93 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	debug.Debug("Login request decoded for user: %s", req.Username)
 
-	user, err := database.GetUserByUsername(req.Username)
+	user, err := h.db.GetUserByUsername(req.Username)
 	if err != nil {
 		debug.Info("Failed login attempt for user '%s': %v", req.Username, err)
 		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
 		return
 	}
 
-	// Generate hash from provided password for comparison
-	debug.Debug("Comparing password hashes for user '%s'", req.Username)
-	debug.Debug("Stored hash in database: %s", user.PasswordHash)
-
-	// Hash the provided password with the same cost factor
-	hashedInput, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
-	if err != nil {
-		debug.Error("Failed to hash input password for comparison: %v", err)
-		http.Error(w, "Server error", http.StatusInternalServerError)
-		return
-	}
-	debug.Debug("Generated hash from input: %s", string(hashedInput))
-
-	// Compare the hashes
+	// Check password
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
-		debug.Info("Password hash comparison failed for user '%s'", req.Username)
-		debug.Debug("Hash comparison error: %v", err)
+		debug.Info("Invalid password for user '%s'", req.Username)
 		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
 		return
 	}
-	debug.Info("Password hash validated for user '%s'", req.Username)
 
-	// Generate JWT token with string UUID
-	token, err := jwt.GenerateToken(user.ID.String())
+	// Check if user has MFA enabled
+	mfaEnabled, mfaType, preferredMethod, err := h.db.GetUserMFASettings(user.ID.String())
+	if err != nil {
+		debug.Error("error checking user MFA settings: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// If MFA is enabled or globally required, create a session and return MFA required response
+	required, err := h.db.IsMFARequired()
+	if err != nil {
+		debug.Error("error checking MFA requirement: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if mfaEnabled || required {
+		// Create MFA session
+		sessionToken := uuid.New().String()
+		session, err := h.db.CreateMFASession(user.ID.String(), sessionToken)
+		if err != nil {
+			debug.Error("error creating MFA session: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		// Only send email code if MFA type is email
+		if mfaType == "email" {
+			code, err := generateEmailCode()
+			if err != nil {
+				debug.Error("error generating email code: %v", err)
+				http.Error(w, "Internal server error", http.StatusInternalServerError)
+				return
+			}
+
+			// Store the code in the database
+			err = h.db.StoreEmailMFACode(user.ID.String(), code)
+			if err != nil {
+				debug.Error("error storing MFA code: %v", err)
+				http.Error(w, "Internal server error", http.StatusInternalServerError)
+				return
+			}
+
+			// Send email with code
+			err = h.emailService.SendMFACode(r.Context(), user.Email, code)
+			if err != nil {
+				debug.Error("error sending MFA code email: %v", err)
+				http.Error(w, "Internal server error", http.StatusInternalServerError)
+				return
+			}
+		}
+
+		// Return MFA required response
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"mfa_required":     true,
+			"session_token":    sessionToken,
+			"mfa_type":         mfaType,
+			"preferred_method": preferredMethod,
+			"expires_at":       session.ExpiresAt.Format(time.RFC3339),
+		})
+		return
+	}
+
+	// If no MFA required, proceed with normal login
+	token, err := h.generateAuthToken(user)
 	if err != nil {
 		debug.Error("Failed to generate token: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	// Store token in database
-	if err := database.StoreToken(user.ID.String(), token); err != nil {
+	if err := h.db.StoreToken(user.ID.String(), token); err != nil {
 		debug.Error("Failed to store token: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
@@ -139,7 +193,10 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 	setAuthCookie(w, r, token, int(time.Hour*24*7/time.Second)) // 1 week
 	debug.Info("User '%s' successfully logged in", req.Username)
 
-	json.NewEncoder(w).Encode(map[string]bool{"success": true})
+	json.NewEncoder(w).Encode(models.LoginResponse{
+		Success: true,
+		Token:   token,
+	})
 }
 
 /*
@@ -150,13 +207,13 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
  *   - 200: Successfully logged out
  *   - 500: Error removing token from database
  */
-func LogoutHandler(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) LogoutHandler(w http.ResponseWriter, r *http.Request) {
 	debug.Debug("Processing logout request")
 
 	cookie, err := r.Cookie("token")
 	if err == nil {
 		debug.Debug("Found token cookie, removing from database")
-		if err := database.RemoveToken(cookie.Value); err != nil {
+		if err := h.db.RemoveToken(cookie.Value); err != nil {
 			debug.Error("Failed to remove token from database: %v", err)
 			http.Error(w, "Error removing token", http.StatusInternalServerError)
 			return
@@ -183,37 +240,63 @@ func LogoutHandler(w http.ResponseWriter, r *http.Request) {
  *       "authenticated": boolean
  *     }
  */
-func CheckAuthHandler(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) CheckAuthHandler(w http.ResponseWriter, r *http.Request) {
 	debug.Debug("Checking authentication status")
 
 	cookie, err := r.Cookie("token")
 	if err != nil {
 		debug.Debug("No auth token found in cookies")
-		json.NewEncoder(w).Encode(map[string]bool{"authenticated": false})
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"authenticated": false,
+			"role":          nil,
+		})
 		return
 	}
 
 	// Validate token cryptographically
 	userID, err := jwt.ValidateJWT(cookie.Value)
 	if err != nil {
-		debug.Info("Invalid token found: %v", err)
-		json.NewEncoder(w).Encode(map[string]bool{"authenticated": false})
+		debug.Info("Invalid token: %v", err)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"authenticated": false,
+			"role":          nil,
+		})
 		return
 	}
 
 	// Verify token exists in database
-	exists, err := database.TokenExists(cookie.Value)
+	exists, err := h.db.TokenExists(cookie.Value)
 	if err != nil {
 		debug.Error("Error checking token in database: %v", err)
-		json.NewEncoder(w).Encode(map[string]bool{"authenticated": false})
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"authenticated": false,
+			"role":          nil,
+		})
 		return
 	}
 	if !exists {
 		debug.Warning("Token not found in database for user ID: %s", userID)
-		json.NewEncoder(w).Encode(map[string]bool{"authenticated": false})
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"authenticated": false,
+			"role":          nil,
+		})
 		return
 	}
 
-	debug.Info("Valid authentication found for user ID: %s", userID)
-	json.NewEncoder(w).Encode(map[string]bool{"authenticated": true})
+	// Get user's role from token
+	role, err := jwt.GetUserRole(cookie.Value)
+	if err != nil {
+		debug.Error("Error getting user role: %v", err)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"authenticated": false,
+			"role":          nil,
+		})
+		return
+	}
+
+	debug.Info("Valid authentication found for user ID: %s with role: %s", userID, role)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"authenticated": true,
+		"role":          role,
+	})
 }

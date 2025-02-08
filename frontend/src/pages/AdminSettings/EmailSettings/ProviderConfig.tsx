@@ -17,7 +17,7 @@ import {
 } from '@mui/material';
 import { LoadingButton } from '@mui/lab';
 import { SelectChangeEvent } from '@mui/material/Select';
-import { api } from '../../../services/api';
+import { getEmailConfig, updateEmailConfig, testEmailConfig } from '../../../services/api';
 
 interface ProviderConfigProps {
   onNotification: (message: string, severity: 'success' | 'error') => void;
@@ -74,7 +74,7 @@ export const ProviderConfig: React.FC<ProviderConfigProps> = ({ onNotification }
       }
 
       // Try to load from API
-      const response = await api.get('/api/email/config');
+      const response = await getEmailConfig();
       console.debug('[ProviderConfig] Loaded configuration:', response.data);
       setConfig(response.data);
     } catch (error) {
@@ -137,16 +137,32 @@ export const ProviderConfig: React.FC<ProviderConfigProps> = ({ onNotification }
   const handleTest = async (email: string) => {
     setLoading(true);
     try {
-      await api.post('/api/email/test', {
-        provider_type: config.provider,
-        api_key: config.apiKey,
-        additional_config: {
-          from_email: config.fromEmail,
-          from_name: config.fromName,
-          domain: config.domain,
-        },
-        test_email: email,
-      });
+      // If we're testing after save, just send the test email
+      if (!isEditing) {
+        const payload = {
+          test_email: email,
+          test_only: true
+        };
+        await testEmailConfig(payload);
+      } else {
+        // Use form data for direct testing
+        const payload = {
+          test_email: email,
+          test_only: true,
+          config: {
+            provider_type: config.provider,
+            api_key: config.apiKey,
+            additional_config: {
+              from_email: config.fromEmail,
+              from_name: config.fromName,
+              domain: config.domain,
+            },
+            monthly_limit: config.monthlyLimit,
+            is_active: true,
+          }
+        };
+        await testEmailConfig(payload);
+      }
       onNotification('Test email sent successfully', 'success');
       setTestEmailOpen(false);
       setTestEmail('');
@@ -167,31 +183,31 @@ export const ProviderConfig: React.FC<ProviderConfigProps> = ({ onNotification }
     setLoading(true);
     try {
       const payload = {
-        provider_type: config.provider,
-        api_key: config.apiKey,
-        additional_config: {
-          from_email: config.fromEmail,
-          from_name: config.fromName,
-          domain: config.domain,
+        config: {
+          provider_type: config.provider,
+          api_key: config.apiKey,
+          additional_config: {
+            from_email: config.fromEmail,
+            from_name: config.fromName,
+            domain: config.domain,
+          },
+          monthly_limit: config.monthlyLimit,
+          is_active: true,
         },
-        monthly_limit: config.monthlyLimit,
-        is_active: true,
       };
 
       console.debug('[ProviderConfig] Saving configuration with payload:', payload);
 
-      if (config.id) {
-        await api.put('/api/email/config', payload);
-      } else {
-        await api.post('/api/email/config', payload);
-      }
-      
+      // Save the config
+      await updateEmailConfig(payload);
       onNotification('Configuration saved successfully', 'success');
+      
+      // Clear form and reload config
       localStorage.removeItem(STORAGE_KEY);
       setIsEditing(false);
-      setConfig(defaultConfig); // Clear the form
-      await loadConfig(); // Reload the config to get the latest state
-      
+      await loadConfig();
+
+      // If testing after save, use a separate call that will use the database config
       if (withTest) {
         setTestEmailOpen(true);
       }

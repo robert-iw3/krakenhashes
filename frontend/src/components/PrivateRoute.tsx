@@ -80,10 +80,10 @@
  * </ErrorBoundary>
  */
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { CircularProgress, Box } from '@mui/material';
-import { useAuth } from '../hooks/useAuth';
+import { useAuth } from '../contexts/AuthContext';
 
 interface PrivateRouteProps {
   children: React.ReactNode;
@@ -91,12 +91,18 @@ interface PrivateRouteProps {
 
 const PrivateRoute: React.FC<PrivateRouteProps> = ({ children }) => {
   const location = useLocation();
-  const { isAuthenticated, isLoading, checkAuth } = useAuth();
+  const { isAuth, checkAuthStatus } = useAuth();
+  const [isLoading, setIsLoading] = useState(true);
 
   // Check auth on route change
   useEffect(() => {
+    const checkAuth = async () => {
+      setIsLoading(true);
+      await checkAuthStatus();
+      setIsLoading(false);
+    };
     checkAuth();
-  }, [location.pathname, checkAuth]);
+  }, [location.pathname, checkAuthStatus]);
 
   if (isLoading) {
     return (
@@ -111,7 +117,7 @@ const PrivateRoute: React.FC<PrivateRouteProps> = ({ children }) => {
     );
   }
 
-  if (!isAuthenticated) {
+  if (!isAuth) {
     // Store the attempted location for redirect after login
     return <Navigate to="/login" state={{ from: location }} replace />;
   }

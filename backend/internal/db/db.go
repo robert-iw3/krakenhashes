@@ -84,33 +84,32 @@ func (db *DB) WithTx(ctx context.Context, fn func(*sql.Tx) error) error {
 	return nil
 }
 
-// ExecContext executes a query with logging and error wrapping
-func (db *DB) ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
-	debug.Debug("executing query: %s with args: %v", query, args)
-	result, err := db.DB.ExecContext(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute query: %w", err)
-	}
-	return result, nil
+// QueryRow wraps sql.DB.QueryRow
+func (db *DB) QueryRow(query string, args ...interface{}) *sql.Row {
+	return db.DB.QueryRow(query, args...)
 }
 
-// QueryContext executes a query with logging and error wrapping
-func (db *DB) QueryContext(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error) {
-	debug.Debug("executing query: %s with args: %v", query, args)
-	rows, err := db.DB.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute query: %w", err)
-	}
-	return rows, nil
+// Query wraps sql.DB.Query
+func (db *DB) Query(query string, args ...interface{}) (*sql.Rows, error) {
+	return db.DB.Query(query, args...)
 }
 
-// QueryRowContext executes a query that returns a single row with logging and error wrapping
-func (db *DB) QueryRowContext(ctx context.Context, query string, args ...interface{}) *sql.Row {
-	debug.Debug("executing query: %s with args: %v", query, args)
-	return db.DB.QueryRowContext(ctx, query, args...)
+// Exec wraps sql.DB.Exec
+func (db *DB) Exec(query string, args ...interface{}) (sql.Result, error) {
+	return db.DB.Exec(query, args...)
 }
 
 // Close closes the database connection
 func (db *DB) Close() error {
 	return db.DB.Close()
+}
+
+// HasActiveEmailProvider checks if there is an active email provider configured
+func (db *DB) HasActiveEmailProvider() (bool, error) {
+	var exists bool
+	err := db.QueryRow(`SELECT EXISTS (SELECT 1 FROM email_config WHERE is_active = true)`).Scan(&exists)
+	if err != nil {
+		return false, err
+	}
+	return exists, nil
 }

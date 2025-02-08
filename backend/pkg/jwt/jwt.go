@@ -2,8 +2,11 @@ package jwt
 
 import (
 	"fmt"
+	"math/rand"
 	"os"
 	"time"
+
+	"encoding/base64"
 
 	"github.com/dgrijalva/jwt-go"
 )
@@ -11,16 +14,18 @@ import (
 var jwtKey = []byte(os.Getenv("JWT_SECRET"))
 
 type Claims struct {
-	UserID int `json:"user_id"`
+	UserID string `json:"user_id"`
+	Role   string `json:"role"`
 	jwt.StandardClaims
 }
 
-func GenerateToken(userID string) (string, error) {
+func GenerateToken(userID string, role string) (string, error) {
 	token := jwt.New(jwt.SigningMethodHS256)
 
 	// Set claims
 	claims := token.Claims.(jwt.MapClaims)
 	claims["user_id"] = userID
+	claims["role"] = role
 	claims["exp"] = time.Now().Add(time.Hour * 24).Unix()
 
 	// Generate encoded token
@@ -50,4 +55,44 @@ func ValidateJWT(tokenString string) (string, error) {
 	}
 
 	return "", fmt.Errorf("invalid token")
+}
+
+// GetUserRole extracts the user's role from the JWT token
+func GetUserRole(tokenString string) (string, error) {
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return []byte(os.Getenv("JWT_SECRET")), nil
+	})
+
+	if err != nil {
+		return "", err
+	}
+
+	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
+		if role, ok := claims["role"].(string); ok {
+			return role, nil
+		}
+		return "", fmt.Errorf("role claim not found in token")
+	}
+
+	return "", fmt.Errorf("invalid token")
+}
+
+// IsAdmin checks if the user has admin privileges
+func IsAdmin(userID string) (bool, error) {
+	// TODO: Implement proper role checking from database
+	// For now, just check if the user is the default admin
+	defaultAdminID := os.Getenv("DEFAULT_ADMIN_ID")
+	return userID == defaultAdminID, nil
+}
+
+// GenerateSecureToken generates a secure random token for MFA sessions
+func GenerateSecureToken() string {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return ""
+	}
+	return base64.URLEncoding.EncodeToString(b)
 }

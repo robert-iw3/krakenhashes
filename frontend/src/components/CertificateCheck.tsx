@@ -32,8 +32,10 @@ const CertificateCheck: React.FC<CertificateCheckProps> = ({ onCertVerified }) =
       setChecking(true);
       setError(null);
 
-      // Get the configured API URLs
-      const httpApiUrl = process.env.REACT_APP_HTTP_API_URL || 'http://localhost:1337';
+      /* TODO: Use httpApiUrl for configurable API endpoints once environment configuration is complete
+       * Currently using window.location.hostname directly for development
+       * const httpApiUrl = process.env.REACT_APP_HTTP_API_URL || 'http://localhost:1337';
+       */
       const apiUrl = process.env.REACT_APP_API_URL || 'https://localhost:31337';
 
       // First try to fetch the CA cert to see if it exists
@@ -86,8 +88,10 @@ const CertificateCheck: React.FC<CertificateCheckProps> = ({ onCertVerified }) =
   const downloadCertificates = async () => {
     try {
       setError(null);
-      // Use dedicated HTTP endpoint for certificate download
-      const httpApiUrl = process.env.REACT_APP_HTTP_API_URL || 'http://localhost:1337';
+      /* TODO: Use httpApiUrl for configurable API endpoints once environment configuration is complete
+       * Currently using window.location.hostname directly for development
+       * const httpApiUrl = process.env.REACT_APP_HTTP_API_URL || 'http://localhost:1337';
+       */
 
       // Download CA certificate
       const caResponse = await fetch(`http://${window.location.hostname}:1337/ca.crt`, {

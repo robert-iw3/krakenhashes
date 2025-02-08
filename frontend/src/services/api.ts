@@ -175,4 +175,19 @@ api.interceptors.response.use(
 
     return Promise.reject(error);
   }
-); 
+);
+
+// Email configuration
+export const getEmailConfig = () => api.get('/api/admin/email/config');
+export const updateEmailConfig = (config: any) => api.put('/api/admin/email/config', config);
+export const testEmailConfig = (config: any) => api.post('/api/admin/email/test', config);
+
+// Email templates
+export const getEmailTemplates = () => api.get('/api/admin/email/templates');
+export const createEmailTemplate = (template: any) => api.post('/api/admin/email/templates', template);
+export const updateEmailTemplate = (id: number, template: any) => api.put(`/api/admin/email/templates/${id}`, template);
+export const deleteEmailTemplate = (id: number) => api.delete(`/api/admin/email/templates/${id}`);
+export const getEmailTemplate = (id: number) => api.get(`/api/admin/email/templates/${id}`);
+
+// Email usage
+export const getEmailUsage = () => api.get('/api/admin/email/usage'); 

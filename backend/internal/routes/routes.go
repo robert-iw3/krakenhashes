@@ -2,7 +2,6 @@ package routes
 
 import (
 	"bufio"
-	cryptotls "crypto/tls"
 	"database/sql"
 	"fmt"
 	"net"
@@ -10,22 +9,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ZerkerEOD/krakenhashes/backend/internal/auth"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/config"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/db"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/email"
-	"github.com/ZerkerEOD/krakenhashes/backend/internal/handlers"
-	"github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/agent"
-	"github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/dashboard"
-	emailhandler "github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/email"
-	"github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/hashlists"
-	"github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/jobs"
-	tlshandler "github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/tls"
-	"github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/vouchers"
-	wshandler "github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/websocket"
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/auth"
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/middleware"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/repository"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/services"
-	wsservice "github.com/ZerkerEOD/krakenhashes/backend/internal/services/websocket"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/tls"
 	"github.com/ZerkerEOD/krakenhashes/backend/pkg/debug"
 	"github.com/gorilla/mux"
@@ -118,24 +108,6 @@ func SetupRoutes(r *mux.Router, sqlDB *sql.DB, tlsProvider tls.Provider) {
 	database := &db.DB{DB: sqlDB}
 	debug.Debug("Created custom DB wrapper")
 
-	// Initialize TLS handler
-	tlsHandler := tlshandler.NewHandler(tlsProvider)
-	debug.Info("TLS handler initialized")
-
-	// Create HTTP router for CA certificate (no TLS)
-	httpRouter := mux.NewRouter()
-	httpRouter.Use(CORSMiddleware)
-	httpRouter.HandleFunc("/ca.crt", tlsHandler.ServeCACertificate).Methods("GET", "HEAD", "OPTIONS")
-	debug.Info("Created HTTP router for CA certificate")
-
-	// Start HTTP server for CA certificate
-	go func() {
-		debug.Info("Starting HTTP server for CA certificate on port 1337")
-		if err := http.ListenAndServe(":1337", httpRouter); err != nil {
-			debug.Error("HTTP server failed: %v", err)
-		}
-	}()
-
 	// Apply CORS middleware at the root level
 	r.Use(CORSMiddleware)
 	debug.Info("Applied CORS middleware to root router")
@@ -146,6 +118,7 @@ func SetupRoutes(r *mux.Router, sqlDB *sql.DB, tlsProvider tls.Provider) {
 	voucherRepo := repository.NewClaimVoucherRepository(database)
 	agentService := services.NewAgentService(agentRepo, voucherRepo)
 	voucherService := services.NewClaimVoucherService(voucherRepo)
+	emailService := email.NewService(sqlDB)
 
 	// Initialize configuration
 	appConfig := config.NewConfig()
@@ -156,122 +129,30 @@ func SetupRoutes(r *mux.Router, sqlDB *sql.DB, tlsProvider tls.Provider) {
 	apiRouter.Use(loggingMiddleware)
 	debug.Info("Created API router with logging middleware")
 
-	// 1. Public routes (no authentication required)
-	debug.Debug("Setting up public routes")
-	// Auth endpoints
-	apiRouter.HandleFunc("/login", auth.LoginHandler).Methods("POST", "OPTIONS")
-	apiRouter.HandleFunc("/logout", auth.LogoutHandler).Methods("POST", "OPTIONS")
-	apiRouter.HandleFunc("/check-auth", auth.CheckAuthHandler).Methods("GET", "OPTIONS")
-	debug.Info("Configured authentication endpoints: /login, /logout, /check-auth")
+	// Setup TLS routes
+	SetupTLSRoutes(r, tlsProvider)
 
-	// Health check endpoint - publicly accessible
-	publicRouter := r.PathPrefix("").Subrouter()
-	publicRouter.Use(CORSMiddleware)
-	publicRouter.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
-		debug.Info("Health check request from %s", r.RemoteAddr)
-		debug.Debug("Health check request headers: %v", r.Header)
+	// Create MFA handler
+	mfaHandler := auth.NewMFAHandler(database, emailService)
 
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
-	}).Methods("GET", "OPTIONS")
-	debug.Info("Configured health check endpoint: /api/health")
+	// Setup public routes
+	SetupPublicRoutes(apiRouter, database, agentService, appConfig, tlsProvider)
 
-	// Version endpoint - publicly accessible
-	publicRouter.HandleFunc("/api/version", handlers.GetVersion).Methods("GET", "OPTIONS")
-	debug.Info("Configured version endpoint: /api/version")
-
-	// Agent registration endpoint
-	registrationHandler := handlers.NewRegistrationHandler(agentService, appConfig, tlsProvider)
-	apiRouter.HandleFunc("/agent/register", registrationHandler.HandleRegistration).Methods("POST", "OPTIONS")
-	debug.Info("Configured agent registration endpoint: /agent/register")
-
-	// 2. JWT Protected routes (frontend access)
-	debug.Debug("Setting up JWT protected routes")
+	// Setup JWT protected routes
 	jwtRouter := apiRouter.PathPrefix("").Subrouter()
-	jwtRouter.Use(auth.JWTMiddleware)
+	jwtRouter.Use(middleware.RequireAuth(database))
 	jwtRouter.Use(loggingMiddleware)
-	debug.Info("Applied JWT middleware to protected routes")
 
-	// Client certificate endpoint - protected by JWT
-	jwtRouter.HandleFunc("/client-cert", tlsHandler.ServeClientCertificate).Methods("GET", "OPTIONS")
-	debug.Info("Configured protected client certificate endpoint: /api/client-cert")
-
-	// Dashboard routes
-	jwtRouter.HandleFunc("/dashboard", dashboard.GetDashboard).Methods("GET", "OPTIONS")
-	debug.Info("Configured dashboard endpoint: /dashboard")
-
-	// Hashlist routes
-	jwtRouter.HandleFunc("/hashlists", hashlists.GetHashlists).Methods("GET", "OPTIONS")
-	debug.Info("Configured hashlists endpoint: /hashlists")
-
-	// Job routes
-	jwtRouter.HandleFunc("/jobs", jobs.GetJobs).Methods("GET", "OPTIONS")
-	debug.Info("Configured jobs endpoint: /jobs")
-
-	// Agent management routes
-	agentHandler := agent.NewAgentHandler(agentService)
-	jwtRouter.HandleFunc("/agents", agentHandler.ListAgents).Methods("GET", "OPTIONS")
-	jwtRouter.HandleFunc("/agents/{id}", agentHandler.GetAgent).Methods("GET", "OPTIONS")
-	jwtRouter.HandleFunc("/agents/{id}", agentHandler.DeleteAgent).Methods("DELETE", "OPTIONS")
-	debug.Info("Configured agent management endpoints: /agents")
-
-	// Voucher management routes
-	voucherHandler := vouchers.NewVoucherHandler(voucherService)
-	jwtRouter.HandleFunc("/vouchers/temp", voucherHandler.GenerateVoucher).Methods("POST", "OPTIONS")
-	jwtRouter.HandleFunc("/vouchers", voucherHandler.ListVouchers).Methods("GET", "OPTIONS")
-	jwtRouter.HandleFunc("/vouchers/{code}/disable", voucherHandler.DeactivateVoucher).Methods("DELETE", "OPTIONS")
-	debug.Info("Configured voucher management endpoints: /vouchers")
-
-	// Initialize email service
-	emailService := email.NewService(sqlDB)
-	debug.Info("Email service initialized")
-
-	// Email management routes
-	debug.Debug("Setting up email management routes")
-	emailHandler := emailhandler.NewHandler(emailService)
-
-	// Email configuration endpoints
-	jwtRouter.HandleFunc("/email/config", emailHandler.GetConfig).Methods("GET", "OPTIONS")
-	jwtRouter.HandleFunc("/email/config", emailHandler.UpdateConfig).Methods("POST", "PUT", "OPTIONS")
-	jwtRouter.HandleFunc("/email/test", emailHandler.TestConfig).Methods("POST", "OPTIONS")
-
-	// Email template endpoints
-	jwtRouter.HandleFunc("/email/templates", emailHandler.ListTemplates).Methods("GET", "OPTIONS")
-	jwtRouter.HandleFunc("/email/templates", emailHandler.CreateTemplate).Methods("POST", "OPTIONS")
-	jwtRouter.HandleFunc("/email/templates/{id:[0-9]+}", emailHandler.GetTemplate).Methods("GET", "OPTIONS")
-	jwtRouter.HandleFunc("/email/templates/{id:[0-9]+}", emailHandler.UpdateTemplate).Methods("PUT", "OPTIONS")
-	jwtRouter.HandleFunc("/email/templates/{id:[0-9]+}", emailHandler.DeleteTemplate).Methods("DELETE", "OPTIONS")
-
-	// Email usage statistics endpoint
-	jwtRouter.HandleFunc("/email/usage", emailHandler.GetUsage).Methods("GET", "OPTIONS")
-	debug.Info("Configured email management endpoints: /email/*")
-
-	// 3. API Key Protected routes (agent communication)
-	debug.Debug("Setting up API key protected routes")
-	wsService := wsservice.NewService(agentService)
-
-	// Get TLS configuration for WebSocket handler
-	tlsConfig, err := tlsProvider.GetTLSConfig()
-	if err != nil {
-		debug.Error("Failed to get TLS configuration: %v", err)
-		return
-	}
-
-	wsRouter := r.PathPrefix("/ws").Subrouter()
-	wsRouter.Use(auth.APIKeyMiddleware(agentService))
-	wsRouter.Use(loggingMiddleware)
-	// Create a copy of the TLS config with required client certs for agent connections
-	agentTLSConfig := *tlsConfig // Make a copy
-	agentTLSConfig.ClientAuth = cryptotls.RequireAndVerifyClientCert
-	wsHandler := wshandler.NewHandler(wsService, agentService, &agentTLSConfig)
-	wsRouter.HandleFunc("/agent", wsHandler.ServeWS)
-	debug.Info("Configured WebSocket endpoint: /ws/agent with TLS: %v", tlsConfig != nil)
-	if tlsConfig != nil {
-		debug.Debug("WebSocket TLS Configuration:")
-		debug.Debug("- Client Auth: %v", agentTLSConfig.ClientAuth)
-		debug.Debug("- Client CAs: %v", agentTLSConfig.ClientCAs != nil)
-		debug.Debug("- Certificates: %d", len(agentTLSConfig.Certificates))
-	}
+	// Setup feature-specific routes
+	SetupDashboardRoutes(jwtRouter)
+	SetupHashlistRoutes(jwtRouter)
+	SetupJobRoutes(jwtRouter)
+	SetupAgentRoutes(jwtRouter, agentService)
+	SetupVoucherRoutes(jwtRouter, voucherService)
+	SetupAdminRoutes(jwtRouter, database, emailService)
+	SetupUserRoutes(jwtRouter, database)
+	SetupMFARoutes(jwtRouter, mfaHandler, database, emailService)
+	SetupWebSocketRoutes(r, agentService, tlsProvider)
 
 	debug.Info("Route configuration completed successfully")
 	logRegisteredRoutes(r)

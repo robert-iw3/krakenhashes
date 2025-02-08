@@ -86,8 +86,15 @@ const (
 		) RETURNING id`
 
 	GetUserByID = `
-		SELECT id, username, email, password_hash, role,
-			created_at, updated_at
+		SELECT 
+			id, username, email, password_hash, role,
+			created_at, updated_at, mfa_enabled, mfa_type,
+			mfa_secret, backup_codes, preferred_mfa_method,
+			last_password_change, failed_login_attempts,
+			last_failed_attempt, account_locked,
+			account_locked_until, account_enabled,
+			last_login, disabled_reason, disabled_at,
+			disabled_by
 		FROM users
 		WHERE id = $1`
 
@@ -290,3 +297,47 @@ const (
 		SELECT count FROM email_usage WHERE month_year = $1
 	`
 )
+
+// MFA queries
+const (
+	GetPendingMFASetup = `
+		SELECT secret FROM pending_mfa_setup
+		WHERE user_id = $1`
+
+	ClearPendingMFASetup = `
+		DELETE FROM pending_mfa_setup
+		WHERE user_id = $1`
+
+	GetMFAVerifyAttempts = `
+		SELECT attempts FROM mfa_verify_attempts
+		WHERE user_id = $1`
+
+	IncrementMFAVerifyAttempts = `
+		INSERT INTO mfa_verify_attempts (user_id, attempts)
+		VALUES ($1, 1)
+		ON CONFLICT (user_id) DO UPDATE 
+		SET attempts = mfa_verify_attempts.attempts + 1
+		RETURNING attempts`
+
+	ClearMFAVerifyAttempts = `
+		DELETE FROM mfa_verify_attempts
+		WHERE user_id = $1`
+
+	ValidateEmailMFACode = `
+		SELECT EXISTS (
+			SELECT 1 FROM email_mfa_codes
+			WHERE user_id = $1 AND code = $2 AND expires_at > NOW()
+		)`
+
+	EnableMFA = `
+		UPDATE users
+		SET mfa_enabled = true,
+			mfa_type = $2,
+			mfa_secret = $3
+		WHERE id = $1`
+)
+
+// ClearPendingMFASetupQuery removes a pending MFA setup for a user
+const ClearPendingMFASetupQuery = `
+DELETE FROM pending_mfa_setup 
+WHERE user_id = $1`

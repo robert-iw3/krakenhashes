@@ -69,17 +69,17 @@ DECLARE
     team_a_id UUID;
     team_b_id UUID;
 BEGIN
-    -- Insert users and store their IDs
+    -- Insert users and store their IDs for testing
     INSERT INTO users (username, first_name, last_name, email, password_hash, role)
-    VALUES ('admin', 'Admin', 'User', 'admin@example.com', '$2a$10$UQzDYVagF4svlb9zhvWFZOHrNa6xEwcqRVJ3l9WEn8VOfrCuy7Q8q', 'admin')
+    VALUES ('admin', 'Admin', 'User', 'admin@example.com', '$2a$10$2gobOj6ATVGUNNk5CHw9de2reYqSZVHtP/Qrx63.Ho9nTWbo5PW7O', 'admin') -- password: KrakenHashes1!
     RETURNING id INTO admin_id;
 
     INSERT INTO users (username, first_name, last_name, email, password_hash, role)
-    VALUES ('user1', 'User', 'One', 'user1@example.com', '$2a$10$UQzDYVagF4svlb9zhvWFZOHrNa6xEwcqRVJ3l9WEn8VOfrCuy7Q8q', 'user')
+    VALUES ('user1', 'User', 'One', 'user1@example.com', '$2a$10$2gobOj6ATVGUNNk5CHw9de2reYqSZVHtP/Qrx63.Ho9nTWbo5PW7O', 'user') -- password: KrakenHashes1!
     RETURNING id INTO user1_id;
 
     INSERT INTO users (username, first_name, last_name, email, password_hash, role)
-    VALUES ('user2', 'User', 'Two', 'user2@example.com', '$2a$10$UQzDYVagF4svlb9zhvWFZOHrNa6xEwcqRVJ3l9WEn8VOfrCuy7Q8q', 'user')
+    VALUES ('user2', 'User', 'Two', 'user2@example.com', '$2a$10$2gobOj6ATVGUNNk5CHw9de2reYqSZVHtP/Qrx63.Ho9nTWbo5PW7O', 'user') -- password: KrakenHashes1!
     RETURNING id INTO user2_id;
 
     -- Insert teams
