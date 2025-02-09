@@ -6,12 +6,12 @@ import (
 	"encoding/base32"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/db"
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/db/queries"
 	"github.com/ZerkerEOD/krakenhashes/backend/pkg/debug"
 	"github.com/pquerna/otp"
 	"github.com/pquerna/otp/totp"
@@ -293,6 +293,46 @@ func (h *Handler) VerifyMFAHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch strings.ToLower(req.Method) {
+	case "request_email":
+		// Get user's email
+		user, err := h.db.GetUserByID(userID)
+		if err != nil {
+			debug.Error("Failed to get user: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		// Generate a random 6-digit code
+		code, err := generateEmailCode()
+		if err != nil {
+			debug.Error("Failed to generate email code: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		// Send verification email
+		if err := h.emailService.SendMFACode(r.Context(), user.Email, code); err != nil {
+			debug.Error("Failed to send MFA code email: %v", err)
+			http.Error(w, "Failed to send verification code", http.StatusInternalServerError)
+			return
+		}
+
+		// Store the code
+		if err := h.db.StoreEmailMFACode(userID, code); err != nil {
+			debug.Error("Failed to store email MFA code: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		// Return success response with remaining attempts
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":           true,
+			"message":           "Email code sent",
+			"remainingAttempts": remainingAttempts,
+		})
+		return
+
 	case "authenticator":
 		// Get user data for verification
 		authInfo, err := h.db.GetUserWithMFAData(userID)
@@ -569,18 +609,54 @@ func (h *Handler) VerifyMFAHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 	case "backup":
-		// Get user data first
-		user, err := h.db.GetUserByID(userID)
+		// Get user's backup codes
+		userID, err := h.db.GetUserIDFromMFASession(req.SessionToken)
 		if err != nil {
-			debug.Error("Failed to get user data: %v", err)
+			debug.Error("Failed to get user ID from MFA session: %v", err)
+			http.Error(w, "Invalid session", http.StatusUnauthorized)
+			return
+		}
+
+		// Get MFA settings for max attempts
+		settings, err := h.db.GetMFASettings()
+		if err != nil {
+			debug.Error("Failed to get MFA settings: %v", err)
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
 
-		// Check if user has backup codes
-		if len(user.BackupCodes) == 0 {
-			debug.Warning("User %s attempted to use backup code but none are available", userID)
-			http.Error(w, "No backup codes available", http.StatusBadRequest)
+		// Get current attempts
+		attempts, err := h.db.GetMFAVerifyAttempts(req.SessionToken)
+		if err != nil {
+			debug.Error("Failed to get verify attempts: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		// Calculate remaining attempts
+		maxAttempts := settings.MFAMaxAttempts
+		if maxAttempts < 1 {
+			maxAttempts = 3 // Default if not set
+		}
+		remainingAttempts := maxAttempts - attempts
+
+		if remainingAttempts <= 0 {
+			debug.Warning("Max MFA verify attempts reached for user %s", userID)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusTooManyRequests)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success":           false,
+				"message":           "Too many verification attempts",
+				"remainingAttempts": 0,
+			})
+			return
+		}
+
+		// Get user data to check backup codes
+		user, err := h.db.GetUserByID(userID)
+		if err != nil {
+			debug.Error("Failed to get user: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
 
@@ -588,31 +664,25 @@ func (h *Handler) VerifyMFAHandler(w http.ResponseWriter, r *http.Request) {
 		valid, err := h.db.ValidateAndUseBackupCode(userID, req.Code)
 		if err != nil {
 			debug.Error("Failed to validate backup code: %v", err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			http.Error(w, "Failed to validate code", http.StatusInternalServerError)
 			return
 		}
-
 		if !valid {
-			debug.Warning("Invalid backup code attempt for user %s", userID)
-			http.Error(w, "Invalid backup code", http.StatusUnauthorized)
+			debug.Warning("Invalid backup code provided by user %s", userID)
+			if err := h.db.IncrementMFAVerifyAttempts(req.SessionToken); err != nil {
+				debug.Error("Failed to increment verify attempts: %v", err)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success":           false,
+				"message":           "Invalid backup code",
+				"remainingAttempts": remainingAttempts - 1,
+			})
 			return
 		}
 
-		// Clear MFA session after successful verification
-		if err := h.db.ClearMFASession(req.SessionToken); err != nil {
-			debug.Error("Failed to clear MFA session: %v", err)
-			// Don't return error here as verification was successful
-		}
-
-		// Get user data for token generation
-		user, err = h.db.GetUserByID(userID)
-		if err != nil {
-			debug.Error("Failed to get user data: %v", err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
-			return
-		}
-
-		// Generate auth token after successful backup code verification
+		// Generate auth token after successful verification
 		token, err := h.generateAuthToken(user)
 		if err != nil {
 			debug.Error("Failed to generate auth token: %v", err)
@@ -627,6 +697,12 @@ func (h *Handler) VerifyMFAHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Clear MFA session
+		if err := h.db.ClearMFASession(req.SessionToken); err != nil {
+			debug.Error("Failed to clear MFA session: %v", err)
+			// Don't return error as token is already generated
+		}
+
 		// Set auth cookie
 		setAuthCookie(w, r, token, int(time.Hour*24*7/time.Second)) // 1 week
 
@@ -639,6 +715,7 @@ func (h *Handler) VerifyMFAHandler(w http.ResponseWriter, r *http.Request) {
 		return
 
 	default:
+		debug.Warning("Invalid MFA method requested by user %s: %s", userID, req.Method)
 		http.Error(w, "Invalid MFA method", http.StatusBadRequest)
 		return
 	}
@@ -686,27 +763,31 @@ func (h *MFAHandler) EnableMFA(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// If email method is requested, check if email provider is configured
-	if req.Method == "email" {
-		hasEmailProvider, err := h.db.HasActiveEmailProvider()
-		if err != nil {
-			debug.Error("Failed to check email provider: %v", err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
-			return
-		}
-		if !hasEmailProvider {
-			debug.Error("Cannot enable email MFA: no active email provider configured")
-			http.Error(w, "Cannot enable email MFA without an active email provider", http.StatusBadRequest)
-			return
-		}
-	}
-
-	// Get user with MFA data since we need access to sensitive data during setup
-	user, err := h.db.GetUserByID(userID)
+	// Get user data for setup
+	basicUser, err := h.db.GetUserByID(userID)
 	if err != nil {
 		debug.Error("Failed to get user: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
+	}
+
+	// Check if email provider is configured
+	hasEmailProvider, err := h.db.HasActiveEmailProvider()
+	if err != nil {
+		debug.Error("Failed to check email provider: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// If no email provider and method is email, switch to authenticator
+	if !hasEmailProvider && req.Method == "email" {
+		req.Method = "authenticator"
+		// Don't enable email MFA since there's no provider
+		if err := h.db.DisableMFA(userID); err != nil {
+			debug.Error("Failed to disable email MFA: %v", err)
+			http.Error(w, "Failed to setup MFA", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	switch req.Method {
@@ -749,7 +830,7 @@ func (h *MFAHandler) EnableMFA(w http.ResponseWriter, r *http.Request) {
 		// Generate QR code
 		key, err := totp.Generate(totp.GenerateOpts{
 			Issuer:      totpIssuer,
-			AccountName: user.Email,
+			AccountName: basicUser.Email,
 			Secret:      secret, // Use the raw bytes for QR code generation
 			Digits:      totpDigits,
 			Period:      totpPeriod,
@@ -991,20 +1072,73 @@ func (h *MFAHandler) GenerateBackupCodes(w http.ResponseWriter, r *http.Request)
 
 // SendEmailMFACode generates and sends a new email MFA code
 func (h *MFAHandler) SendEmailMFACode(w http.ResponseWriter, r *http.Request) {
-	userID := r.Context().Value("user_id").(string)
-	if userID == "" {
-		debug.Warning("No user ID found in context")
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+	var req struct {
+		SessionToken string `json:"sessionToken"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		debug.Warning("Invalid request body: %v", err)
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Get user ID from session token
+	userID, err := h.db.GetUserIDFromMFASession(req.SessionToken)
+	if err != nil {
+		debug.Error("Failed to get user ID from MFA session: %v", err)
+		http.Error(w, "Invalid session", http.StatusUnauthorized)
+		return
+	}
+
+	// Get MFA settings for max attempts
+	settings, err := h.db.GetMFASettings()
+	if err != nil {
+		debug.Error("Failed to get MFA settings: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Get current attempts
+	attempts, err := h.db.GetMFAVerifyAttempts(req.SessionToken)
+	if err != nil {
+		debug.Error("Failed to get verify attempts: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Calculate remaining attempts
+	remainingAttempts := settings.MFAMaxAttempts - attempts
+	if remainingAttempts <= 0 {
+		debug.Warning("Max MFA verify attempts reached for user %s", userID)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":           false,
+			"message":           "Too many verification attempts",
+			"remainingAttempts": 0,
+		})
 		return
 	}
 
 	debug.Debug("Generating email MFA code for user %s", userID)
 
+	// Get user's email
+	user, err := h.db.GetUserByID(userID)
+	if err != nil {
+		debug.Error("Failed to get user: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
 	// Generate a random 6-digit code
-	code := fmt.Sprintf("%06d", time.Now().UnixNano()%1000000)
+	code, err := generateEmailCode()
+	if err != nil {
+		debug.Error("Failed to generate email code: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
 
 	// Store the code
-	err := h.db.StoreEmailMFACode(userID, code)
+	err = h.db.StoreEmailMFACode(userID, code)
 	if err != nil {
 		if err == db.ErrMFACooldown {
 			debug.Info("MFA code request on cooldown for user %s", userID)
@@ -1018,20 +1152,18 @@ func (h *MFAHandler) SendEmailMFACode(w http.ResponseWriter, r *http.Request) {
 
 	debug.Debug("Successfully stored email MFA code for user %s", userID)
 
-	// TODO: Send the code via email using the email service
-	// For now, we'll just return it in the response for testing
-	response := struct {
-		Code string `json:"code"`
-	}{
-		Code: code,
+	// Send the code via email
+	if err := h.emailService.SendMFACode(r.Context(), user.Email, code); err != nil {
+		debug.Error("Failed to send email MFA code: %v", err)
+		http.Error(w, "Failed to send verification code", http.StatusInternalServerError)
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		debug.Error("Failed to encode response for user %s: %v", userID, err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":           true,
+		"remainingAttempts": remainingAttempts,
+	})
 
 	debug.Info("Successfully sent email MFA code for user %s", userID)
 }
@@ -1149,7 +1281,20 @@ func (h *MFAHandler) VerifyMFACode(w http.ResponseWriter, r *http.Request) {
 		}
 		if !valid {
 			debug.Warning("Invalid backup code provided by user %s", userID)
-			http.Error(w, "Invalid backup code", http.StatusBadRequest)
+			if err := h.db.IncrementMFAVerifyAttempts(req.SessionToken); err != nil {
+				debug.Error("Failed to increment attempts: %v", err)
+			}
+			attempts, err := h.db.GetMFAVerifyAttempts(req.SessionToken)
+			if err != nil {
+				debug.Error("Failed to get attempts: %v", err)
+				attempts = maxVerifyAttempts // Default to max attempts on error
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success":           false,
+				"message":           "Invalid backup code",
+				"remainingAttempts": maxVerifyAttempts - attempts,
+			})
 			return
 		}
 		debug.Info("Successfully verified backup code for user %s", userID)
@@ -1184,7 +1329,7 @@ func (h *MFAHandler) GetUserMFASettings(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Get user's MFA settings
-	enabled, mfaType, preferredMethod, err := h.db.GetUserMFASettings(userID)
+	mfaSettings, err := h.db.GetUserMFASettings(userID)
 	if err != nil {
 		debug.Error("Failed to get user MFA settings: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -1192,33 +1337,25 @@ func (h *MFAHandler) GetUserMFASettings(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Get remaining backup codes count
-	remainingCodes, err := h.db.GetRemainingBackupCodesCount(userID)
-	if err != nil {
-		debug.Error("Failed to get remaining backup codes count: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
+	remainingCodes := 0
+	if mfaSettings.BackupCodes != nil {
+		remainingCodes = len(mfaSettings.BackupCodes)
 	}
 
 	response := struct {
 		RequireMFA           bool     `json:"requireMfa"`
 		AllowedMFAMethods    []string `json:"allowedMfaMethods"`
 		MfaEnabled           bool     `json:"mfaEnabled"`
-		MfaType              *string  `json:"mfaType,omitempty"`
-		PreferredMethod      *string  `json:"preferredMethod,omitempty"`
+		MfaType              []string `json:"mfaType,omitempty"`
+		PreferredMethod      string   `json:"preferredMethod,omitempty"`
 		RemainingBackupCodes int      `json:"remainingBackupCodes"`
 	}{
 		RequireMFA:           settings.RequireMFA,
 		AllowedMFAMethods:    settings.AllowedMFAMethods,
-		MfaEnabled:           enabled,
+		MfaEnabled:           mfaSettings.MFAEnabled,
+		MfaType:              mfaSettings.MFAType,
+		PreferredMethod:      mfaSettings.PreferredMFAMethod,
 		RemainingBackupCodes: remainingCodes,
-	}
-
-	if enabled && mfaType != "" {
-		response.MfaType = &mfaType
-	}
-
-	if enabled && preferredMethod != "" {
-		response.PreferredMethod = &preferredMethod
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -1244,7 +1381,7 @@ func (h *MFAHandler) GetMFASettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	enabled, mfaType, _, err := h.db.GetUserMFASettings(userID)
+	mfaSettings, err := h.db.GetUserMFASettings(userID)
 	if err != nil {
 		debug.Error("Failed to get user MFA settings: %v", err)
 		http.Error(w, "Failed to get user MFA settings", http.StatusInternalServerError)
@@ -1255,15 +1392,12 @@ func (h *MFAHandler) GetMFASettings(w http.ResponseWriter, r *http.Request) {
 		RequireMFA        bool     `json:"requireMfa"`
 		AllowedMFAMethods []string `json:"allowedMfaMethods"`
 		MfaEnabled        bool     `json:"mfaEnabled"`
-		MfaType           *string  `json:"mfaType,omitempty"`
+		MfaType           []string `json:"mfaType,omitempty"`
 	}{
 		RequireMFA:        settings.RequireMFA,
 		AllowedMFAMethods: settings.AllowedMFAMethods,
-		MfaEnabled:        enabled,
-	}
-
-	if enabled && mfaType != "" {
-		response.MfaType = &mfaType
+		MfaEnabled:        mfaSettings.MFAEnabled,
+		MfaType:           mfaSettings.MFAType,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -1299,7 +1433,7 @@ func (h *MFAHandler) UpdatePreferredMFAMethod(w http.ResponseWriter, r *http.Req
 	}
 
 	// Get user's current MFA settings
-	enabled, mfaType, _, err := h.db.GetUserMFASettings(userID)
+	mfaSettings, err := h.db.GetUserMFASettings(userID)
 	if err != nil {
 		debug.Error("Failed to get user MFA settings: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -1307,7 +1441,7 @@ func (h *MFAHandler) UpdatePreferredMFAMethod(w http.ResponseWriter, r *http.Req
 	}
 
 	// Check if user has the requested method enabled
-	if !enabled || (req.Method != mfaType && req.Method != "email") {
+	if !mfaSettings.MFAEnabled || !contains(mfaSettings.MFAType, req.Method) {
 		debug.Error("User %s attempted to set preferred method %s but it's not enabled", userID, req.Method)
 		http.Error(w, "Requested MFA method is not enabled for your account", http.StatusBadRequest)
 		return
@@ -1317,6 +1451,40 @@ func (h *MFAHandler) UpdatePreferredMFAMethod(w http.ResponseWriter, r *http.Req
 	if err := h.db.SetPreferredMFAMethod(userID, req.Method); err != nil {
 		debug.Error("Failed to update preferred MFA method: %v", err)
 		http.Error(w, "Failed to update preferred method", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+// DisableAuthenticator handles the request to disable authenticator MFA for a user
+func (h *MFAHandler) DisableAuthenticator(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value("user_id").(string)
+	if userID == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Get user's current MFA settings
+	mfaSettings, err := h.db.GetUserMFASettings(userID)
+	if err != nil {
+		debug.Error("Failed to get user MFA settings: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Check if authenticator is enabled
+	if !contains(mfaSettings.MFAType, "authenticator") {
+		debug.Warning("User %s attempted to disable authenticator but it's not enabled", userID)
+		http.Error(w, "Authenticator is not enabled", http.StatusBadRequest)
+		return
+	}
+
+	// Execute the query to remove the authenticator method
+	_, err = h.db.Exec(queries.RemoveMFAMethodQuery, userID, "authenticator")
+	if err != nil {
+		debug.Error("Failed to remove authenticator method: %v", err)
+		http.Error(w, "Failed to disable authenticator", http.StatusInternalServerError)
 		return
 	}
 

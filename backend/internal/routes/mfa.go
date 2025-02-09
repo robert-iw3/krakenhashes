@@ -37,4 +37,7 @@ func SetupMFARoutes(router *mux.Router, mfaHandler *auth.MFAHandler, database *d
 
 	// Update preferred MFA method
 	protected.HandleFunc("/preferred-method", mfaHandler.UpdatePreferredMFAMethod).Methods("PUT", "OPTIONS")
+
+	// Disable authenticator
+	protected.HandleFunc("/disable-authenticator", mfaHandler.DisableAuthenticator).Methods("POST", "OPTIONS")
 }

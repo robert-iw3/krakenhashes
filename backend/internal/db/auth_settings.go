@@ -103,3 +103,21 @@ func (db *DB) UpdateMFASettings(requireMFA bool, allowedMethods []string, emailV
 
 	return nil
 }
+
+// BulkEnableMFA enables MFA for all active users who don't have it enabled yet
+func (db *DB) BulkEnableMFA() error {
+	debug.Info("Bulk enabling MFA for all active users")
+	result, err := db.Exec(queries.BulkEnableMFAQuery)
+	if err != nil {
+		debug.Error("Failed to bulk enable MFA: %v", err)
+		return fmt.Errorf("failed to bulk enable MFA: %w", err)
+	}
+
+	affected, err := result.RowsAffected()
+	if err != nil {
+		debug.Error("Failed to get affected rows count: %v", err)
+		return nil // Not returning error as the update was successful
+	}
+	debug.Info("Enabled MFA for %d users", affected)
+	return nil
+}

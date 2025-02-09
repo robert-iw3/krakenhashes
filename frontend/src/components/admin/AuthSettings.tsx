@@ -193,7 +193,6 @@ const AuthSettingsForm: React.FC<AuthSettingsFormProps> = ({ onSave, loading = f
         }
       }
       setError(errorMessage);
-      throw error;
     }
   };
 

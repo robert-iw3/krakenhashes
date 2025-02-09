@@ -30,22 +30,14 @@ Instructions for setting up and running each component can be found in their res
   - [x] Email-based MFA (template)
 
 ### Authentication & Authorization
-- [ ] Enhanced user management
-  - [ ] User groups (Admin/User roles)
-  - [ ] MFA implementation
-    - [ ] Email-based authentication
-    - [ ] Backup codes (6 codes)
-    - [ ] Admin MFA override capability
-  - [ ] Password change functionality
-  - [ ] Account management features
-- [ ] Team management
-  - [ ] Team manager role implementation
-    - [ ] Team settings modification
-    - [ ] Member management
-  - [ ] User-team assignment system
-  - [ ] Team-based agent access control
-    - [ ] Multi-team agent assignment
-    - [ ] Agent ownership override rules
+- [x] Enhanced user management
+  - [x] User groups (Admin/User roles)
+  - [x] MFA implementation
+    - [x] Email-based authentication
+    - [x] Backup codes (based on admin auth settings)
+    - [x] Admin MFA override capability
+  - [x] Password change functionality
+  - [x] Account management features
 
 ### Job Processing System
 - [ ] Hashlist management
@@ -106,11 +98,10 @@ Instructions for setting up and running each component can be found in their res
     - [ ] MFA management
     - [ ] Team assignment
   - [ ] Security settings
-- [ ] Account management
-  - [ ] Profile settings
-  - [ ] Security settings
-    - [ ] MFA setup/recovery
-  - [ ] Team management
+- [x] Account management
+  - [x] Profile settings
+  - [x] Security settings
+    - [x] MFA setup/recovery
 
 ### Documentation
 - [ ] API documentation
@@ -128,3 +119,11 @@ Instructions for setting up and running each component can be found in their res
 - [ ] Additional authentication methods
 - [ ] Team resource quotas
 - [ ] Advanced job dependencies
+- [ ] Team system implementation
+  - [ ] Team management infrastructure
+    - [ ] Team manager roles
+    - [ ] User-team assignments
+    - [ ] Team-based agent access control
+  - [ ] Frontend team interfaces
+    - [ ] Team management UI
+    - [ ] Team assignment system

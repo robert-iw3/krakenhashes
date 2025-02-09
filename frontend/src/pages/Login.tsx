@@ -68,8 +68,9 @@ const Login: React.FC = () => {
   const [mfaRequired, setMfaRequired] = useState<boolean>(false);
   const [mfaSession, setMfaSession] = useState<{
     sessionToken: string;
-    mfaType: string;
-    mfaMethods: string[];
+    mfaType: string[];
+    preferredMethod: string;
+    expiresAt?: string;
   } | null>(null);
   const requestCount = useRef<number>(0);
   const lastRequestTime = useRef<number>(Date.now());
@@ -123,7 +124,8 @@ const Login: React.FC = () => {
         setMfaSession({
           sessionToken: response.session_token,
           mfaType: response.mfa_type,
-          mfaMethods: [response.preferred_method]
+          preferredMethod: response.preferred_method,
+          expiresAt: response.expires_at
         });
       } else if (response.token) {
         handleLoginSuccess(response.token);
@@ -168,9 +170,10 @@ const Login: React.FC = () => {
           <MFAVerification
             sessionToken={mfaSession.sessionToken}
             mfaType={mfaSession.mfaType}
-            mfaMethods={mfaSession.mfaMethods}
+            preferredMethod={mfaSession.preferredMethod}
             onSuccess={handleMFASuccess}
             onError={handleMFAError}
+            expiresAt={mfaSession.expiresAt}
           />
         </Box>
       </Container>

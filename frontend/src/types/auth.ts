@@ -9,7 +9,7 @@ export interface LoginResponse {
   token?: string;
   mfa_required?: boolean;
   session_token?: string;
-  mfa_type?: string;
+  mfa_type?: string[];
   preferred_method?: string;
   expires_at?: string;
 }
@@ -80,8 +80,9 @@ export interface MFASettings {
   mfaCodeExpiryMinutes: number | '';
   mfaMaxAttempts: number | '';
   mfaEnabled: boolean;
-  mfaType?: string;
+  mfaType?: string[];
   remainingBackupCodes?: number;
+  preferredMethod?: string;
 }
 
 export type MFAMethod = 'email' | 'authenticator' | 'passkey';

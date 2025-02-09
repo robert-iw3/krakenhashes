@@ -19,7 +19,7 @@ import { getAdminMFASettings, updateMFASettings } from '../../services/auth';
 const MFASettings: React.FC = () => {
   const [settings, setSettings] = useState<IMFASettings>({
     requireMfa: false,
-    allowedMfaMethods: [],
+    allowedMfaMethods: ['email'],
     emailCodeValidity: 5,
     backupCodesCount: 8,
     mfaCodeCooldownMinutes: 1,
@@ -56,22 +56,46 @@ const MFASettings: React.FC = () => {
     setSuccess(false);
 
     try {
-      await updateMFASettings(settings);
+      // Ensure email is always included in allowed methods if MFA is required
+      const updatedSettings = {
+        ...settings,
+        allowedMfaMethods: settings.requireMfa 
+          ? Array.from(new Set([...settings.allowedMfaMethods, 'email']))
+          : settings.allowedMfaMethods
+      };
+
+      await updateMFASettings(updatedSettings);
       setSuccess(true);
+      setSettings(updatedSettings);
     } catch (err) {
-      setError('Failed to update MFA settings');
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError('Failed to update MFA settings');
+      }
     } finally {
       setSaving(false);
     }
   };
 
   const handleMethodToggle = (method: MFAMethod) => {
-    setSettings(prev => ({
-      ...prev,
-      allowedMfaMethods: prev.allowedMfaMethods.includes(method)
+    setSettings(prev => {
+      const newMethods = prev.allowedMfaMethods.includes(method)
         ? prev.allowedMfaMethods.filter(m => m !== method)
-        : [...prev.allowedMfaMethods, method],
-    }));
+        : [...prev.allowedMfaMethods, method];
+
+      // Ensure email is always included if MFA is required
+      if (prev.requireMfa && method !== 'email') {
+        if (!newMethods.includes('email')) {
+          newMethods.push('email');
+        }
+      }
+
+      return {
+        ...prev,
+        allowedMfaMethods: newMethods,
+      };
+    });
   };
 
   if (loading) {
@@ -106,7 +130,17 @@ const MFASettings: React.FC = () => {
             control={
               <Switch
                 checked={settings.requireMfa}
-                onChange={e => setSettings(prev => ({ ...prev, requireMfa: e.target.checked }))}
+                onChange={e => {
+                  const newValue = e.target.checked;
+                  setSettings(prev => ({
+                    ...prev,
+                    requireMfa: newValue,
+                    // Ensure email is included when enabling required MFA
+                    allowedMfaMethods: newValue 
+                      ? Array.from(new Set([...prev.allowedMfaMethods, 'email']))
+                      : prev.allowedMfaMethods
+                  }));
+                }}
               />
             }
             label="Require MFA for all users"
@@ -123,7 +157,7 @@ const MFASettings: React.FC = () => {
                 <Checkbox
                   checked={settings.allowedMfaMethods.includes(method)}
                   onChange={() => handleMethodToggle(method)}
-                  disabled={!settings.requireMfa}
+                  disabled={!settings.requireMfa || (method === 'email' && settings.requireMfa)}
                 />
               }
               label={method.charAt(0).toUpperCase() + method.slice(1)}
@@ -146,6 +180,36 @@ const MFASettings: React.FC = () => {
               type="number"
               value={settings.backupCodesCount}
               onChange={e => setSettings(prev => ({ ...prev, backupCodesCount: parseInt(e.target.value) || 8 }))}
+              disabled={!settings.requireMfa}
+              fullWidth
+              margin="normal"
+            />
+
+            <TextField
+              label="Code Cooldown (minutes)"
+              type="number"
+              value={settings.mfaCodeCooldownMinutes}
+              onChange={e => setSettings(prev => ({ ...prev, mfaCodeCooldownMinutes: parseInt(e.target.value) || 1 }))}
+              disabled={!settings.requireMfa}
+              fullWidth
+              margin="normal"
+            />
+
+            <TextField
+              label="Code Expiry (minutes)"
+              type="number"
+              value={settings.mfaCodeExpiryMinutes}
+              onChange={e => setSettings(prev => ({ ...prev, mfaCodeExpiryMinutes: parseInt(e.target.value) || 5 }))}
+              disabled={!settings.requireMfa}
+              fullWidth
+              margin="normal"
+            />
+
+            <TextField
+              label="Maximum Code Attempts"
+              type="number"
+              value={settings.mfaMaxAttempts}
+              onChange={e => setSettings(prev => ({ ...prev, mfaMaxAttempts: parseInt(e.target.value) || 3 }))}
               disabled={!settings.requireMfa}
               fullWidth
               margin="normal"

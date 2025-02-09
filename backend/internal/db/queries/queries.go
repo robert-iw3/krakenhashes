@@ -341,3 +341,15 @@ const (
 const ClearPendingMFASetupQuery = `
 DELETE FROM pending_mfa_setup 
 WHERE user_id = $1`
+
+// Bulk update users' MFA settings when global MFA is enabled
+const BulkEnableMFAQuery = `
+	UPDATE users 
+	SET mfa_enabled = true,
+		mfa_type = ARRAY['email']::text[],
+		preferred_mfa_method = 'email',
+		updated_at = NOW()
+	WHERE mfa_enabled = false
+		AND account_enabled = true
+		AND account_locked = false;
+`

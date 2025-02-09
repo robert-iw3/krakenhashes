@@ -14,17 +14,26 @@ const (
 		SELECT require_mfa FROM auth_settings LIMIT 1;
 	`
 
-	// Enable MFA for a user
+	// Enable MFA for a user with a specific method
 	EnableMFAQuery = `
 		UPDATE users 
-		SET mfa_enabled = true, mfa_type = $2, mfa_secret = $3, updated_at = NOW() 
+		SET mfa_enabled = true, 
+			mfa_type = array_append(CASE WHEN NOT $2 = ANY(mfa_type) THEN mfa_type ELSE mfa_type END, $2),
+			mfa_secret = $3, 
+			preferred_mfa_method = $2,
+			updated_at = NOW() 
 		WHERE id = $1;
 	`
 
 	// Disable MFA for a user
 	DisableMFAQuery = `
 		UPDATE users 
-		SET mfa_enabled = false, mfa_type = 'email', mfa_secret = NULL, backup_codes = NULL, updated_at = NOW() 
+		SET mfa_enabled = false, 
+			mfa_type = ARRAY['email']::text[], 
+			mfa_secret = NULL, 
+			backup_codes = NULL,
+			preferred_mfa_method = 'email',
+			updated_at = NOW() 
 		WHERE id = $1;
 	`
 
@@ -53,15 +62,28 @@ const (
 	// Store backup codes
 	StoreBackupCodesQuery = `
 		UPDATE users 
-		SET backup_codes = $2, updated_at = NOW() 
+		SET backup_codes = $2,
+			mfa_type = CASE 
+				WHEN NOT 'backup' = ANY(mfa_type) AND array_length($2, 1) > 0 
+				THEN array_append(mfa_type, 'backup')
+				WHEN array_length($2, 1) = 0 
+				THEN array_remove(mfa_type, 'backup')
+				ELSE mfa_type
+			END,
+			updated_at = NOW() 
 		WHERE id = $1;
 	`
 
 	// Get user's MFA settings
 	GetUserMFASettingsQuery = `
-		SELECT mfa_enabled, mfa_type, preferred_mfa_method
+		SELECT 
+			mfa_enabled, 
+			mfa_type,
+			preferred_mfa_method,
+			mfa_secret,
+			backup_codes
 		FROM users 
-		WHERE id = $1
+		WHERE id = $1;
 	`
 
 	// Delete expired pending MFA setups
@@ -147,14 +169,6 @@ const (
 		WHERE id = $1`
 
 	// Backup codes queries
-	ValidateAndUseBackupCodeQuery = `
-		UPDATE users 
-		SET backup_codes = array_remove(backup_codes, $2),
-			updated_at = CURRENT_TIMESTAMP
-		WHERE id = $1 
-		AND $2 = ANY(backup_codes)
-		RETURNING id`
-
 	GetUnusedBackupCodesCountQuery = `
 		SELECT array_length(backup_codes, 1)
 		FROM users 
@@ -172,6 +186,8 @@ const (
 		SET preferred_mfa_method = $2,
 			updated_at = NOW() 
 		WHERE id = $1
+		AND $2 = ANY(mfa_type)  -- Ensure method exists in mfa_type
+		AND $2 != 'backup';     -- Prevent setting backup as preferred
 	`
 
 	// Get count of remaining backup codes
@@ -183,18 +199,13 @@ const (
 
 	// Validate and consume a backup code
 	ValidateAndConsumeBackupCodeQuery = `
-		WITH valid_code AS (
-			SELECT backup_codes
-			FROM users
-			WHERE id = $1
-			AND $2 = ANY(backup_codes)
-		)
 		UPDATE users
-		SET backup_codes = ARRAY_REMOVE(backup_codes, $2),
+		SET backup_codes = array_remove(backup_codes, $2),
 			updated_at = NOW()
-		FROM valid_code
-		WHERE id = $1
-		AND backup_codes = valid_code.backup_codes
+		WHERE id = $1 
+		AND backup_codes IS NOT NULL
+		AND array_length(backup_codes, 1) > 0
+		AND $2 = ANY(backup_codes)
 		RETURNING id;
 	`
 
@@ -253,6 +264,30 @@ const (
 		FROM users u
 		WHERE u.id = $1;
 	`
+
+	// Remove specific MFA method
+	RemoveMFAMethodQuery = `
+		UPDATE users 
+		SET mfa_type = array_remove(mfa_type, $2),
+			preferred_mfa_method = CASE 
+				WHEN preferred_mfa_method = $2 THEN 'email'
+				ELSE preferred_mfa_method
+			END,
+			updated_at = NOW() 
+		WHERE id = $1
+		AND $2 != 'email';  -- Prevent removal of email method
+	`
+
+	// Add MFA method
+	AddMFAMethodQuery = `
+		UPDATE users 
+		SET mfa_type = array_append(CASE WHEN NOT $2 = ANY(mfa_type) THEN mfa_type ELSE mfa_type END, $2),
+			updated_at = NOW() 
+		WHERE id = $1;
+	`
+
+	// Alias for backward compatibility
+	ValidateAndUseBackupCodeQuery = ValidateAndConsumeBackupCodeQuery
 )
 
 // MFASession represents an MFA verification session
@@ -264,11 +299,11 @@ type MFASession struct {
 	Attempts     int       `db:"attempts"`
 }
 
-// MFARequirement represents whether a user requires MFA and their MFA settings
+// MFARequirement represents the MFA requirements for a user
 type MFARequirement struct {
-	RequiresMFA        bool   `db:"requires_mfa"`
-	MFAType            string `db:"mfa_type"`
-	PreferredMFAMethod string `db:"preferred_mfa_method"`
+	RequiresMFA        bool     `db:"requires_mfa"`
+	MFAType            []string `db:"mfa_type"`
+	PreferredMFAMethod string   `db:"preferred_mfa_method"`
 }
 
 // DB represents a database connection
@@ -364,7 +399,7 @@ func (db *DB) StoreBackupCodes(userID string, codes []string) error {
 // ValidateAndUseBackupCode validates a backup code and removes it from the user's backup codes
 func (db *DB) ValidateAndUseBackupCode(userID string, code string) (bool, error) {
 	var id string
-	err := db.QueryRow(ValidateAndUseBackupCodeQuery, userID, code).Scan(&id)
+	err := db.QueryRow(ValidateAndConsumeBackupCodeQuery, userID, code).Scan(&id)
 	if err == sql.ErrNoRows {
 		return false, nil
 	}
@@ -445,4 +480,51 @@ func (db *DB) CheckMFARequired(userID string) (*MFARequirement, error) {
 		return nil, models.ErrNotFound
 	}
 	return req, err
+}
+
+// AddMFAMethod adds a new MFA method for a user
+func (db *DB) AddMFAMethod(userID string, method string) error {
+	_, err := db.Exec(AddMFAMethodQuery, userID, method)
+	return err
+}
+
+// RemoveMFAMethod removes an MFA method for a user
+func (db *DB) RemoveMFAMethod(userID string, method string) error {
+	_, err := db.Exec(RemoveMFAMethodQuery, userID, method)
+	return err
+}
+
+// SetPreferredMFAMethod sets the preferred MFA method for a user
+func (db *DB) SetPreferredMFAMethod(userID string, method string) error {
+	result, err := db.Exec(SetPreferredMFAMethodQuery, userID, method)
+	if err != nil {
+		return err
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if rows == 0 {
+		return sql.ErrNoRows // Method not in mfa_type or was 'backup'
+	}
+
+	return nil
+}
+
+// GetUserMFASettings gets a user's MFA settings
+func (db *DB) GetUserMFASettings(userID string) (*models.UserMFAData, error) {
+	var settings models.UserMFAData
+	err := db.QueryRow(GetUserMFASettingsQuery, userID).Scan(
+		&settings.MFAEnabled,
+		&settings.MFAType,
+		&settings.PreferredMFAMethod,
+		&settings.MFASecret,
+		&settings.BackupCodes,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &settings, nil
 }

@@ -253,6 +253,7 @@ func (db *DB) GetUserByID(userID string) (*models.User, error) {
 	var skipMFASecret, skipBackupCodes, disabledReason sql.NullString
 	var lastFailedAttempt, accountLockedUntil, lastLogin, disabledAt sql.NullTime
 	var disabledBy sql.NullString
+	var mfaType []string
 
 	err := db.QueryRow(queries.GetUserByID, userID).Scan(
 		&user.ID,
@@ -263,7 +264,7 @@ func (db *DB) GetUserByID(userID string) (*models.User, error) {
 		&user.CreatedAt,
 		&user.UpdatedAt,
 		&user.MFAEnabled,
-		&user.MFAType,
+		pq.Array(&mfaType),
 		&skipMFASecret,
 		&skipBackupCodes,
 		&user.PreferredMFAMethod,
@@ -286,6 +287,9 @@ func (db *DB) GetUserByID(userID string) (*models.User, error) {
 		debug.Error("Failed to get user by ID: %v", err)
 		return nil, err
 	}
+
+	// Set the scanned mfa_type array
+	user.MFAType = mfaType
 
 	// Handle nullable fields
 	if lastFailedAttempt.Valid {
@@ -353,13 +357,40 @@ func (db *DB) SetPreferredMFAMethod(userID string, method string) error {
 	return err
 }
 
-// GetUserMFASettings retrieves a user's MFA settings
-func (db *DB) GetUserMFASettings(userID string) (enabled bool, mfaType string, preferredMethod string, err error) {
-	err = db.QueryRow(queries.GetUserMFASettingsQuery, userID).Scan(&enabled, &mfaType, &preferredMethod)
-	if err == sql.ErrNoRows {
-		return false, "", "", nil
+// GetUserMFASettings gets a user's MFA settings
+func (db *DB) GetUserMFASettings(userID string) (*models.UserMFAData, error) {
+	var settings models.UserMFAData
+	var mfaType []string
+	var backupCodes []string
+	var mfaSecret sql.NullString
+	var preferredMethod sql.NullString
+
+	err := db.QueryRow(queries.GetUserMFASettingsQuery, userID).Scan(
+		&settings.MFAEnabled,
+		pq.Array(&mfaType),
+		&preferredMethod,
+		&mfaSecret,
+		pq.Array(&backupCodes),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user MFA settings: %w", err)
 	}
-	return enabled, mfaType, preferredMethod, err
+
+	settings.MFAType = mfaType
+	settings.BackupCodes = backupCodes
+	settings.ID = userID
+
+	// Handle NULL values
+	if mfaSecret.Valid {
+		settings.MFASecret = mfaSecret.String
+	}
+	if preferredMethod.Valid {
+		settings.PreferredMFAMethod = preferredMethod.String
+	} else {
+		settings.PreferredMFAMethod = "email" // Default to email if not set
+	}
+
+	return &settings, nil
 }
 
 // GetUserIDFromMFASession retrieves the user ID associated with an MFA session token

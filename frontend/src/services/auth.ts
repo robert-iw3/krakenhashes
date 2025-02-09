@@ -138,10 +138,10 @@ export const updateMFASettings = async (settings: MFASettings): Promise<void> =>
     await api.put('/api/admin/auth/settings/mfa', settings);
   } catch (error: any) {
     console.error('MFA Settings Update Error:', error.response?.data);
-    if (error.response?.data?.message) {
-      throw new Error(error.response.data.message);
-    }
-    throw error;
+    const errorMessage = error.response?.data?.error || 
+                        error.response?.data?.message || 
+                        'Failed to update MFA settings';
+    throw new Error(errorMessage);
   }
 };
 
@@ -196,8 +196,8 @@ export const disableMFA = async (): Promise<void> => {
 
 export const generateBackupCodes = async (): Promise<string[]> => {
   try {
-    const response = await api.post('/api/user/mfa/backup-codes');
-    return response.data.codes;
+    const response = await api.post<{ backupCodes: string[] }>('/api/user/mfa/backup-codes');
+    return response.data.backupCodes;
   } catch (error: any) {
     console.error('Generate Backup Codes Error:', error.response?.data);
     if (error.response?.data?.message) {
@@ -219,12 +219,26 @@ export const verifyMFACode = async (code: string, method: string): Promise<void>
   }
 };
 
+export const requestEmailMFACode = async (sessionToken: string): Promise<boolean> => {
+  try {
+    const response = await api.post('/api/user/mfa/email/send', { sessionToken });
+    return true;
+  } catch (error: any) {
+    console.error('Request Email MFA Code Error:', error.response?.data);
+    if (error.response?.data?.message) {
+      throw new Error(error.response.data.message);
+    }
+    throw error;
+  }
+};
+
 export const verifyMFA = async (
   sessionToken: string,
   code: string,
   method: string
 ): Promise<MFAVerifyResponse> => {
   try {
+    // For all MFA verification, including email code requests, use the verify-mfa endpoint
     const response = await api.post<MFAVerifyResponse>('/api/verify-mfa', {
       sessionToken,
       code,
@@ -246,5 +260,28 @@ export const verifyMFA = async (
       };
     }
     throw new Error('An error occurred during MFA verification');
+  }
+};
+
+export const updatePreferredMFAMethod = async (method: string): Promise<void> => {
+  try {
+    await api.put('/api/user/mfa/preferred-method', { method });
+  } catch (error) {
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error('Failed to update preferred MFA method');
+  }
+};
+
+export const disableAuthenticator = async (): Promise<void> => {
+  try {
+    await api.post('/api/user/mfa/disable-authenticator');
+  } catch (error: any) {
+    console.error('Disable Authenticator Error:', error.response?.data);
+    if (error.response?.data?.message) {
+      throw new Error(error.response.data.message);
+    }
+    throw error;
   }
 }; 

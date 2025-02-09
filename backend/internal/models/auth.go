@@ -49,10 +49,34 @@ type ActiveSession struct {
 type MFAType string
 
 const (
-	MFATypeNone          MFAType = "none"
 	MFATypeEmail         MFAType = "email"
 	MFATypeAuthenticator MFAType = "authenticator"
+	MFATypeBackup        MFAType = "backup"
 )
+
+// ValidMFATypes returns all valid MFA types
+func ValidMFATypes() []MFAType {
+	return []MFAType{
+		MFATypeEmail,
+		MFATypeAuthenticator,
+		MFATypeBackup,
+	}
+}
+
+// IsValidMFAType checks if a given string is a valid MFA type
+func IsValidMFAType(t string) bool {
+	for _, valid := range ValidMFATypes() {
+		if string(valid) == t {
+			return true
+		}
+	}
+	return false
+}
+
+// IsValidPreferredMFAType checks if a given string is a valid preferred MFA type
+func IsValidPreferredMFAType(t string) bool {
+	return t == string(MFATypeEmail) || t == string(MFATypeAuthenticator)
+}
 
 // MFASettings represents the MFA configuration
 type MFASettings struct {
@@ -68,9 +92,10 @@ type MFASettings struct {
 // UserAuthInfo represents the authentication-related fields for a user
 type UserAuthInfo struct {
 	MFAEnabled          bool       `json:"mfa_enabled" db:"mfa_enabled"`
-	MFAType             MFAType    `json:"mfa_type" db:"mfa_type"`
+	MFAType             []string   `json:"mfa_type" db:"mfa_type"`
 	MFASecret           string     `json:"-" db:"mfa_secret"`
 	BackupCodes         []string   `json:"-" db:"backup_codes"`
+	PreferredMFAMethod  string     `json:"preferred_mfa_method" db:"preferred_mfa_method"`
 	LastPasswordChange  time.Time  `json:"last_password_change" db:"last_password_change"`
 	FailedLoginAttempts int        `json:"failed_login_attempts" db:"failed_login_attempts"`
 	LastFailedAttempt   *time.Time `json:"last_failed_attempt" db:"last_failed_attempt"`
@@ -85,14 +110,14 @@ type UserAuthInfo struct {
 
 // LoginResponse represents the response for a login attempt
 type LoginResponse struct {
-	Success      bool     `json:"success"`
-	Message      string   `json:"message,omitempty"`
-	Token        string   `json:"token,omitempty"`
-	RequiresMFA  bool     `json:"requiresMfa,omitempty"`
-	SessionToken string   `json:"sessionToken,omitempty"`
-	MFAType      string   `json:"mfaType,omitempty"`
-	MFAMethods   []string `json:"mfaMethods,omitempty"`
-	ExpiresAt    string   `json:"expiresAt,omitempty"`
+	Success            bool     `json:"success"`
+	Message            string   `json:"message,omitempty"`
+	Token              string   `json:"token,omitempty"`
+	RequiresMFA        bool     `json:"requiresMfa,omitempty"`
+	SessionToken       string   `json:"sessionToken,omitempty"`
+	MFAType            []string `json:"mfaType,omitempty"`
+	PreferredMFAMethod string   `json:"preferredMfaMethod,omitempty"`
+	ExpiresAt          string   `json:"expiresAt,omitempty"`
 }
 
 // MFASession represents a temporary session during MFA verification

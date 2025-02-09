@@ -112,23 +112,24 @@ func (h *Handler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if user has MFA enabled
-	mfaEnabled, mfaType, preferredMethod, err := h.db.GetUserMFASettings(user.ID.String())
+	// Check user's MFA settings and global MFA requirement
+	mfaSettings, err := h.db.GetUserMFASettings(user.ID.String())
 	if err != nil {
 		debug.Error("error checking user MFA settings: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	// If MFA is enabled or globally required, create a session and return MFA required response
-	required, err := h.db.IsMFARequired()
+	// Check if MFA is globally required
+	globalMFARequired, err := h.db.IsMFARequired()
 	if err != nil {
-		debug.Error("error checking MFA requirement: %v", err)
+		debug.Error("error checking global MFA requirement: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	if mfaEnabled || required {
+	// If either user has MFA enabled or it's globally required
+	if mfaSettings.MFAEnabled || globalMFARequired {
 		// Create MFA session
 		sessionToken := uuid.New().String()
 		session, err := h.db.CreateMFASession(user.ID.String(), sessionToken)
@@ -138,8 +139,8 @@ func (h *Handler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Only send email code if MFA type is email
-		if mfaType == "email" {
+		// If email is the preferred method and it's available, send the code
+		if mfaSettings.PreferredMFAMethod == "email" && contains(mfaSettings.MFAType, "email") {
 			code, err := generateEmailCode()
 			if err != nil {
 				debug.Error("error generating email code: %v", err)
@@ -147,19 +148,18 @@ func (h *Handler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			// Store the code in the database
 			err = h.db.StoreEmailMFACode(user.ID.String(), code)
 			if err != nil {
-				debug.Error("error storing MFA code: %v", err)
+				debug.Error("error storing email code: %v", err)
 				http.Error(w, "Internal server error", http.StatusInternalServerError)
 				return
 			}
 
-			// Send email with code
+			// Send email synchronously
 			err = h.emailService.SendMFACode(r.Context(), user.Email, code)
 			if err != nil {
-				debug.Error("error sending MFA code email: %v", err)
-				http.Error(w, "Internal server error", http.StatusInternalServerError)
+				debug.Error("error sending MFA email: %v", err)
+				http.Error(w, "Failed to send verification code", http.StatusInternalServerError)
 				return
 			}
 		}
@@ -169,8 +169,8 @@ func (h *Handler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"mfa_required":     true,
 			"session_token":    sessionToken,
-			"mfa_type":         mfaType,
-			"preferred_method": preferredMethod,
+			"mfa_type":         mfaSettings.MFAType,
+			"preferred_method": mfaSettings.PreferredMFAMethod,
 			"expires_at":       session.ExpiresAt.Format(time.RFC3339),
 		})
 		return
@@ -299,4 +299,14 @@ func (h *Handler) CheckAuthHandler(w http.ResponseWriter, r *http.Request) {
 		"authenticated": true,
 		"role":          role,
 	})
+}
+
+// Helper function to check if a string is in a slice
+func contains(slice []string, str string) bool {
+	for _, s := range slice {
+		if s == str {
+			return true
+		}
+	}
+	return false
 }

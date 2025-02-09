@@ -24,7 +24,7 @@ type User struct {
 	CreatedAt           time.Time  `json:"created_at" db:"created_at"`
 	UpdatedAt           time.Time  `json:"updated_at" db:"updated_at"`
 	MFAEnabled          bool       `json:"mfa_enabled" db:"mfa_enabled"`
-	MFAType             string     `json:"mfa_type" db:"mfa_type"`
+	MFAType             []string   `json:"mfa_type" db:"mfa_type"`
 	MFASecret           string     `json:"-" db:"mfa_secret"`
 	BackupCodes         []string   `json:"-" db:"backup_codes"`
 	PreferredMFAMethod  string     `json:"preferred_mfa_method" db:"preferred_mfa_method"`
@@ -44,6 +44,7 @@ type User struct {
 type UserMFAData struct {
 	ID                 string   `json:"id" db:"id"`
 	MFAEnabled         bool     `json:"mfa_enabled" db:"mfa_enabled"`
+	MFAType            []string `json:"mfa_type" db:"mfa_type"`
 	MFASecret          string   `json:"mfa_secret" db:"mfa_secret"`
 	BackupCodes        []string `json:"backup_codes" db:"backup_codes"`
 	PreferredMFAMethod string   `json:"preferred_mfa_method" db:"preferred_mfa_method"`
@@ -159,4 +160,103 @@ func (u User) BackupCodesValue() (driver.Value, error) {
 		return nil, nil
 	}
 	return u.BackupCodes, nil
+}
+
+// ScanMFAType scans a text array from the database into MFAType
+func (u *User) ScanMFAType(value interface{}) error {
+	if value == nil {
+		u.MFAType = []string{"email"} // Default to email
+		return nil
+	}
+
+	switch v := value.(type) {
+	case []byte:
+		// Try parsing as JSON array first
+		if err := json.Unmarshal(v, &u.MFAType); err == nil {
+			return nil
+		}
+		// If JSON parsing fails, try parsing as Postgres array string
+		str := string(v)
+		if str[0] == '{' && str[len(str)-1] == '}' {
+			// Remove the curly braces and split by comma
+			str = str[1 : len(str)-1]
+			if str == "" {
+				u.MFAType = []string{"email"}
+				return nil
+			}
+			u.MFAType = strings.Split(str, ",")
+			return nil
+		}
+		return fmt.Errorf("invalid MFA type format: %s", str)
+	case string:
+		// Try parsing as JSON array first
+		if err := json.Unmarshal([]byte(v), &u.MFAType); err == nil {
+			return nil
+		}
+		// If JSON parsing fails, try parsing as Postgres array string
+		if v[0] == '{' && v[len(v)-1] == '}' {
+			// Remove the curly braces and split by comma
+			v = v[1 : len(v)-1]
+			if v == "" {
+				u.MFAType = []string{"email"}
+				return nil
+			}
+			u.MFAType = strings.Split(v, ",")
+			return nil
+		}
+		return fmt.Errorf("invalid MFA type format: %s", v)
+	case []string:
+		u.MFAType = v
+		return nil
+	default:
+		return fmt.Errorf("unsupported type for MFA type: %T", value)
+	}
+}
+
+// MFATypeValue returns the MFA types in a format suitable for database storage
+func (u User) MFATypeValue() (driver.Value, error) {
+	if len(u.MFAType) == 0 {
+		return []string{"email"}, nil // Default to email
+	}
+	return u.MFAType, nil
+}
+
+// HasMFAMethod checks if a specific MFA method is enabled for the user
+func (u *User) HasMFAMethod(method string) bool {
+	for _, m := range u.MFAType {
+		if m == method {
+			return true
+		}
+	}
+	return false
+}
+
+// AddMFAMethod adds a new MFA method if it doesn't exist
+func (u *User) AddMFAMethod(method string) {
+	if !u.HasMFAMethod(method) {
+		u.MFAType = append(u.MFAType, method)
+	}
+}
+
+// RemoveMFAMethod removes an MFA method if it exists
+// Note: Cannot remove 'email' as it's required
+func (u *User) RemoveMFAMethod(method string) error {
+	if method == "email" {
+		return fmt.Errorf("cannot remove email MFA method as it is required")
+	}
+
+	newTypes := make([]string, 0)
+	for _, m := range u.MFAType {
+		if m != method {
+			newTypes = append(newTypes, m)
+		}
+	}
+	u.MFAType = newTypes
+
+	// If removed method was preferred, fall back to email
+	if u.PreferredMFAMethod == method {
+		u.PreferredMFAMethod = "email"
+	}
+
+	return nil
 }

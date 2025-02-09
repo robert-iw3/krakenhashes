@@ -1,7 +1,13 @@
 -- Add new columns to users table
 ALTER TABLE users 
     ADD COLUMN mfa_enabled BOOLEAN DEFAULT FALSE,
-    ADD COLUMN mfa_type VARCHAR(20) DEFAULT 'email' CHECK (mfa_type IN ('none', 'email', 'authenticator')),
+    ADD COLUMN mfa_type text[] DEFAULT ARRAY['email'] CHECK (
+        -- Ensure array is not empty and email is always present
+        array_length(mfa_type, 1) > 0 
+        AND 'email' = ANY(mfa_type)
+        -- Ensure only valid values
+        AND mfa_type <@ ARRAY['email', 'authenticator', 'backup']::text[]
+    ),
     ADD COLUMN mfa_secret TEXT,
     ADD COLUMN backup_codes TEXT[], -- Store hashed backup codes
     ADD COLUMN last_password_change TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,

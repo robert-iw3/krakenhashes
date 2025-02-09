@@ -200,7 +200,12 @@ func (h *AuthSettingsHandler) UpdateMFASettings(w http.ResponseWriter, r *http.R
 		}
 		if !hasEmailProvider {
 			debug.Error("Cannot enable global MFA: no active email provider configured")
-			http.Error(w, "Cannot enable global MFA without an active email provider", http.StatusBadRequest)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{
+				"error": "An email gateway must be configured before enabling global MFA. Please configure an email gateway in the Email Settings page first.",
+				"code":  "EMAIL_GATEWAY_REQUIRED",
+			})
 			return
 		}
 	}
@@ -225,6 +230,15 @@ func (h *AuthSettingsHandler) UpdateMFASettings(w http.ResponseWriter, r *http.R
 		debug.Error("Failed to update MFA settings: %v", err)
 		http.Error(w, "Failed to update settings", http.StatusInternalServerError)
 		return
+	}
+
+	// If global MFA is being enabled, enable it for all active users
+	if settings.RequireMFA {
+		if err := h.db.BulkEnableMFA(); err != nil {
+			debug.Error("Failed to bulk enable MFA: %v", err)
+			http.Error(w, "Failed to enable MFA for all users", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	debug.Info("Successfully updated MFA settings")

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   Button,
@@ -17,8 +17,8 @@ import { verifyMFA } from '../../services/auth';
 
 interface MFAVerificationProps {
   sessionToken: string;
-  mfaType: string;
-  mfaMethods: string[];
+  mfaType: string[];  // Changed to string[] to match backend type
+  preferredMethod: string;
   onSuccess: (token: string) => void;
   onError: (error: string) => void;
   expiresAt?: string;
@@ -27,15 +27,40 @@ interface MFAVerificationProps {
 const MFAVerification: React.FC<MFAVerificationProps> = ({
   sessionToken,
   mfaType,
-  mfaMethods,
+  preferredMethod,
   onSuccess,
   onError,
   expiresAt,
 }) => {
   const [code, setCode] = useState('');
-  const [method, setMethod] = useState(mfaType);
+  const [method, setMethod] = useState(preferredMethod);
   const [loading, setLoading] = useState(false);
-  const [remainingAttempts, setRemainingAttempts] = useState<number | null>(null);
+  const [remainingAttempts, setRemainingAttempts] = useState<number>(3);
+
+  // Get available methods including backup if it exists in mfaType
+  const getAvailableMethods = () => {
+    return mfaType.filter(m => m !== 'backup').concat(mfaType.includes('backup') ? ['backup'] : []);
+  };
+
+  const handleMethodChange = async (newMethod: string) => {
+    setCode(''); // Clear code when changing methods
+    setMethod(newMethod);
+
+    // Request email code when switching to email method
+    if (newMethod === 'email') {
+      try {
+        setLoading(true);
+        const response = await verifyMFA(sessionToken, '', 'request_email');
+        if (!response.success) {
+          onError(response.message || 'Failed to send email code');
+        }
+      } catch (error) {
+        onError(error instanceof Error ? error.message : 'Failed to send email code');
+      } finally {
+        setLoading(false);
+      }
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -46,15 +71,42 @@ const MFAVerification: React.FC<MFAVerificationProps> = ({
       if (response.success) {
         onSuccess(response.token);
       } else {
-        setRemainingAttempts(response.remainingAttempts);
-        onError(`Invalid code. ${response.remainingAttempts} attempts remaining.`);
+        setRemainingAttempts(response.remainingAttempts ?? remainingAttempts - 1);
+        onError(response.message || `Invalid code. ${response.remainingAttempts} attempts remaining.`);
+        setCode(''); // Clear code on failed attempt
       }
     } catch (error) {
-      onError(error instanceof Error ? error.message : 'Verification failed');
+      const message = error instanceof Error ? error.message : 'Verification failed';
+      onError(message);
+      if (message.includes('No backup codes available')) {
+        // Remove backup from available methods if no codes are available
+        const updatedMethods = getAvailableMethods().filter(m => m !== 'backup');
+        if (method === 'backup') {
+          setMethod(preferredMethod); // Switch back to preferred method
+        }
+        setAvailableMethods(updatedMethods);
+      }
     } finally {
       setLoading(false);
     }
   };
+
+  // State for available methods
+  const [availableMethods, setAvailableMethods] = useState<string[]>(getAvailableMethods());
+
+  // Update available methods when mfaType changes
+  useEffect(() => {
+    setAvailableMethods(getAvailableMethods());
+  }, [mfaType]);
+
+  // Request email code on initial load if email is the selected method
+  useEffect(() => {
+    // Only request email code on mount if email is selected but NOT the preferred method
+    // This prevents duplicate emails when email is preferred (since backend already sent it)
+    if (method === 'email' && method !== preferredMethod && !loading) {
+      handleMethodChange('email');
+    }
+  }, []); // Only run on initial mount
 
   const getMethodInstructions = () => {
     switch (method) {
@@ -95,15 +147,15 @@ const MFAVerification: React.FC<MFAVerificationProps> = ({
         
         {getMethodInstructions()}
         
-        {mfaMethods.length > 1 && (
+        {availableMethods.length > 1 && (
           <FormControl fullWidth margin="normal">
             <InputLabel>Authentication Method</InputLabel>
             <Select
               value={method}
-              onChange={(e) => setMethod(e.target.value)}
+              onChange={(e) => handleMethodChange(e.target.value)}
               label="Authentication Method"
             >
-              {mfaMethods.map((m) => (
+              {availableMethods.map((m) => (
                 <MenuItem key={m} value={m}>
                   {m === 'email' ? 'Email Code' : 
                    m === 'authenticator' ? 'Authenticator App' : 
@@ -124,20 +176,25 @@ const MFAVerification: React.FC<MFAVerificationProps> = ({
           disabled={loading}
           autoFocus
           placeholder={method === 'backup' ? 'Enter 8-character backup code' : 'Enter verification code'}
+          inputProps={{
+            maxLength: method === 'backup' ? 8 : 6,
+            pattern: '[0-9]*'
+          }}
         />
 
-        {remainingAttempts !== null && (
-          <Typography color="error" sx={{ mt: 1 }}>
-            {remainingAttempts} attempts remaining
-          </Typography>
-        )}
+        <Typography 
+          color={remainingAttempts <= 1 ? "error" : "warning"} 
+          sx={{ mt: 1 }}
+        >
+          {remainingAttempts} {remainingAttempts === 1 ? 'attempt' : 'attempts'} remaining
+        </Typography>
 
         <Button
           type="submit"
           fullWidth
           variant="contained"
           sx={{ mt: 3, mb: 2 }}
-          disabled={loading || !code}
+          disabled={loading || !code || (method === 'backup' ? code.length !== 8 : code.length !== 6)}
           onClick={handleSubmit}
         >
           {loading ? <CircularProgress size={24} /> : 'Verify'}
