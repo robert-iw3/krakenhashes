@@ -1,12 +1,46 @@
 # KrakenHashes
 
-KrakenHashes is a multi-facet application consisting of a frontend, backend, and agent components.
+KrakenHashes is a distributed password cracking system designed for security professionals and red teams. The platform coordinates GPU/CPU resources across multiple agents to perform high-speed hash cracking using tools like Hashcat through a secure web interface.
 
-## Components
+## Component Details
 
-- krakenhashes-frontend: React-based frontend application
-- krakenhashes-backend: Go-based backend server
-- krakenhashes-agent: Go-based agent for distributed job processing
+### Backend Service (Go)
+- Job scheduler with adaptive load balancing
+- REST/gRPC API endpoints with JWT authentication
+- PostgreSQL interface for job storage/results
+- Redis-based task queue with priority levels
+- Prometheus metrics exporter
+
+### Agent System (Go)
+- Hardware resource manager (GPU/CPU/RAM allocation)
+- Hashcat wrapper with automatic checkpointing
+- Safety mechanisms for temperature/usage limits
+- Distributed work unit management
+- Healthcheck system with self-healing capabilities
+
+### Web Interface (React)
+- Real-time job progress visualization
+- Hash type detection and configuration wizard
+- Team management dashboard for admins
+- MFA configuration and recovery flow
+- Interactive reporting and analytics
+
+## Security Highlights
+- Automatic session invalidation on IP change
+- Role-based access control (RBAC) system
+- Encrypted job payloads (AES-256-GCM)
+- Certificate-pinned agent communications
+- Audit-quality logging with chain-of-custody
+
+## Use Cases
+- Penetration testing teams coordinating attacks
+- Forensic investigators recovering protected evidence
+- Red teams executing credential stuffing attacks
+- Research analyzing hash vulnerabilities
+- Security training environments
+
+> **License**: AGPLv3 (See LICENSE.md)  
+> **Status**: Actively in development, there will be bugs and major braking changes
 
 ## Development
 
@@ -96,8 +130,7 @@ Instructions for setting up and running each component can be found in their res
   - [ ] System configuration
   - [ ] User management
     - [ ] MFA management
-    - [ ] Team assignment
-  - [ ] Security settings
+  - [x] Security settings
 - [x] Account management
   - [x] Profile settings
   - [x] Security settings
