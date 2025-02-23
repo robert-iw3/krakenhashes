@@ -2,6 +2,28 @@
 
 KrakenHashes is a distributed password cracking system designed for security professionals and red teams. The platform coordinates GPU/CPU resources across multiple agents to perform high-speed hash cracking using tools like Hashcat through a secure web interface.
 
+## Disclaimer 
+**⚠️ Active Development Warning**  
+This project is currently in **early alpha development** as a personal research project. Key considerations:
+
+- **Not production-ready**: Core functionality is incomplete/unstable
+- **No external contributions**: We are not accepting pull requests until version 1 is released. This is a passion project that I would like to take to ready before getting outside help.
+- **Breaking changes guaranteed**: Database schema and API contracts will change as I want to prevent every minor schema change to add a new migration file.
+- **Zero stability guarantees**: Features may disappear or break without warning
+- **Not for testing**: Core security/auth systems remain unimplemented
+
+**Until v1.0 release:**
+- No compatibility between versions
+- No migration path for existing data
+- No documented upgrade process
+- No stability in configuration formats
+
+**Post v1.0:**  
+We plan to implement proper database migration tooling and versioned API contracts once core feature development stabilizes. Until then, consider this codebase a moving target.
+
+> **Use at your own risk** - This software may eat your data, catch fire, or summon a digital Kraken. You've been warned.
+
+
 ## Component Details
 
 ### Backend Service (Go)

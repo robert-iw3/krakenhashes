@@ -1,0 +1,212 @@
+package binary
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strconv"
+
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/binary"
+	"github.com/ZerkerEOD/krakenhashes/backend/pkg/debug"
+	"github.com/google/uuid"
+	"github.com/gorilla/mux"
+)
+
+// Handler handles binary management HTTP requests
+type Handler struct {
+	manager binary.Manager
+}
+
+// NewHandler creates a new binary management handler
+func NewHandler(manager binary.Manager) *Handler {
+	return &Handler{manager: manager}
+}
+
+// Request/Response types
+type AddVersionRequest struct {
+	BinaryType      binary.BinaryType      `json:"binary_type"`
+	CompressionType binary.CompressionType `json:"compression_type"`
+	SourceURL       string                 `json:"source_url"`
+	FileName        string                 `json:"file_name"`
+	MD5Hash         string                 `json:"md5_hash,omitempty"`
+}
+
+// HandleAddVersion handles adding a new binary version
+func (h *Handler) HandleAddVersion(w http.ResponseWriter, r *http.Request) {
+	var req AddVersionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Get user ID from context
+	userID, ok := r.Context().Value("user_id").(string)
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Parse user ID to UUID
+	userUUID, err := uuid.Parse(userID)
+	if err != nil {
+		debug.Error("Invalid user ID format: %v", err)
+		http.Error(w, "Invalid user ID", http.StatusInternalServerError)
+		return
+	}
+
+	version := &binary.BinaryVersion{
+		BinaryType:      req.BinaryType,
+		CompressionType: req.CompressionType,
+		SourceURL:       req.SourceURL,
+		FileName:        req.FileName,
+		MD5Hash:         req.MD5Hash,
+		CreatedBy:       userUUID,
+		IsActive:        true,
+	}
+
+	if err := h.manager.AddVersion(r.Context(), version); err != nil {
+		debug.Error("Failed to add binary version: %v", err)
+		http.Error(w, "Failed to add binary version", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(version)
+}
+
+// HandleListVersions handles listing binary versions with optional filters
+func (h *Handler) HandleListVersions(w http.ResponseWriter, r *http.Request) {
+	filters := make(map[string]interface{})
+
+	// Parse query parameters
+	if binaryType := r.URL.Query().Get("type"); binaryType != "" {
+		filters["binary_type"] = binary.BinaryType(binaryType)
+	}
+	if isActive := r.URL.Query().Get("active"); isActive != "" {
+		filters["is_active"] = isActive == "true"
+	}
+	if status := r.URL.Query().Get("status"); status != "" {
+		filters["verification_status"] = binary.VerificationStatus(status)
+	}
+
+	versions, err := h.manager.ListVersions(r.Context(), filters)
+	if err != nil {
+		debug.Error("Failed to list binary versions: %v", err)
+		http.Error(w, "Failed to list binary versions", http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(versions)
+}
+
+// HandleGetVersion handles retrieving a specific binary version
+func (h *Handler) HandleGetVersion(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id, err := strconv.ParseInt(vars["id"], 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid version ID", http.StatusBadRequest)
+		return
+	}
+
+	version, err := h.manager.GetVersion(r.Context(), id)
+	if err != nil {
+		debug.Error("Failed to get binary version: %v", err)
+		http.Error(w, "Failed to get binary version", http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(version)
+}
+
+// HandleDeleteVersion handles deleting/deactivating a binary version
+func (h *Handler) HandleDeleteVersion(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id, err := strconv.ParseInt(vars["id"], 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid version ID", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.manager.DeleteVersion(r.Context(), id); err != nil {
+		debug.Error("Failed to delete binary version: %v", err)
+		http.Error(w, "Failed to delete binary version", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// HandleVerifyVersion handles verifying a binary version's integrity
+func (h *Handler) HandleVerifyVersion(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id, err := strconv.ParseInt(vars["id"], 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid version ID", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.manager.VerifyVersion(r.Context(), id); err != nil {
+		debug.Error("Failed to verify binary version: %v", err)
+		http.Error(w, "Failed to verify binary version", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+// HandleGetLatestVersion handles retrieving the latest active version of a binary type
+func (h *Handler) HandleGetLatestVersion(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	binaryType := binary.BinaryType(vars["type"])
+
+	version, err := h.manager.GetLatestActive(r.Context(), binaryType)
+	if err != nil {
+		debug.Error("Failed to get latest binary version: %v", err)
+		http.Error(w, "Failed to get latest binary version", http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(version)
+}
+
+// HandleDownloadBinary handles binary file downloads
+func (h *Handler) HandleDownloadBinary(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id, err := strconv.ParseInt(vars["id"], 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid version ID", http.StatusBadRequest)
+		return
+	}
+
+	// Get binary version details
+	version, err := h.manager.GetVersion(r.Context(), id)
+	if err != nil {
+		debug.Error("Failed to get binary version: %v", err)
+		http.Error(w, "Failed to get binary version", http.StatusInternalServerError)
+		return
+	}
+
+	// Open the binary file
+	filePath := filepath.Join("data", "binaries", fmt.Sprintf("%d", version.ID), version.FileName)
+	file, err := os.Open(filePath)
+	if err != nil {
+		debug.Error("Failed to open binary file: %v", err)
+		http.Error(w, "Failed to open binary file", http.StatusInternalServerError)
+		return
+	}
+	defer file.Close()
+
+	// Set response headers
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s", version.FileName))
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", version.FileSize))
+
+	// Stream the file
+	if _, err := io.Copy(w, file); err != nil {
+		debug.Error("Failed to stream binary file: %v", err)
+		return
+	}
+}

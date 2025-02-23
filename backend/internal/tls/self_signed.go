@@ -97,10 +97,8 @@ func (p *SelfSignedProvider) GetTLSConfig() (*tls.Config, error) {
 	debug.Debug("Creating TLS configuration with secure defaults")
 	return &tls.Config{
 		Certificates: []tls.Certificate{cert},
-		ClientCAs:    p.caCertPool,
-		// Make client certificates optional by default
-		ClientAuth: tls.VerifyClientCertIfGiven,
-		MinVersion: tls.VersionTLS12,
+		RootCAs:      p.caCertPool,
+		MinVersion:   tls.VersionTLS12,
 		CipherSuites: []uint16{
 			tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
 			tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
@@ -108,47 +106,6 @@ func (p *SelfSignedProvider) GetTLSConfig() (*tls.Config, error) {
 			tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
 		},
 		PreferServerCipherSuites: true,
-		// Add verification callback for client certs
-		VerifyPeerCertificate: func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
-			if len(rawCerts) == 0 {
-				debug.Debug("No client certificate provided")
-				return nil
-			}
-
-			cert, err := x509.ParseCertificate(rawCerts[0])
-			if err != nil {
-				debug.Error("Failed to parse client certificate: %v", err)
-				return fmt.Errorf("failed to parse client certificate: %w", err)
-			}
-
-			// Log certificate details
-			debug.Debug("Verifying client certificate:")
-			debug.Debug("- Subject: %s", cert.Subject)
-			debug.Debug("- Issuer: %s", cert.Issuer)
-			debug.Debug("- Serial: %s", cert.SerialNumber)
-			debug.Debug("- Not Before: %s", cert.NotBefore)
-			debug.Debug("- Not After: %s", cert.NotAfter)
-
-			// Verify certificate is not expired
-			if time.Now().After(cert.NotAfter) || time.Now().Before(cert.NotBefore) {
-				debug.Error("Client certificate is not valid at this time")
-				return fmt.Errorf("client certificate expired or not yet valid")
-			}
-
-			// Verify certificate was issued by our CA
-			opts := x509.VerifyOptions{
-				Roots:     p.caCertPool,
-				KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
-			}
-
-			if _, err := cert.Verify(opts); err != nil {
-				debug.Error("Client certificate verification failed: %v", err)
-				return fmt.Errorf("client certificate verification failed: %w", err)
-			}
-
-			debug.Info("Client certificate successfully verified")
-			return nil
-		},
 	}, nil
 }
 

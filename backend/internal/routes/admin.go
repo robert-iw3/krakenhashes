@@ -3,9 +3,12 @@ package routes
 import (
 	"net/http"
 
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/binary"
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/config"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/db"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/email"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/admin/auth"
+	binaryhandler "github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/binary"
 	emailhandler "github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/email"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/middleware"
 	"github.com/ZerkerEOD/krakenhashes/backend/pkg/debug"
@@ -48,6 +51,26 @@ func SetupAdminRoutes(router *mux.Router, database *db.DB, emailService *email.S
 
 	// Email usage statistics endpoint
 	adminRouter.HandleFunc("/email/usage", emailHandler.GetUsage).Methods("GET", "OPTIONS")
+
+	// Binary management endpoints
+	if database.DB != nil {
+		binaryStore := binary.NewStore(database.DB)
+		binaryManager, err := binary.NewManager(binaryStore, binary.Config{
+			DataDir: config.NewConfig().DataDir,
+		})
+		if err != nil {
+			debug.Error("Failed to initialize binary manager: %v", err)
+		} else {
+			binaryHandler := binaryhandler.NewHandler(binaryManager)
+			adminRouter.HandleFunc("/binary", binaryHandler.HandleListVersions).Methods(http.MethodGet, http.MethodOptions)
+			adminRouter.HandleFunc("/binary", binaryHandler.HandleAddVersion).Methods(http.MethodPost, http.MethodOptions)
+			adminRouter.HandleFunc("/binary/{id}", binaryHandler.HandleGetVersion).Methods(http.MethodGet, http.MethodOptions)
+			adminRouter.HandleFunc("/binary/{id}", binaryHandler.HandleDeleteVersion).Methods(http.MethodDelete, http.MethodOptions)
+			adminRouter.HandleFunc("/binary/{id}/verify", binaryHandler.HandleVerifyVersion).Methods(http.MethodPost, http.MethodOptions)
+			debug.Info("Configured admin binary management routes: /admin/binary/*")
+		}
+	}
+
 	debug.Info("Configured admin routes: /admin/*")
 
 	return adminRouter

@@ -4,6 +4,7 @@ import { EmailSettings } from './EmailSettings';
 import { useAuth } from '../../contexts/AuthContext';
 import { Navigate } from 'react-router-dom';
 import AuthSettings from '../../components/admin/AuthSettings';
+import BinaryManagement from '../../components/admin/BinaryManagement';
 import { useSnackbar } from 'notistack';
 import { updateAuthSettings } from '../../services/auth';
 
@@ -68,6 +69,7 @@ export const AdminSettings = () => {
           >
             <Tab label="Email Settings" />
             <Tab label="Authentication Settings" />
+            <Tab label="Binary Management" />
             <Tab label="System Settings" />
           </Tabs>
         </Box>
@@ -94,8 +96,10 @@ export const AdminSettings = () => {
           />
         </TabPanel>
         <TabPanel value={currentTab} index={2}>
-          {/* System settings will go here */}
-          <Typography>System Settings Coming Soon</Typography>
+          <BinaryManagement />
+        </TabPanel>
+        <TabPanel value={currentTab} index={3}>
+          <Typography variant="body1">System Settings Coming Soon</Typography>
         </TabPanel>
       </Paper>
     </Box>

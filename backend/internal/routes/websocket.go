@@ -30,12 +30,12 @@ func SetupWebSocketRoutes(r *mux.Router, agentService *services.AgentService, tl
 
 	// Create a new TLS config for agent connections instead of copying
 	agentTLSConfig := &cryptotls.Config{
-		Certificates: tlsConfig.Certificates,
-		ClientCAs:    tlsConfig.ClientCAs,
-		ClientAuth:   cryptotls.RequireAndVerifyClientCert,
-		MinVersion:   tlsConfig.MinVersion,
-		MaxVersion:   tlsConfig.MaxVersion,
-		CipherSuites: tlsConfig.CipherSuites,
+		Certificates:             tlsConfig.Certificates,
+		RootCAs:                  tlsConfig.RootCAs,
+		MinVersion:               tlsConfig.MinVersion,
+		MaxVersion:               tlsConfig.MaxVersion,
+		CipherSuites:             tlsConfig.CipherSuites,
+		PreferServerCipherSuites: true,
 	}
 	wsHandler := wshandler.NewHandler(wsService, agentService, agentTLSConfig)
 	wsRouter.HandleFunc("/agent", wsHandler.ServeWS)
@@ -43,8 +43,7 @@ func SetupWebSocketRoutes(r *mux.Router, agentService *services.AgentService, tl
 
 	if tlsConfig != nil {
 		debug.Debug("WebSocket TLS Configuration:")
-		debug.Debug("- Client Auth: %v", agentTLSConfig.ClientAuth)
-		debug.Debug("- Client CAs: %v", agentTLSConfig.ClientCAs != nil)
+		debug.Debug("- Min Version: %v", agentTLSConfig.MinVersion)
 		debug.Debug("- Certificates: %d", len(agentTLSConfig.Certificates))
 	}
 }

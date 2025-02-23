@@ -18,6 +18,7 @@ Thumbs.db
 # Cursor
 .cursorignore
 .cursorrules
+.cursor/
 
 # Frontend specific
 # Node.js dependencies and build artifacts

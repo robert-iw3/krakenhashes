@@ -17,6 +17,7 @@ type Config struct {
 	HTTPPort  int // Port for HTTP (CA certificate)
 	HTTPSPort int // Port for HTTPS (API)
 	ConfigDir string
+	DataDir   string
 }
 
 // NewConfig creates a new Config instance with values from environment variables
@@ -70,11 +71,42 @@ func NewConfig() *Config {
 
 	debug.Info("Using config directory: %s", configDir)
 
+	// Get data directory from environment or use default
+	dataDir := os.Getenv("KH_DATA_DIR")
+	if dataDir == "" {
+		// Try to get user's home directory
+		home, err := os.UserHomeDir()
+		if err != nil {
+			// Fallback to current directory
+			dataDir = ".krakenhashes-data"
+		} else {
+			dataDir = filepath.Join(home, ".krakenhashes-data")
+		}
+	}
+
+	// Create data directory and its subdirectories if they don't exist
+	subdirs := []string{"binaries", "wordlists", "rules", "hashlists"}
+	for _, subdir := range subdirs {
+		dir := filepath.Join(dataDir, subdir)
+		if err := os.MkdirAll(dir, 0750); err != nil {
+			debug.Error("Failed to create data subdirectory %s: %v", subdir, err)
+			// Fallback to current directory
+			dataDir = ".krakenhashes-data"
+			dir = filepath.Join(dataDir, subdir)
+			if err := os.MkdirAll(dir, 0750); err != nil {
+				debug.Error("Failed to create fallback data subdirectory %s: %v", subdir, err)
+			}
+		}
+	}
+
+	debug.Info("Using data directory: %s", dataDir)
+
 	return &Config{
 		Host:      host,
 		HTTPPort:  httpPort,
 		HTTPSPort: httpsPort,
 		ConfigDir: configDir,
+		DataDir:   dataDir,
 	}
 }
 
