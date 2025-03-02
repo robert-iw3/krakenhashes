@@ -214,7 +214,7 @@ const BinaryManagement: React.FC = () => {
                 const { version } = extractNameAndVersion(binary.file_name);
                 return (
                   <TableRow key={binary.id}>
-                    <TableCell>#{binary.id}</TableCell>
+                    <TableCell>{binary.id}</TableCell>
                     <TableCell>{version}</TableCell>
                     <TableCell>{binary.binary_type}</TableCell>
                     <TableCell>{formatFileSize(binary.file_size)}</TableCell>

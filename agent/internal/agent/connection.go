@@ -3,6 +3,7 @@ package agent
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -27,14 +28,16 @@ const (
 	WSTypeHardwareInfo WSMessageType = "hardware_info"
 	WSTypeMetrics      WSMessageType = "metrics"
 	WSTypeHeartbeat    WSMessageType = "heartbeat"
+	WSTypeAgentStatus  WSMessageType = "agent_status"
 )
 
 // WSMessage represents a WebSocket message
 type WSMessage struct {
-	Type         WSMessageType `json:"type"`
-	HardwareInfo *types.Info   `json:"hardware_info,omitempty"`
-	Metrics      *MetricsData  `json:"metrics,omitempty"`
-	Timestamp    time.Time     `json:"timestamp"`
+	Type         WSMessageType   `json:"type"`
+	Payload      json.RawMessage `json:"payload,omitempty"`
+	HardwareInfo *types.Info     `json:"hardware_info,omitempty"`
+	Metrics      *MetricsData    `json:"metrics,omitempty"`
+	Timestamp    time.Time       `json:"timestamp"`
 }
 
 // MetricsData represents the metrics data sent to the server
@@ -346,10 +349,19 @@ func (c *Connection) connect() error {
 
 	// Send initial hardware information
 	hwInfo := c.hwMonitor.GetInfo()
+
+	// Marshal hardware info to JSON for the payload
+	hwInfoJSON, err := json.Marshal(hwInfo)
+	if err != nil {
+		debug.Error("Failed to marshal hardware info: %v", err)
+		c.ws.Close()
+		return fmt.Errorf("failed to marshal hardware info: %w", err)
+	}
+
 	msg := WSMessage{
-		Type:         WSTypeHardwareInfo,
-		HardwareInfo: &hwInfo,
-		Timestamp:    time.Now(),
+		Type:      WSTypeHardwareInfo,
+		Payload:   hwInfoJSON,
+		Timestamp: time.Now(),
 	}
 
 	if err := c.ws.WriteJSON(msg); err != nil {
@@ -496,10 +508,18 @@ func (c *Connection) readPump() {
 				continue
 			}
 			hwInfo := c.hwMonitor.GetInfo()
+
+			// Marshal hardware info to JSON for the payload
+			hwInfoJSON, err := json.Marshal(hwInfo)
+			if err != nil {
+				debug.Error("Failed to marshal hardware info: %v", err)
+				continue
+			}
+
 			response := WSMessage{
-				Type:         WSTypeHardwareInfo,
-				HardwareInfo: &hwInfo,
-				Timestamp:    time.Now(),
+				Type:      WSTypeHardwareInfo,
+				Payload:   hwInfoJSON,
+				Timestamp: time.Now(),
 			}
 			if err := c.ws.WriteJSON(response); err != nil {
 				debug.Error("Failed to send hardware info: %v", err)
@@ -513,9 +533,12 @@ func (c *Connection) readPump() {
 // writePump pumps messages from the hub to the WebSocket connection
 func (c *Connection) writePump() {
 	ticker := time.NewTicker(pingPeriod)
+	// Add a status update ticker that runs every minute
+	statusTicker := time.NewTicker(1 * time.Minute)
 	defer func() {
 		debug.Info("WritePump closing, marking connection as disconnected")
 		ticker.Stop()
+		statusTicker.Stop()
 		c.isConnected.Store(false)
 		c.Close()
 	}()
@@ -524,6 +547,12 @@ func (c *Connection) writePump() {
 	debug.Info("- Write Wait: %v", writeWait)
 	debug.Info("- Pong Wait: %v", pongWait)
 	debug.Info("- Ping Period: %v", pingPeriod)
+	debug.Info("- Status Update Period: 1m")
+
+	// Send initial status update
+	if err := c.sendAgentStatusUpdate(); err != nil {
+		debug.Error("Failed to send initial status update: %v", err)
+	}
 
 	for {
 		select {
@@ -558,11 +587,54 @@ func (c *Connection) writePump() {
 				return
 			}
 			debug.Info("Successfully sent ping to server")
+		case <-statusTicker.C:
+			debug.Info("Status ticker triggered, sending agent status update")
+			if err := c.sendAgentStatusUpdate(); err != nil {
+				debug.Error("Failed to send agent status update: %v", err)
+			} else {
+				debug.Info("Successfully sent agent status update")
+			}
 		case <-c.done:
 			debug.Info("WritePump received done signal")
 			return
 		}
 	}
+}
+
+// sendAgentStatusUpdate sends an agent status update to the server
+func (c *Connection) sendAgentStatusUpdate() error {
+	if !c.isConnected.Load() {
+		return fmt.Errorf("not connected")
+	}
+
+	// Create status payload
+	statusPayload := map[string]interface{}{
+		"status":      "active",
+		"version":     "1.0.0", // Replace with actual version
+		"updated_at":  time.Now(),
+		"environment": map[string]string{},
+	}
+
+	// Marshal status payload to JSON
+	statusJSON, err := json.Marshal(statusPayload)
+	if err != nil {
+		debug.Error("Failed to marshal agent status: %v", err)
+		return fmt.Errorf("failed to marshal agent status: %w", err)
+	}
+
+	// Create and send status message
+	msg := WSMessage{
+		Type:      WSTypeAgentStatus,
+		Payload:   statusJSON,
+		Timestamp: time.Now(),
+	}
+
+	if err := c.ws.WriteJSON(msg); err != nil {
+		debug.Error("Failed to send agent status update: %v", err)
+		return fmt.Errorf("failed to send agent status update: %w", err)
+	}
+
+	return nil
 }
 
 // Close closes the WebSocket connection

@@ -6,6 +6,7 @@ package agent
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"crypto/tls"
 	"encoding/hex"
@@ -16,12 +17,12 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/ZerkerEOD/krakenhashes/agent/internal/auth"
 	"github.com/ZerkerEOD/krakenhashes/agent/internal/config"
+	filesync "github.com/ZerkerEOD/krakenhashes/agent/internal/sync"
 	"github.com/ZerkerEOD/krakenhashes/agent/pkg/debug"
 )
 
@@ -165,32 +166,62 @@ func LoadCredentials() (string, string, error) {
 	// Get config directory
 	configDir := config.GetConfigDir()
 
-	// Load credentials
-	credsPath := filepath.Join(configDir, "credentials")
-	credsLock := getFileLock(credsPath)
-	credsLock.Lock()
-	defer credsLock.Unlock()
+	// Print current working directory for debugging
+	cwd, err := os.Getwd()
+	if err != nil {
+		debug.Error("Failed to get current working directory: %v", err)
+	} else {
+		debug.Info("Current working directory: %s", cwd)
+	}
 
-	credsData, err := os.ReadFile(credsPath)
+	// Check if config directory exists
+	if _, err := os.Stat(configDir); os.IsNotExist(err) {
+		debug.Error("Config directory does not exist: %s", configDir)
+	} else {
+		debug.Info("Config directory exists: %s", configDir)
+		// List files in config directory
+		files, err := os.ReadDir(configDir)
+		if err != nil {
+			debug.Error("Failed to read config directory: %v", err)
+		} else {
+			debug.Info("Files in config directory:")
+			for _, file := range files {
+				debug.Info("- %s", file.Name())
+			}
+		}
+	}
+
+	// Load credentials from agent.key file using auth package
+	debug.Info("Loading credentials from agent.key file")
+	apiKey, agentID, err := auth.LoadAgentKey(configDir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			debug.Info("No existing credentials found")
 			return "", "", nil
 		}
-		debug.Error("Failed to read credentials: %v", err)
-		return "", "", fmt.Errorf("failed to read credentials: %w", err)
-	}
-
-	// Parse credentials
-	parts := strings.Split(string(credsData), ":")
-	if len(parts) != 2 {
-		debug.Error("Invalid credentials format")
-		return "", "", fmt.Errorf("invalid credentials format")
+		debug.Error("Failed to load agent key: %v", err)
+		return "", "", fmt.Errorf("failed to load agent key: %w", err)
 	}
 
 	// Check if certificates exist
 	certPath := filepath.Join(configDir, "client.crt")
 	keyPath := filepath.Join(configDir, "client.key")
+	debug.Info("Looking for client certificate at: %s", certPath)
+	debug.Info("Looking for private key at: %s", keyPath)
+
+	// Check if certificate files exist
+	if _, err := os.Stat(certPath); os.IsNotExist(err) {
+		debug.Error("Client certificate file does not exist: %s", certPath)
+	} else {
+		debug.Info("Client certificate file exists: %s", certPath)
+	}
+
+	if _, err := os.Stat(keyPath); os.IsNotExist(err) {
+		debug.Error("Private key file does not exist: %s", keyPath)
+	} else {
+		debug.Info("Private key file exists: %s", keyPath)
+	}
+
 	if _, err := os.Stat(certPath); err != nil {
 		debug.Error("Client certificate not found: %v", err)
 		return "", "", fmt.Errorf("client certificate not found: %w", err)
@@ -201,7 +232,7 @@ func LoadCredentials() (string, string, error) {
 	}
 
 	debug.Info("Successfully loaded agent credentials")
-	return parts[0], parts[1], nil
+	return agentID, apiKey, nil
 }
 
 // downloadCACertificate downloads the CA certificate from the HTTP endpoint
@@ -256,26 +287,34 @@ func downloadCACertificate(urlConfig *config.URLConfig) error {
 // sendRegistrationRequest sends the registration request to the server
 func sendRegistrationRequest(urlConfig *config.URLConfig, req *RegistrationRequest) (*http.Response, error) {
 	// Download CA certificate first
+	debug.Info("Downloading CA certificate before registration")
 	if err := downloadCACertificate(urlConfig); err != nil {
+		debug.Error("Failed to download CA certificate: %v", err)
 		return nil, fmt.Errorf("failed to download CA certificate: %w", err)
 	}
 
 	// Now load the downloaded CA certificate
+	debug.Info("Loading CA certificate for registration request")
 	certPool, err := loadCACertificate(urlConfig)
 	if err != nil {
+		debug.Error("Failed to load CA certificate: %v", err)
 		return nil, fmt.Errorf("failed to load CA certificate: %w", err)
 	}
 
 	// Prepare request body
+	debug.Debug("Preparing registration request body")
 	body, err := json.Marshal(req)
 	if err != nil {
+		debug.Error("Failed to marshal registration request: %v", err)
 		return nil, fmt.Errorf("failed to marshal request: %v", err)
 	}
 
 	// Create request
 	url := urlConfig.GetRegistrationURL()
+	debug.Info("Sending registration request to %s", url)
 	httpReq, err := http.NewRequest("POST", url, bytes.NewBuffer(body))
 	if err != nil {
+		debug.Error("Failed to create registration request: %v", err)
 		return nil, fmt.Errorf("failed to create request: %v", err)
 	}
 
@@ -294,40 +333,19 @@ func sendRegistrationRequest(urlConfig *config.URLConfig, req *RegistrationReque
 	// Send request
 	resp, err := client.Do(httpReq)
 	if err != nil {
+		debug.Error("Registration request failed: %v", err)
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
 
 	// Check response status
 	if resp.StatusCode != http.StatusOK {
 		resp.Body.Close()
+		debug.Error("Registration request returned non-200 status: %d", resp.StatusCode)
 		return nil, fmt.Errorf("server returned status %d", resp.StatusCode)
 	}
 
+	debug.Info("Registration request successful")
 	return resp, nil
-}
-
-// commentOutClaimCode comments out the claim code in the .env file after successful registration
-func commentOutClaimCode() error {
-	envFile := ".env"
-	content, err := os.ReadFile(envFile)
-	if err != nil {
-		return fmt.Errorf("failed to read .env file: %v", err)
-	}
-
-	lines := strings.Split(string(content), "\n")
-	for i, line := range lines {
-		if strings.HasPrefix(line, "KH_CLAIM_CODE=") && !strings.HasPrefix(line, "#") {
-			lines[i] = "# " + line + " # Commented out after successful registration"
-			break
-		}
-	}
-
-	newContent := strings.Join(lines, "\n")
-	if err := os.WriteFile(envFile, []byte(newContent), 0644); err != nil {
-		return fmt.Errorf("failed to write .env file: %v", err)
-	}
-
-	return nil
 }
 
 // RegisterAgent handles the agent registration process using a claim code.
@@ -335,15 +353,23 @@ func commentOutClaimCode() error {
 // 1. Send the claim code to the server
 // 2. Receive agent ID and API key
 // 3. Store the credentials locally
-// 4. Comment out the claim code in .env after successful registration
 func RegisterAgent(claimCode string, urlConfig *config.URLConfig) error {
-	debug.Info("Registering agent with claim code")
+	debug.Info("Starting agent registration process")
+
+	// Initialize data directories
+	debug.Info("Initializing data directories")
+	dataDirs, err := config.GetDataDirs()
+	if err != nil {
+		debug.Error("Failed to initialize data directories: %v", err)
+		return fmt.Errorf("failed to initialize data directories: %w", err)
+	}
 
 	// Prepare registration request
+	debug.Info("Preparing registration request")
 	hostname, err := getHostname()
 	if err != nil {
 		hostname = "unknown"
-		debug.Warning("Could not get hostname: %v", err)
+		debug.Warning("Could not get hostname, using 'unknown': %v", err)
 	}
 
 	reqBody := &RegistrationRequest{
@@ -352,45 +378,69 @@ func RegisterAgent(claimCode string, urlConfig *config.URLConfig) error {
 	}
 
 	// Send registration request
+	debug.Info("Sending registration request for hostname: %s", hostname)
 	resp, err := sendRegistrationRequest(urlConfig, reqBody)
 	if err != nil {
+		debug.Error("Registration request failed: %v", err)
 		return fmt.Errorf("registration request failed: %v", err)
 	}
 	defer resp.Body.Close()
 
 	// Parse response
+	debug.Debug("Parsing registration response")
 	var regResp RegistrationResponse
 	if err := json.NewDecoder(resp.Body).Decode(&regResp); err != nil {
+		debug.Error("Failed to decode registration response: %v", err)
 		return fmt.Errorf("failed to decode registration response: %v", err)
 	}
 
 	// Decode certificates and private key
+	debug.Debug("Decoding certificates from response")
 	certBlock, _ := pem.Decode([]byte(regResp.Certificate))
 	if certBlock == nil {
+		debug.Error("Failed to decode client certificate PEM")
 		return fmt.Errorf("failed to decode certificate PEM")
 	}
 
 	keyBlock, _ := pem.Decode([]byte(regResp.PrivateKey))
 	if keyBlock == nil {
+		debug.Error("Failed to decode private key PEM")
 		return fmt.Errorf("failed to decode private key PEM")
 	}
 
 	caCertBlock, _ := pem.Decode([]byte(regResp.CACertificate))
 	if caCertBlock == nil {
+		debug.Error("Failed to decode CA certificate PEM")
 		return fmt.Errorf("failed to decode CA certificate PEM")
 	}
 
 	// Store credentials and certificates
+	debug.Info("Storing agent credentials and certificates")
 	if err := storeCredentials(regResp.AgentID, regResp.APIKey, []byte(regResp.Certificate), []byte(regResp.PrivateKey), []byte(regResp.CACertificate)); err != nil {
+		debug.Error("Failed to store agent credentials: %v", err)
 		return fmt.Errorf("failed to store credentials: %v", err)
 	}
 
-	// Comment out claim code in .env
-	if err := commentOutClaimCode(); err != nil {
-		debug.Warning("Failed to comment out claim code: %v", err)
+	// Initialize file synchronization
+	debug.Info("Initializing file synchronization")
+	fileSync, err := filesync.NewFileSync(urlConfig, dataDirs)
+	if err != nil {
+		debug.Warning("Failed to initialize file synchronization: %v", err)
+	} else {
+		// Start synchronization in background
+		debug.Info("Starting background file synchronization")
+		go func() {
+			ctx := context.Background()
+			for _, fileType := range []string{"wordlist", "rule"} {
+				debug.Info("Syncing %s directory", fileType)
+				if err := fileSync.SyncDirectory(ctx, fileType); err != nil {
+					debug.Error("Failed to sync %s directory: %v", fileType, err)
+				}
+			}
+		}()
 	}
 
-	debug.Info("Agent registration successful")
+	debug.Info("Agent registration completed successfully")
 	return nil
 }
 

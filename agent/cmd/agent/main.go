@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -122,6 +123,10 @@ HEARTBEAT_INTERVAL=%d
 # Agent Configuration
 KH_CLAIM_CODE=%s
 
+# File Transfer Configuration
+KH_MAX_CONCURRENT_DOWNLOADS=3  # Maximum number of concurrent file downloads
+KH_DOWNLOAD_TIMEOUT=1h        # Timeout for large file downloads
+
 # Logging Configuration
 DEBUG=%t
 LOG_LEVEL=%s
@@ -197,21 +202,94 @@ func main() {
 	}
 	debug.Info("Current working directory: %s", cwd)
 
-	// Load .env file
-	err = godotenv.Load()
-	if err != nil {
-		debug.Info("Attempting to load .env from current directory: %s", cwd)
-		debug.Warning("Failed to load .env file from current directory: %v", err)
-
-		debug.Info("Attempting to load .env from project root")
-		err = godotenv.Load("../../.env")
-		if err != nil {
-			debug.Error("Failed to load .env file from project root: %v", err)
-			os.Exit(1)
-		}
-		debug.Info("Successfully loaded .env file from project root")
+	// Log executable path
+	execPath, execErr := os.Executable()
+	if execErr != nil {
+		debug.Warning("Failed to get executable path: %v", execErr)
 	} else {
-		debug.Info("Successfully loaded .env file from current directory")
+		debug.Info("Executable path: %s", execPath)
+		debug.Info("Executable directory: %s", filepath.Dir(execPath))
+	}
+
+	// Flag to track if .env file was loaded successfully
+	envLoaded := false
+
+	// Check if KH_ENV_FILE environment variable is set
+	envFilePath := os.Getenv("KH_ENV_FILE")
+	if envFilePath != "" {
+		debug.Info("KH_ENV_FILE environment variable is set to: %s", envFilePath)
+		absEnvFilePath, _ := filepath.Abs(envFilePath)
+		debug.Info("Attempting to load .env from specified path: %s (absolute: %s)", envFilePath, absEnvFilePath)
+		err = godotenv.Load(envFilePath)
+		if err != nil {
+			debug.Error("Failed to load .env file from specified path: %v", err)
+			debug.Warning("Will try other locations...")
+		} else {
+			debug.Info("Successfully loaded .env file from specified path")
+			envLoaded = true
+		}
+	} else {
+		debug.Info("KH_ENV_FILE environment variable is not set, will try default locations")
+	}
+
+	// Only try other locations if .env hasn't been loaded yet
+	if !envLoaded {
+		// Try to load .env file from current directory
+		cwdEnvPath := filepath.Join(cwd, ".env")
+		debug.Info("Attempting to load .env from current directory: %s", cwdEnvPath)
+		err = godotenv.Load(cwdEnvPath)
+		if err != nil {
+			debug.Warning("Failed to load .env file from current directory: %v", err)
+
+			// Try to load from project root
+			projectRootEnvPath := filepath.Join(cwd, "../../.env")
+			absProjectRootEnvPath, _ := filepath.Abs(projectRootEnvPath)
+			debug.Info("Attempting to load .env from project root: %s (absolute: %s)", projectRootEnvPath, absProjectRootEnvPath)
+			err = godotenv.Load(projectRootEnvPath)
+			if err != nil {
+				debug.Error("Failed to load .env file from project root: %v", err)
+
+				// Try to load from executable directory
+				if execErr == nil {
+					execDirEnvPath := filepath.Join(filepath.Dir(execPath), ".env")
+					debug.Info("Attempting to load .env from executable directory: %s", execDirEnvPath)
+					err = godotenv.Load(execDirEnvPath)
+					if err != nil {
+						debug.Warning("Failed to load .env file from executable directory: %v", err)
+					} else {
+						debug.Info("Successfully loaded .env file from executable directory")
+						envLoaded = true
+					}
+				}
+
+				// If all attempts failed, exit
+				if !envLoaded {
+					debug.Error("All attempts to load .env file failed")
+					debug.Info("Searched the following locations:")
+					if envFilePath != "" {
+						debug.Info("1. Specified path (KH_ENV_FILE): %s", envFilePath)
+						debug.Info("2. Current directory: %s", cwdEnvPath)
+						debug.Info("3. Project root: %s", absProjectRootEnvPath)
+						if execErr == nil {
+							debug.Info("4. Executable directory: %s", filepath.Join(filepath.Dir(execPath), ".env"))
+						}
+					} else {
+						debug.Info("1. Current directory: %s", cwdEnvPath)
+						debug.Info("2. Project root: %s", absProjectRootEnvPath)
+						if execErr == nil {
+							debug.Info("3. Executable directory: %s", filepath.Join(filepath.Dir(execPath), ".env"))
+						}
+					}
+					os.Exit(1)
+				}
+			} else {
+				debug.Info("Successfully loaded .env file from project root")
+				envLoaded = true
+			}
+		} else {
+			debug.Info("Successfully loaded .env file from current directory")
+			envLoaded = true
+		}
 	}
 
 	// Reinitialize debug package with loaded environment variables
