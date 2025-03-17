@@ -98,9 +98,23 @@ func (h *Handler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	debug.Debug("Login request decoded for user: %s", req.Username)
 
+	// Prevent login with system user
+	if req.Username == "system" {
+		debug.Warning("Attempted login with system user account")
+		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
+		return
+	}
+
 	user, err := h.db.GetUserByUsername(req.Username)
 	if err != nil {
 		debug.Info("Failed login attempt for user '%s': %v", req.Username, err)
+		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
+		return
+	}
+
+	// Prevent login with system user by ID
+	if user.ID.String() == "00000000-0000-0000-0000-000000000000" || user.Role == "system" {
+		debug.Warning("Attempted login with system user account")
 		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
 		return
 	}

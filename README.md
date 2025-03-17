@@ -112,10 +112,10 @@ Instructions for setting up and running each component can be found in their res
     - [ ] Owner priority handling
   - [ ] Progress tracking
   - [ ] Result storage
-- [ ] Resource management
-  - [ ] Wordlist upload/management
-  - [ ] Rules file management
-  - [ ] Tool version management
+- [x] Resource management
+  - [x] Wordlist upload/management
+  - [x] Rules file management
+  - [x] Tool version management
 
 ### Agent Enhancements
 - [ ] Job processing

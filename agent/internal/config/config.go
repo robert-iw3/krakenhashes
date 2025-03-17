@@ -12,6 +12,9 @@ const (
 	// DefaultConfigDir is the default directory name for agent configuration
 	// This will be created in the same directory as the executable
 	DefaultConfigDir = "config"
+	// DefaultDataDir is the default directory name for agent data
+	// This will be created in the same directory as the executable
+	DefaultDataDir = "data"
 )
 
 // DataDirs represents the data directories used by the agent
@@ -23,23 +26,65 @@ type DataDirs struct {
 }
 
 // GetDataDirs returns the paths to the agent's data directories
-// These directories are created relative to the executable
+// It checks KH_DATA_DIR environment variable first, then falls back to default
+// The directories will be created if they don't exist
 func GetDataDirs() (*DataDirs, error) {
-	// Get the executable's directory
-	execPath, err := os.Executable()
+	var baseDataDir string
+
+	// Print current working directory for debugging
+	cwd, err := os.Getwd()
 	if err != nil {
-		debug.Error("Could not get executable path: %v", err)
-		return nil, fmt.Errorf("failed to get executable path: %w", err)
+		debug.Error("Failed to get current working directory: %v", err)
+	} else {
+		debug.Info("Current working directory in GetDataDirs: %s", cwd)
 	}
-	execDir := filepath.Dir(execPath)
-	debug.Info("Using executable directory: %s", execDir)
+
+	// Check environment variable first (useful for testing)
+	if envDir := os.Getenv("KH_DATA_DIR"); envDir != "" {
+		debug.Info("Using data directory from environment: %s", envDir)
+
+		// Check if the path is relative or absolute
+		if filepath.IsAbs(envDir) {
+			debug.Info("Data directory path is absolute")
+			baseDataDir = envDir
+		} else {
+			debug.Info("Data directory path is relative, resolving from current directory")
+			absPath, err := filepath.Abs(envDir)
+			if err != nil {
+				debug.Error("Failed to resolve absolute path: %v", err)
+				baseDataDir = envDir
+			} else {
+				debug.Info("Resolved absolute path: %s", absPath)
+				baseDataDir = absPath
+			}
+		}
+	} else {
+		// Get the executable's directory
+		execPath, err := os.Executable()
+		if err != nil {
+			debug.Error("Could not get executable path: %v", err)
+			debug.Info("Using current directory with default data dir: %s", DefaultDataDir)
+			baseDataDir = DefaultDataDir
+		} else {
+			// Use the data directory relative to the executable
+			execDir := filepath.Dir(execPath)
+			baseDataDir = filepath.Join(execDir, DefaultDataDir)
+			debug.Info("Using data directory relative to executable: %s", baseDataDir)
+		}
+	}
+
+	// Create base data directory if it doesn't exist
+	if err := os.MkdirAll(baseDataDir, 0750); err != nil {
+		debug.Error("Failed to create base data directory %s: %v", baseDataDir, err)
+		return nil, fmt.Errorf("failed to create base data directory: %w", err)
+	}
 
 	// Create data directories structure
 	dirs := &DataDirs{
-		Binaries:  filepath.Join(execDir, "binaries"),
-		Wordlists: filepath.Join(execDir, "wordlists"),
-		Rules:     filepath.Join(execDir, "rules"),
-		Hashlists: filepath.Join(execDir, "hashlists"),
+		Binaries:  filepath.Join(baseDataDir, "binaries"),
+		Wordlists: filepath.Join(baseDataDir, "wordlists"),
+		Rules:     filepath.Join(baseDataDir, "rules"),
+		Hashlists: filepath.Join(baseDataDir, "hashlists"),
 	}
 
 	// Create each directory with appropriate permissions

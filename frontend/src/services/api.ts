@@ -125,6 +125,19 @@ api.interceptors.request.use((config) => {
     console.debug('[API] Auth request cookies:', document.cookie);
   }
   
+  // Special handling for multipart/form-data uploads
+  if (config.headers && config.headers['Content-Type'] === 'multipart/form-data') {
+    console.debug('[API] Handling multipart/form-data upload');
+    // Let the browser set the Content-Type header with boundary for multipart/form-data
+    delete config.headers['Content-Type'];
+    
+    // Ensure withCredentials is set for uploads
+    config.withCredentials = true;
+    
+    // Log cookies being sent with upload
+    console.debug('[API] Upload request cookies:', document.cookie);
+  }
+  
   return config;
 });
 
@@ -151,23 +164,43 @@ api.interceptors.response.use(
       return Promise.reject(error);
     }
 
+    // Skip logout for network errors (which could be CORS issues)
+    if (error.code === 'ERR_NETWORK') {
+      console.debug('[API] Network error detected, skipping logout:', error.message);
+      return Promise.reject(error);
+    }
+
     // Handle authentication errors
     if (error.response?.status === 401) {
       console.debug('[API] Auth error, current cookies:', document.cookie);
       
       // Don't handle 401s from login/logout endpoints to prevent loops
-      if (!error.config?.url?.includes('login') && !error.config?.url?.includes('logout')) {
+      // Also skip auto-logout for rule and wordlist update endpoints
+      const skipAutoLogoutEndpoints = [
+        '/login', 
+        '/logout',
+        '/api/rules/',
+        '/api/wordlists/'
+      ];
+      
+      const shouldSkipAutoLogout = skipAutoLogoutEndpoints.some(endpoint => 
+        error.config?.url?.includes(endpoint)
+      );
+      
+      if (!shouldSkipAutoLogout) {
         try {
           // Call logout endpoint to clean up server-side session
           await api.post('/api/logout');
         } catch (logoutError) {
           console.error('[API] Error during logout:', logoutError);
         }
-      }
-      
-      // Only redirect if we're not already on the login page
-      if (window.location.pathname !== '/login') {
-        window.location.href = '/login';
+        
+        // Only redirect if we're not already on the login page
+        if (window.location.pathname !== '/login') {
+          window.location.href = '/login';
+        }
+      } else {
+        console.debug('[API] Skipping auto-logout for endpoint:', error.config?.url);
       }
       
       return Promise.reject(error);

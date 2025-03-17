@@ -99,6 +99,40 @@ func NewConfig() *Config {
 		}
 	}
 
+	// Create subdirectories for wordlists and rules
+	wordlistSubdirs := []string{
+		filepath.Join("wordlists", "general"),
+		filepath.Join("wordlists", "specialized"),
+		filepath.Join("wordlists", "targeted"),
+		filepath.Join("wordlists", "custom"),
+	}
+
+	ruleSubdirs := []string{
+		filepath.Join("rules", "hashcat"),
+		filepath.Join("rules", "john"),
+		filepath.Join("rules", "custom"),
+	}
+
+	// Create all wordlist subdirectories
+	for _, subdir := range wordlistSubdirs {
+		dir := filepath.Join(dataDir, subdir)
+		if err := os.MkdirAll(dir, 0750); err != nil {
+			debug.Error("Failed to create wordlist subdirectory %s: %v", subdir, err)
+		} else {
+			debug.Debug("Created wordlist subdirectory: %s", dir)
+		}
+	}
+
+	// Create all rule subdirectories
+	for _, subdir := range ruleSubdirs {
+		dir := filepath.Join(dataDir, subdir)
+		if err := os.MkdirAll(dir, 0750); err != nil {
+			debug.Error("Failed to create rule subdirectory %s: %v", subdir, err)
+		} else {
+			debug.Debug("Created rule subdirectory: %s", dir)
+		}
+	}
+
 	debug.Info("Using data directory: %s", dataDir)
 
 	return &Config{

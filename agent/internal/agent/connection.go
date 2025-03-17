@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
@@ -17,6 +18,7 @@ import (
 	"github.com/ZerkerEOD/krakenhashes/agent/internal/config"
 	"github.com/ZerkerEOD/krakenhashes/agent/internal/hardware"
 	"github.com/ZerkerEOD/krakenhashes/agent/internal/hardware/types"
+	filesync "github.com/ZerkerEOD/krakenhashes/agent/internal/sync"
 	"github.com/ZerkerEOD/krakenhashes/agent/pkg/debug"
 	"github.com/gorilla/websocket"
 )
@@ -29,6 +31,11 @@ const (
 	WSTypeMetrics      WSMessageType = "metrics"
 	WSTypeHeartbeat    WSMessageType = "heartbeat"
 	WSTypeAgentStatus  WSMessageType = "agent_status"
+
+	// File synchronization message types
+	WSTypeFileSyncRequest  WSMessageType = "file_sync_request"
+	WSTypeFileSyncResponse WSMessageType = "file_sync_response"
+	WSTypeFileSyncCommand  WSMessageType = "file_sync_command"
 )
 
 // WSMessage represents a WebSocket message
@@ -38,6 +45,25 @@ type WSMessage struct {
 	HardwareInfo *types.Info     `json:"hardware_info,omitempty"`
 	Metrics      *MetricsData    `json:"metrics,omitempty"`
 	Timestamp    time.Time       `json:"timestamp"`
+}
+
+// FileSyncRequestPayload represents a request for the agent to report its current files
+type FileSyncRequestPayload struct {
+	FileTypes []string `json:"file_types"` // "wordlist", "rule", "binary"
+}
+
+// FileInfo represents information about a file for synchronization
+type FileInfo = filesync.FileInfo
+
+// FileSyncResponsePayload represents the agent's response with its current files
+type FileSyncResponsePayload struct {
+	AgentID int        `json:"agent_id"`
+	Files   []FileInfo `json:"files"`
+}
+
+// FileSyncCommandPayload represents a command to download specific files
+type FileSyncCommandPayload struct {
+	Files []FileInfo `json:"files"`
 }
 
 // MetricsData represents the metrics data sent to the server
@@ -171,6 +197,9 @@ type Connection struct {
 
 	// TLS configuration
 	tlsConfig *tls.Config
+
+	// File synchronization
+	fileSync *filesync.FileSync
 }
 
 // loadCACertificate loads the CA certificate from disk
@@ -219,10 +248,12 @@ func loadClientCertificate() (tls.Certificate, error) {
 
 // NewConnection creates a new WebSocket connection instance
 func NewConnection(urlConfig *config.URLConfig) (*Connection, error) {
+	debug.Info("Creating new WebSocket connection")
+
 	// Initialize timing configuration
 	initTimingConfig()
 
-	// Create hardware monitor
+	// Initialize hardware monitor
 	hwMonitor, err := hardware.NewMonitor()
 	if err != nil {
 		debug.Error("Failed to create hardware monitor: %v", err)
@@ -524,6 +555,124 @@ func (c *Connection) readPump() {
 			if err := c.ws.WriteJSON(response); err != nil {
 				debug.Error("Failed to send hardware info: %v", err)
 			}
+		case WSTypeFileSyncRequest:
+			// Server requested file list
+			debug.Info("Received file sync request")
+
+			// Parse the request payload
+			var requestPayload FileSyncRequestPayload
+			if err := json.Unmarshal(msg.Payload, &requestPayload); err != nil {
+				debug.Error("Failed to parse file sync request: %v", err)
+				continue
+			}
+
+			// Initialize file sync if not already done
+			if c.fileSync == nil {
+				dataDirs, err := config.GetDataDirs()
+				if err != nil {
+					debug.Error("Failed to get data directories: %v", err)
+					continue
+				}
+
+				c.fileSync, err = filesync.NewFileSync(c.urlConfig, dataDirs)
+				if err != nil {
+					debug.Error("Failed to initialize file sync: %v", err)
+					continue
+				}
+			}
+
+			// Scan directories for files
+			filesByType := make(map[string][]filesync.FileInfo)
+			for _, fileType := range requestPayload.FileTypes {
+				files, err := c.fileSync.ScanDirectory(fileType)
+				if err != nil {
+					debug.Error("Failed to scan %s directory: %v", fileType, err)
+					continue
+				}
+				filesByType[fileType] = files
+			}
+
+			// Flatten the file list
+			var allFiles []filesync.FileInfo
+			for _, files := range filesByType {
+				allFiles = append(allFiles, files...)
+			}
+
+			// Get agent ID
+			agentID, err := GetAgentID()
+			if err != nil {
+				debug.Error("Failed to get agent ID: %v", err)
+				continue
+			}
+
+			// Prepare response
+			responsePayload := FileSyncResponsePayload{
+				AgentID: agentID,
+				Files:   allFiles,
+			}
+
+			// Marshal response payload
+			payloadBytes, err := json.Marshal(responsePayload)
+			if err != nil {
+				debug.Error("Failed to marshal file sync response: %v", err)
+				continue
+			}
+
+			// Send response
+			response := WSMessage{
+				Type:      WSTypeFileSyncResponse,
+				Payload:   payloadBytes,
+				Timestamp: time.Now(),
+			}
+
+			if err := c.ws.WriteJSON(response); err != nil {
+				debug.Error("Failed to send file sync response: %v", err)
+			} else {
+				debug.Info("Sent file sync response with %d files", len(allFiles))
+			}
+
+		case WSTypeFileSyncCommand:
+			// Server sent file sync command
+			debug.Info("Received file sync command")
+
+			// Parse the command payload
+			var commandPayload FileSyncCommandPayload
+			if err := json.Unmarshal(msg.Payload, &commandPayload); err != nil {
+				debug.Error("Failed to parse file sync command: %v", err)
+				continue
+			}
+
+			// Initialize file sync if not already done
+			if c.fileSync == nil {
+				dataDirs, err := config.GetDataDirs()
+				if err != nil {
+					debug.Error("Failed to get data directories: %v", err)
+					continue
+				}
+
+				c.fileSync, err = filesync.NewFileSync(c.urlConfig, dataDirs)
+				if err != nil {
+					debug.Error("Failed to initialize file sync: %v", err)
+					continue
+				}
+			}
+
+			// Process each file in the command
+			for _, file := range commandPayload.Files {
+				go func(file filesync.FileInfo) {
+					ctx, cancel := context.WithTimeout(context.Background(), 1*time.Hour)
+					defer cancel()
+
+					debug.Info("Downloading file: %s (%s)", file.Name, file.FileType)
+					if err := c.fileSync.DownloadFile(ctx, file.FileType, file.Name, file.Hash); err != nil {
+						debug.Error("Failed to download file %s: %v", file.Name, err)
+					} else {
+						debug.Info("Successfully downloaded file: %s", file.Name)
+					}
+				}(file)
+			}
+
+			debug.Info("Started downloading %d files", len(commandPayload.Files))
 		default:
 			debug.Warning("Received unknown message type: %s", msg.Type)
 		}

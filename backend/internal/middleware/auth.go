@@ -13,21 +13,27 @@ import (
 func RequireAuth(database *db.DB) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			debug.Debug("Checking authentication")
+			debug.Debug("Checking authentication for %s %s", r.Method, r.URL.Path)
 
 			// Skip middleware for OPTIONS requests
 			if r.Method == "OPTIONS" {
+				debug.Debug("Skipping auth check for OPTIONS request")
 				next.ServeHTTP(w, r)
 				return
 			}
 
+			// Log all cookies for debugging
+			debug.Debug("Request cookies: %v", r.Cookies())
+
 			// Get token from cookie
 			cookie, err := r.Cookie("token")
 			if err != nil {
-				debug.Warning("No auth token found in cookies")
+				debug.Warning("No auth token found in cookies for %s %s", r.Method, r.URL.Path)
 				http.Error(w, "Unauthorized", http.StatusUnauthorized)
 				return
 			}
+
+			debug.Debug("Found auth token cookie: %s", cookie.Name)
 
 			// Validate token and get user ID
 			userID, err := jwt.ValidateJWT(cookie.Value)

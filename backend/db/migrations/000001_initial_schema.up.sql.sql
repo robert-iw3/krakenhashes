@@ -7,10 +7,14 @@ CREATE TABLE users (
     email VARCHAR(255) UNIQUE NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
     role VARCHAR(50) NOT NULL DEFAULT 'user',
+    status VARCHAR(50) NOT NULL DEFAULT 'active',
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT users_role_check CHECK (role IN ('user', 'admin', 'agent'))
+    CONSTRAINT users_role_check CHECK (role IN ('user', 'admin', 'agent', 'system'))
 );
+
+-- Add comment to document the purpose of the users table
+COMMENT ON TABLE users IS 'User accounts for the system, including the special system user with UUID 00000000-0000-0000-0000-000000000000';
 
 CREATE TABLE teams (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -63,16 +67,21 @@ CREATE TRIGGER update_teams_updated_at
 -- Insert sample data with explicit UUIDs for referential integrity
 DO $$ 
 DECLARE
-    admin_id UUID;
+    admin_id UUID := 'f1a50a5d-ff43-4617-bc21-61c54b214dee'; -- Hardcoded admin UUID
+    system_id UUID := '00000000-0000-0000-0000-000000000000'; -- System user with UUID.Nil
     user1_id UUID;
     user2_id UUID;
     team_a_id UUID;
     team_b_id UUID;
 BEGIN
+    -- Insert system user first (cannot be used for login)
+    INSERT INTO users (id, username, email, password_hash, role, status)
+    VALUES (system_id, 'system', 'system@krakenhashes.local', 'SYSTEM_USER_NO_LOGIN', 'system', 'active')
+    ON CONFLICT (id) DO NOTHING;
+
     -- Insert users and store their IDs for testing
-    INSERT INTO users (username, first_name, last_name, email, password_hash, role)
-    VALUES ('admin', 'Admin', 'User', 'admin@example.com', '$2a$10$2gobOj6ATVGUNNk5CHw9de2reYqSZVHtP/Qrx63.Ho9nTWbo5PW7O', 'admin') -- password: KrakenHashes1!
-    RETURNING id INTO admin_id;
+    INSERT INTO users (id, username, first_name, last_name, email, password_hash, role)
+    VALUES (admin_id, 'admin', 'Admin', 'User', 'admin@example.com', '$2a$10$2gobOj6ATVGUNNk5CHw9de2reYqSZVHtP/Qrx63.Ho9nTWbo5PW7O', 'admin'); -- password: KrakenHashes1!
 
     INSERT INTO users (username, first_name, last_name, email, password_hash, role)
     VALUES ('user1', 'User', 'One', 'user1@example.com', '$2a$10$2gobOj6ATVGUNNk5CHw9de2reYqSZVHtP/Qrx63.Ho9nTWbo5PW7O', 'user') -- password: KrakenHashes1!

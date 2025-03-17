@@ -6,7 +6,6 @@ package agent
 
 import (
 	"bytes"
-	"context"
 	"crypto/sha256"
 	"crypto/tls"
 	"encoding/hex"
@@ -22,7 +21,6 @@ import (
 
 	"github.com/ZerkerEOD/krakenhashes/agent/internal/auth"
 	"github.com/ZerkerEOD/krakenhashes/agent/internal/config"
-	filesync "github.com/ZerkerEOD/krakenhashes/agent/internal/sync"
 	"github.com/ZerkerEOD/krakenhashes/agent/pkg/debug"
 )
 
@@ -356,14 +354,6 @@ func sendRegistrationRequest(urlConfig *config.URLConfig, req *RegistrationReque
 func RegisterAgent(claimCode string, urlConfig *config.URLConfig) error {
 	debug.Info("Starting agent registration process")
 
-	// Initialize data directories
-	debug.Info("Initializing data directories")
-	dataDirs, err := config.GetDataDirs()
-	if err != nil {
-		debug.Error("Failed to initialize data directories: %v", err)
-		return fmt.Errorf("failed to initialize data directories: %w", err)
-	}
-
 	// Prepare registration request
 	debug.Info("Preparing registration request")
 	hostname, err := getHostname()
@@ -372,14 +362,12 @@ func RegisterAgent(claimCode string, urlConfig *config.URLConfig) error {
 		debug.Warning("Could not get hostname, using 'unknown': %v", err)
 	}
 
-	reqBody := &RegistrationRequest{
-		ClaimCode: claimCode,
-		Hostname:  hostname,
-	}
-
 	// Send registration request
 	debug.Info("Sending registration request for hostname: %s", hostname)
-	resp, err := sendRegistrationRequest(urlConfig, reqBody)
+	resp, err := sendRegistrationRequest(urlConfig, &RegistrationRequest{
+		ClaimCode: claimCode,
+		Hostname:  hostname,
+	})
 	if err != nil {
 		debug.Error("Registration request failed: %v", err)
 		return fmt.Errorf("registration request failed: %v", err)
@@ -421,24 +409,17 @@ func RegisterAgent(claimCode string, urlConfig *config.URLConfig) error {
 		return fmt.Errorf("failed to store credentials: %v", err)
 	}
 
-	// Initialize file synchronization
-	debug.Info("Initializing file synchronization")
-	fileSync, err := filesync.NewFileSync(urlConfig, dataDirs)
+	// Initialize data directories (just create them, don't populate yet)
+	debug.Info("Initializing data directories")
+	_, err = config.GetDataDirs()
 	if err != nil {
-		debug.Warning("Failed to initialize file synchronization: %v", err)
-	} else {
-		// Start synchronization in background
-		debug.Info("Starting background file synchronization")
-		go func() {
-			ctx := context.Background()
-			for _, fileType := range []string{"wordlist", "rule"} {
-				debug.Info("Syncing %s directory", fileType)
-				if err := fileSync.SyncDirectory(ctx, fileType); err != nil {
-					debug.Error("Failed to sync %s directory: %v", fileType, err)
-				}
-			}
-		}()
+		debug.Error("Failed to initialize data directories: %v", err)
+		return fmt.Errorf("failed to initialize data directories: %w", err)
 	}
+
+	// File synchronization will be handled by the WebSocket connection
+	// The backend will request the agent's file list and send commands to download missing files
+	debug.Info("File synchronization will be handled by the WebSocket connection")
 
 	debug.Info("Agent registration completed successfully")
 	return nil

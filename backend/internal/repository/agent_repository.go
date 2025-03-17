@@ -111,8 +111,13 @@ func (r *AgentRepository) GetByID(ctx context.Context, id int) (*models.Agent, e
 	}
 
 	// Unmarshal metadata JSON
-	if err := json.Unmarshal(metadataJSON, &agent.Metadata); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal metadata: %w", err)
+	if len(metadataJSON) > 0 {
+		if err := json.Unmarshal(metadataJSON, &agent.Metadata); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal metadata: %w", err)
+		}
+	} else {
+		// Initialize empty map for NULL metadata
+		agent.Metadata = make(map[string]string)
 	}
 
 	agent.CreatedBy = &createdByUser
@@ -290,8 +295,13 @@ func (r *AgentRepository) List(ctx context.Context, filters map[string]interface
 		}
 
 		// Unmarshal metadata JSON
-		if err := json.Unmarshal(metadataJSON, &agent.Metadata); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal metadata: %w", err)
+		if len(metadataJSON) > 0 {
+			if err := json.Unmarshal(metadataJSON, &agent.Metadata); err != nil {
+				return nil, fmt.Errorf("failed to unmarshal metadata: %w", err)
+			}
+		} else {
+			// Initialize empty map for NULL metadata
+			agent.Metadata = make(map[string]string)
 		}
 
 		agent.CreatedBy = &createdByUser
@@ -419,8 +429,13 @@ func (r *AgentRepository) GetByAPIKey(ctx context.Context, apiKey string) (*mode
 	}
 
 	// Unmarshal metadata JSON
-	if err := json.Unmarshal(metadataJSON, &agent.Metadata); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal metadata: %w", err)
+	if len(metadataJSON) > 0 {
+		if err := json.Unmarshal(metadataJSON, &agent.Metadata); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal metadata: %w", err)
+		}
+	} else {
+		// Initialize empty map for NULL metadata
+		agent.Metadata = make(map[string]string)
 	}
 
 	agent.CreatedBy = &createdByUser

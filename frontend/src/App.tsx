@@ -47,6 +47,8 @@ import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
 import Login from './pages/Login';
 import AgentManagement from './pages/AgentManagement';
+import WordlistsManagement from './pages/WordlistsManagement';
+import RulesManagement from './pages/RulesManagement';
 import PrivateRoute from './components/PrivateRoute';
 import CertificateCheck from './components/CertificateCheck';
 import { AuthProvider } from './contexts/AuthContext';
@@ -88,6 +90,8 @@ const App: React.FC = () => {
               <Route element={<PrivateRoute><Layout /></PrivateRoute>}>
                 <Route path="/dashboard" element={<Dashboard />} />
                 <Route path="/agents" element={<AgentManagement />} />
+                <Route path="/wordlists" element={<WordlistsManagement />} />
+                <Route path="/rules" element={<RulesManagement />} />
                 <Route path="/admin/settings" element={<AdminSettings />} />
                 <Route path="/about" element={<About />} />
                 <Route path="/settings/profile" element={<ProfileSettings />} />

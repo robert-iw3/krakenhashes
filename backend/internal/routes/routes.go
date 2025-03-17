@@ -65,16 +65,52 @@ func CORSMiddleware(next http.Handler) http.Handler {
 
 		// Set standard CORS headers
 		w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, X-API-Key, X-Agent-ID, Origin")
+		w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, X-API-Key, X-Agent-ID, Origin, Cookie")
 		w.Header().Set("Access-Control-Allow-Credentials", "true")
 		w.Header().Set("Access-Control-Max-Age", "3600")
 		w.Header().Set("Access-Control-Expose-Headers", "Content-Length, Content-Type, Authorization")
 
+		// Debug log cookies for troubleshooting
+		debug.Debug("Request cookies: %v", r.Cookies())
+
 		// Handle preflight requests
 		if r.Method == "OPTIONS" {
-			debug.Info("Handling OPTIONS preflight request from origin: %s", origin)
+			debug.Info("Handling OPTIONS preflight request from origin: %s for path: %s", origin, r.URL.Path)
+
+			// Check if this is a preflight for a multipart/form-data upload
+			if strings.Contains(r.Header.Get("Access-Control-Request-Headers"), "content-type") {
+				debug.Info("Detected potential multipart/form-data preflight request")
+				// Ensure we explicitly allow content-type header for multipart uploads
+				w.Header().Set("Access-Control-Allow-Headers",
+					"Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, X-API-Key, X-Agent-ID, Origin, Cookie")
+			}
+
+			// Special handling for upload endpoints
+			if strings.Contains(r.URL.Path, "/upload") {
+				debug.Info("Detected preflight for upload endpoint: %s", r.URL.Path)
+
+				// Ensure we explicitly allow content-type header for multipart uploads
+				w.Header().Set("Access-Control-Allow-Headers",
+					"Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, X-API-Key, X-Agent-ID, Origin, Cookie")
+
+				// Ensure origin is set for upload endpoints
+				if origin != "" {
+					w.Header().Set("Access-Control-Allow-Origin", origin)
+				}
+			}
+
 			w.WriteHeader(http.StatusOK)
 			return
+		}
+
+		// For POST requests that might be multipart/form-data uploads
+		if r.Method == "POST" && (strings.Contains(r.Header.Get("Content-Type"), "multipart/form-data") || strings.Contains(r.URL.Path, "/upload")) {
+			debug.Info("Processing upload request to: %s with Content-Type: %s", r.URL.Path, r.Header.Get("Content-Type"))
+			// Ensure CORS headers are properly set for uploads
+			if origin != "" {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+			}
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
 		}
 
 		// Log final headers for debugging
@@ -101,23 +137,18 @@ func CORSMiddleware(next http.Handler) http.Handler {
  *   - JWT authentication (protected routes)
  *   - API Key authentication (agent routes)
  */
-func SetupRoutes(r *mux.Router, sqlDB *sql.DB, tlsProvider tls.Provider) {
+func SetupRoutes(r *mux.Router, sqlDB *sql.DB, tlsProvider tls.Provider, agentService *services.AgentService) {
 	debug.Info("Initializing route configuration")
 
 	// Create our custom DB wrapper
 	database := &db.DB{DB: sqlDB}
 	debug.Debug("Created custom DB wrapper")
 
-	// Apply CORS middleware at the root level
-	r.Use(CORSMiddleware)
-	debug.Info("Applied CORS middleware to root router")
+	// Apply GlobalCORSMiddleware at the root level for consistent CORS handling
+	r.Use(GlobalCORSMiddleware)
+	debug.Info("Applied GlobalCORSMiddleware to root router")
 
-	// Initialize repositories and services
-	debug.Debug("Initializing repositories and services")
-	agentRepo := repository.NewAgentRepository(database)
-	voucherRepo := repository.NewClaimVoucherRepository(database)
-	agentService := services.NewAgentService(agentRepo, voucherRepo)
-	voucherService := services.NewClaimVoucherService(voucherRepo)
+	// Initialize email service
 	emailService := email.NewService(sqlDB)
 
 	// Initialize configuration
@@ -148,12 +179,16 @@ func SetupRoutes(r *mux.Router, sqlDB *sql.DB, tlsProvider tls.Provider) {
 	SetupHashlistRoutes(jwtRouter)
 	SetupJobRoutes(jwtRouter)
 	SetupAgentRoutes(jwtRouter, agentService)
-	SetupVoucherRoutes(jwtRouter, voucherService)
+	SetupVoucherRoutes(jwtRouter, services.NewClaimVoucherService(repository.NewClaimVoucherRepository(database)))
 	SetupAdminRoutes(jwtRouter, database, emailService)
 	SetupUserRoutes(jwtRouter, database)
 	SetupMFARoutes(jwtRouter, mfaHandler, database, emailService)
 	SetupWebSocketRoutes(r, agentService, tlsProvider)
 	SetupBinaryRoutes(jwtRouter, sqlDB, appConfig, agentService)
+
+	// Setup wordlist and rule routes
+	SetupWordlistRoutes(jwtRouter, sqlDB, appConfig, agentService)
+	SetupRuleRoutes(jwtRouter, sqlDB, appConfig, agentService)
 
 	debug.Info("Route configuration completed successfully")
 	logRegisteredRoutes(r)
@@ -162,6 +197,13 @@ func SetupRoutes(r *mux.Router, sqlDB *sql.DB, tlsProvider tls.Provider) {
 // loggingMiddleware logs details about each request
 func loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// For OPTIONS requests, just log minimally to avoid interference
+		if r.Method == "OPTIONS" {
+			debug.Debug("OPTIONS request received: %s %s from %s", r.Method, r.URL.Path, r.RemoteAddr)
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		start := time.Now()
 
 		debug.Info("Request received: %s %s from %s", r.Method, r.URL.Path, r.RemoteAddr)

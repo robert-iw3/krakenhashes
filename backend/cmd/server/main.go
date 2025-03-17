@@ -11,11 +11,17 @@ import (
 
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/config"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/database"
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/db"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/tls"
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/repository"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/routes"
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/rule"
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/services"
 	tlsprovider "github.com/ZerkerEOD/krakenhashes/backend/internal/tls"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/version"
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/wordlist"
 	"github.com/ZerkerEOD/krakenhashes/backend/pkg/debug"
+	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
 )
@@ -153,20 +159,80 @@ func main() {
 	}
 	defer sqlDB.Close()
 
+	// Create DB wrapper for repositories
+	dbWrapper := &db.DB{DB: sqlDB}
+
+	// Initialize repositories and services
+	debug.Debug("Initializing repositories and services")
+	agentRepo := repository.NewAgentRepository(dbWrapper)
+	agentService := services.NewAgentService(agentRepo, repository.NewClaimVoucherRepository(dbWrapper))
+
+	// Initialize wordlist and rule managers for monitoring
+	wordlistStore := wordlist.NewStore(sqlDB)
+	wordlistManager := wordlist.NewManager(
+		wordlistStore,
+		filepath.Join(appConfig.DataDir, "wordlists"),
+		0, // No file size limit
+		[]string{"txt", "dict", "lst", "gz", "zip"},                   // Allowed formats
+		[]string{"text/plain", "application/gzip", "application/zip"}, // Allowed MIME types
+	)
+
+	ruleStore := rule.NewStore(sqlDB)
+	ruleManager := rule.NewManager(
+		ruleStore,
+		filepath.Join(appConfig.DataDir, "rules"),
+		0,                                       // No file size limit
+		[]string{"rule", "rules", "txt", "lst"}, // Allowed formats
+		[]string{"text/plain"},                  // Allowed MIME types
+	)
+
+	// Run migrations first
+	if err := database.RunMigrations(); err != nil {
+		debug.Error("Database migrations failed: %v", err)
+		os.Exit(1)
+	}
+	debug.Info("Database migrations completed successfully")
+
+	// Add a small delay to ensure migrations are fully applied
+	debug.Info("Waiting for migrations to be fully applied...")
+	time.Sleep(10 * time.Second)
+
+	// Ensure the system user exists
+	if err := database.EnsureSystemUser(); err != nil {
+		debug.Error("Failed to ensure system user exists: %v", err)
+		os.Exit(1)
+	}
+	debug.Info("System user verified")
+
+	// Use the system user (uuid.Nil) for the monitor service
+	systemUserID := uuid.Nil
+	debug.Info("Using system user ID for monitor service: %s", systemUserID.String())
+
+	// Initialize monitor service
+	monitorService := services.NewMonitorService(
+		wordlistManager,
+		ruleManager,
+		appConfig,
+		systemUserID,
+	)
+
 	// Create routers
 	debug.Info("Creating routers")
 	httpRouter := mux.NewRouter()  // For HTTP server (CA certificate)
 	httpsRouter := mux.NewRouter() // For HTTPS server (API)
 
+	// Apply global CORS middleware to both routers
+	httpRouter.Use(routes.GlobalCORSMiddleware)
+	httpsRouter.Use(routes.GlobalCORSMiddleware)
+
 	// Setup routes
 	debug.Info("Setting up routes")
-	routes.SetupRoutes(httpsRouter, sqlDB, tlsProvider)
+	routes.SetupRoutes(httpsRouter, sqlDB, tlsProvider, agentService)
 
 	// Setup CA certificate route on HTTP router
 	debug.Info("Setting up CA certificate route")
 	tlsHandler := tls.NewHandler(tlsProvider)
 	httpRouter.HandleFunc("/ca.crt", tlsHandler.ServeCACertificate).Methods("GET", "HEAD", "OPTIONS")
-	httpRouter.Use(routes.CORSMiddleware)
 
 	// Create HTTPS server
 	debug.Info("Creating HTTPS server")
@@ -202,12 +268,13 @@ func main() {
 		}
 	}()
 
-	// Run migrations
-	if err := database.RunMigrations(); err != nil {
-		debug.Error("Database migrations failed: %v", err)
-		os.Exit(1)
-	}
-	debug.Info("Database migrations completed successfully")
+	// Wait a moment for servers to start
+	time.Sleep(500 * time.Millisecond)
+
+	// Start monitor service after servers and database are ready
+	debug.Info("Starting directory monitor service")
+	monitorService.Start()
+	defer monitorService.Stop()
 
 	// Wait for interrupt signal or server error
 	sigChan := make(chan os.Signal, 1)

@@ -239,3 +239,25 @@ func TokenExists(token string) (bool, error) {
 	debug.Debug("Token existence check result: %v", exists)
 	return exists, nil
 }
+
+// EnsureSystemUser ensures that the system user with UUID.Nil exists in the database
+// This is used for system-generated actions like auto-importing wordlists and rules
+func EnsureSystemUser() error {
+	debug.Info("Checking if system user exists")
+
+	// Check if the system user exists
+	var count int
+	err := db.QueryRow("SELECT COUNT(*) FROM users WHERE id = '00000000-0000-0000-0000-000000000000'").Scan(&count)
+	if err != nil {
+		debug.Error("Failed to check if system user exists: %v", err)
+		return err
+	}
+
+	if count == 0 {
+		debug.Error("System user does not exist. This should have been created in the initial migration.")
+		return fmt.Errorf("system user not found in database")
+	}
+
+	debug.Info("System user exists")
+	return nil
+}
