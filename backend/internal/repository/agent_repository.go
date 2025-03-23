@@ -445,11 +445,11 @@ func (r *AgentRepository) GetByAPIKey(ctx context.Context, apiKey string) (*mode
 // UpdateAPIKeyLastUsed updates the last used timestamp for an API key
 func (r *AgentRepository) UpdateAPIKeyLastUsed(ctx context.Context, apiKey string, lastUsed time.Time) error {
 	result, err := r.db.ExecContext(ctx, `
-		UPDATE agents 
-		SET api_key_last_used = $2
-		WHERE api_key = $1`,
-		apiKey, lastUsed)
-
+		UPDATE agents
+		SET api_key_last_used = $1
+		WHERE api_key = $2`,
+		lastUsed, apiKey,
+	)
 	if err != nil {
 		return fmt.Errorf("failed to update API key last used: %w", err)
 	}
@@ -464,4 +464,9 @@ func (r *AgentRepository) UpdateAPIKeyLastUsed(ctx context.Context, apiKey strin
 	}
 
 	return nil
+}
+
+// GetDB returns the underlying database connection
+func (r *AgentRepository) GetDB() *sql.DB {
+	return r.db.DB
 }

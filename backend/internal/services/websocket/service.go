@@ -22,11 +22,15 @@ const (
 	TypeAgentStatus  MessageType = "agent_status"
 	TypeErrorReport  MessageType = "error_report"
 	TypeHardwareInfo MessageType = "hardware_info"
+	TypeSyncResponse MessageType = "file_sync_response"
+	TypeSyncStatus   MessageType = "file_sync_status"
 
 	// Server -> Agent messages
 	TypeTaskAssignment MessageType = "task_assignment"
 	TypeAgentCommand   MessageType = "agent_command"
 	TypeConfigUpdate   MessageType = "config_update"
+	TypeSyncRequest    MessageType = "file_sync_request"
+	TypeSyncCommand    MessageType = "file_sync_command"
 )
 
 // Client represents a connected agent
@@ -94,6 +98,55 @@ type ErrorReportPayload struct {
 	ReportedAt time.Time `json:"reported_at"`
 }
 
+// FileSyncRequestPayload represents a request for the agent to report its current files
+type FileSyncRequestPayload struct {
+	RequestID string   `json:"request_id"`
+	FileTypes []string `json:"file_types"`         // "wordlist", "rule", "binary", "hashlist"
+	Category  string   `json:"category,omitempty"` // Filter by category if needed
+}
+
+// FileInfo represents information about a file for synchronization
+type FileInfo struct {
+	Name      string `json:"name"`
+	MD5Hash   string `json:"md5_hash"` // MD5 hash used for synchronization
+	Size      int64  `json:"size"`
+	FileType  string `json:"file_type"` // "wordlist", "rule", "binary", "hashlist"
+	Category  string `json:"category,omitempty"`
+	ID        int    `json:"id,omitempty"`
+	Timestamp int64  `json:"timestamp,omitempty"`
+}
+
+// FileSyncResponsePayload represents the agent's response with its current files
+type FileSyncResponsePayload struct {
+	RequestID string     `json:"request_id"`
+	AgentID   int        `json:"agent_id"`
+	Files     []FileInfo `json:"files"`
+}
+
+// FileSyncCommandPayload represents a command to download specific files
+type FileSyncCommandPayload struct {
+	RequestID string     `json:"request_id"`
+	Action    string     `json:"action"` // "download", "verify", etc.
+	Files     []FileInfo `json:"files"`
+}
+
+// FileSyncStatusPayload represents a status update for file synchronization
+type FileSyncStatusPayload struct {
+	RequestID string           `json:"request_id"`
+	AgentID   int              `json:"agent_id"`
+	Status    string           `json:"status"`   // "in_progress", "completed", "failed"
+	Progress  int              `json:"progress"` // 0-100 percentage
+	Results   []FileSyncResult `json:"results,omitempty"`
+}
+
+// FileSyncResult represents the result of a file sync operation
+type FileSyncResult struct {
+	Name    string `json:"name"`
+	Success bool   `json:"success"`
+	Error   string `json:"error,omitempty"`
+	MD5Hash string `json:"md5_hash,omitempty"`
+}
+
 // Service handles WebSocket business logic
 type Service struct {
 	agentService *services.AgentService
@@ -124,6 +177,10 @@ func (s *Service) HandleMessage(ctx context.Context, agent *models.Agent, msg *M
 		return s.handleErrorReport(ctx, agent, msg)
 	case TypeHardwareInfo:
 		return s.handleHardwareInfo(ctx, agent, msg)
+	case TypeSyncRequest:
+		return s.handleSyncRequest(ctx, agent, msg)
+	case TypeSyncCommand:
+		return s.handleSyncCommand(ctx, agent, msg)
 	default:
 		return fmt.Errorf("unknown message type: %s", msg.Type)
 	}
@@ -254,6 +311,62 @@ func (s *Service) handleHardwareInfo(ctx context.Context, agent *models.Agent, m
 	agent.Hardware = hardware
 	if err := s.agentService.Update(ctx, agent); err != nil {
 		return fmt.Errorf("failed to update agent hardware info: %w", err)
+	}
+
+	return nil
+}
+
+// handleSyncRequest processes file sync request messages
+func (s *Service) handleSyncRequest(ctx context.Context, agent *models.Agent, msg *Message) error {
+	var payload FileSyncRequestPayload
+	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+		return fmt.Errorf("failed to unmarshal file sync request: %w", err)
+	}
+
+	// Log the request
+	fmt.Printf("Received file sync request from agent %d: %+v\n", agent.ID, payload)
+
+	// This function should just acknowledge receipt of the request
+	// The actual file comparison happens in the WebSocket handler
+
+	// Update agent metadata to indicate sync is in progress
+	if agent.Metadata == nil {
+		agent.Metadata = make(map[string]string)
+	}
+	agent.Metadata["sync_request_id"] = payload.RequestID
+	agent.Metadata["sync_status"] = "requested"
+	agent.Metadata["sync_timestamp"] = fmt.Sprintf("%d", time.Now().Unix())
+
+	if err := s.agentService.Update(ctx, agent); err != nil {
+		return fmt.Errorf("failed to update agent metadata for sync request: %w", err)
+	}
+
+	return nil
+}
+
+// handleSyncCommand processes file sync command messages
+func (s *Service) handleSyncCommand(ctx context.Context, agent *models.Agent, msg *Message) error {
+	var payload FileSyncCommandPayload
+	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+		return fmt.Errorf("failed to unmarshal file sync command: %w", err)
+	}
+
+	// Log the command
+	fmt.Printf("Received file sync command for agent %d: action=%s, files=%d\n",
+		agent.ID, payload.Action, len(payload.Files))
+
+	// Update agent metadata to indicate sync command sent
+	if agent.Metadata == nil {
+		agent.Metadata = make(map[string]string)
+	}
+	agent.Metadata["sync_request_id"] = payload.RequestID
+	agent.Metadata["sync_status"] = "command_received"
+	agent.Metadata["sync_action"] = payload.Action
+	agent.Metadata["sync_files_count"] = fmt.Sprintf("%d", len(payload.Files))
+	agent.Metadata["sync_timestamp"] = fmt.Sprintf("%d", time.Now().Unix())
+
+	if err := s.agentService.Update(ctx, agent); err != nil {
+		return fmt.Errorf("failed to update agent metadata for sync command: %w", err)
 	}
 
 	return nil

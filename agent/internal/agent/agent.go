@@ -2,12 +2,12 @@ package agent
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"strconv"
 	"time"
 
+	"github.com/ZerkerEOD/krakenhashes/agent/internal/auth"
 	"github.com/ZerkerEOD/krakenhashes/agent/internal/config"
+	"github.com/ZerkerEOD/krakenhashes/agent/pkg/debug"
 )
 
 const (
@@ -30,14 +30,17 @@ type Agent struct {
 // GetAgentID retrieves the agent ID from the filesystem
 func GetAgentID() (int, error) {
 	configDir := config.GetConfigDir()
-	idPath := filepath.Join(configDir, idFile)
-	idBytes, err := os.ReadFile(idPath)
+
+	// Use the LoadAgentKey function to get the agent ID from agent.key
+	_, agentIDStr, err := auth.LoadAgentKey(configDir)
 	if err != nil {
-		return 0, fmt.Errorf("failed to read agent ID: %w", err)
+		debug.Error("Failed to load agent ID from agent.key: %v", err)
+		return 0, fmt.Errorf("failed to load agent ID from agent.key: %w", err)
 	}
 
-	id, err := strconv.Atoi(string(idBytes))
+	id, err := strconv.Atoi(agentIDStr)
 	if err != nil {
+		debug.Error("Failed to parse agent ID: %v", err)
 		return 0, fmt.Errorf("failed to parse agent ID: %w", err)
 	}
 

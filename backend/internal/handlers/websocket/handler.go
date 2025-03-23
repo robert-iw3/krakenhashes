@@ -219,6 +219,9 @@ func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) {
 	// Start client routines
 	go client.writePump()
 	go client.readPump()
+
+	// Initiate file sync with agent
+	go h.initiateFileSync(client)
 }
 
 // readPump pumps messages from the WebSocket connection to the hub
@@ -301,6 +304,18 @@ func (c *Client) readPump() {
 			debug.Error("Agent %d: Failed to handle message: %v", c.agent.ID, err)
 		} else {
 			debug.Info("Agent %d: Successfully processed message type: %s", c.agent.ID, msg.Type)
+		}
+
+		// Handle different message types
+		switch msg.Type {
+		case wsservice.TypeSyncResponse:
+			c.handler.handleSyncResponse(c, &msg)
+
+		case wsservice.TypeSyncStatus:
+			c.handler.handleSyncStatus(c, &msg)
+
+		default:
+			// Handle other message types
 		}
 	}
 }
@@ -425,4 +440,167 @@ func (h *Handler) GetConnectedAgents() []int {
 		agents = append(agents, agentID)
 	}
 	return agents
+}
+
+// initiateFileSync starts the file synchronization process with an agent
+func (h *Handler) initiateFileSync(client *Client) {
+	debug.Info("Initiating file sync with agent %d", client.agent.ID)
+
+	// Create a unique request ID
+	requestID := fmt.Sprintf("sync-%d-%d", client.agent.ID, time.Now().UnixNano())
+
+	// Create sync request payload
+	payload := wsservice.FileSyncRequestPayload{
+		RequestID: requestID,
+		FileTypes: []string{"wordlist", "rule", "binary"},
+	}
+
+	// Marshal payload
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		debug.Error("Failed to marshal file sync request payload: %v", err)
+		return
+	}
+
+	// Create message
+	msg := &wsservice.Message{
+		Type:    wsservice.TypeSyncRequest,
+		Payload: payloadBytes,
+	}
+
+	// Send message to agent
+	select {
+	case client.send <- msg:
+		debug.Info("Sent file sync request to agent %d", client.agent.ID)
+	case <-client.ctx.Done():
+		debug.Warning("Failed to send file sync request: agent %d disconnected", client.agent.ID)
+	}
+}
+
+// handleSyncResponse processes a file sync response from an agent
+func (h *Handler) handleSyncResponse(client *Client, msg *wsservice.Message) {
+	var payload wsservice.FileSyncResponsePayload
+	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+		debug.Error("Failed to unmarshal file sync response: %v", err)
+		return
+	}
+
+	debug.Info("Received file sync response from agent %d: %d files", client.agent.ID, len(payload.Files))
+
+	// Determine which files need to be synced
+	filesToSync, err := h.determineFilesToSync(client.agent.ID, payload.Files)
+	if err != nil {
+		debug.Error("Failed to determine files to sync: %v", err)
+		return
+	}
+
+	if len(filesToSync) == 0 {
+		debug.Info("Agent %d is up to date, no files to sync", client.agent.ID)
+		return
+	}
+
+	// Create sync command payload
+	commandPayload := wsservice.FileSyncCommandPayload{
+		RequestID: fmt.Sprintf("sync-cmd-%d-%d", client.agent.ID, time.Now().UnixNano()),
+		Action:    "download",
+		Files:     filesToSync,
+	}
+
+	// Marshal payload
+	commandBytes, err := json.Marshal(commandPayload)
+	if err != nil {
+		debug.Error("Failed to marshal file sync command payload: %v", err)
+		return
+	}
+
+	// Create message
+	command := &wsservice.Message{
+		Type:    wsservice.TypeSyncCommand,
+		Payload: commandBytes,
+	}
+
+	// Send message to agent
+	select {
+	case client.send <- command:
+		debug.Info("Sent file sync command to agent %d to download %d files", client.agent.ID, len(filesToSync))
+	case <-client.ctx.Done():
+		debug.Warning("Failed to send file sync command: agent %d disconnected", client.agent.ID)
+	}
+}
+
+// handleSyncStatus processes a file sync status update from an agent
+func (h *Handler) handleSyncStatus(client *Client, msg *wsservice.Message) {
+	var payload wsservice.FileSyncStatusPayload
+	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+		debug.Error("Failed to unmarshal file sync status: %v", err)
+		return
+	}
+
+	debug.Info("File sync status update from agent %d: %s (%d%%)",
+		client.agent.ID, payload.Status, payload.Progress)
+
+	// If sync is complete, update agent status
+	if payload.Status == "completed" {
+		debug.Info("File sync completed for agent %d", client.agent.ID)
+		// TODO: Update agent sync status in database
+	}
+}
+
+// determineFilesToSync compares agent files with the backend and returns files that need syncing
+func (h *Handler) determineFilesToSync(agentID int, agentFiles []wsservice.FileInfo) ([]wsservice.FileInfo, error) {
+	// Get files from backend
+	backendFiles, err := h.getBackendFiles(context.Background(), []string{"wordlist", "rule", "binary"}, "")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get backend files: %w", err)
+	}
+
+	// Create a map of agent files for quick lookup
+	agentFileMap := make(map[string]wsservice.FileInfo)
+	for _, file := range agentFiles {
+		key := fmt.Sprintf("%s:%s", file.FileType, file.Name)
+		agentFileMap[key] = file
+	}
+
+	// Determine which files need to be synced
+	var filesToSync []wsservice.FileInfo
+
+	for _, file := range backendFiles {
+		key := fmt.Sprintf("%s:%s", file.FileType, file.Name)
+		agentFile, exists := agentFileMap[key]
+
+		// If the file doesn't exist on agent or MD5 hash doesn't match, add to sync list
+		if !exists || agentFile.MD5Hash != file.MD5Hash {
+			filesToSync = append(filesToSync, file)
+		}
+	}
+
+	return filesToSync, nil
+}
+
+// getBackendFiles retrieves files from the backend database based on file types
+func (h *Handler) getBackendFiles(ctx context.Context, fileTypes []string, category string) ([]wsservice.FileInfo, error) {
+	debug.Info("Retrieving backend files for types: %v, category: %s", fileTypes, category)
+
+	// Retrieve files using the agent service
+	repoFiles, err := h.agentService.GetFiles(ctx, fileTypes, category)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get files from repository: %w", err)
+	}
+
+	// Convert repository.FileInfo to wsservice.FileInfo
+	var files []wsservice.FileInfo
+	for _, file := range repoFiles {
+		files = append(files, wsservice.FileInfo{
+			Name:      file.Name,
+			MD5Hash:   file.MD5Hash,
+			Size:      file.Size,
+			FileType:  file.FileType,
+			Category:  file.Category,
+			ID:        file.ID,
+			Timestamp: file.Timestamp,
+		})
+	}
+
+	debug.Info("Retrieved %d files from repository", len(files))
+	return files, nil
 }

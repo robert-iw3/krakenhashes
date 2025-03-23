@@ -574,7 +574,14 @@ func (c *Connection) readPump() {
 					continue
 				}
 
-				c.fileSync, err = filesync.NewFileSync(c.urlConfig, dataDirs)
+				// Get credentials from the same place we use for WebSocket connection
+				apiKey, agentID, err := auth.LoadAgentKey(config.GetConfigDir())
+				if err != nil {
+					debug.Error("Failed to load agent credentials: %v", err)
+					continue
+				}
+
+				c.fileSync, err = filesync.NewFileSync(c.urlConfig, dataDirs, apiKey, agentID)
 				if err != nil {
 					debug.Error("Failed to initialize file sync: %v", err)
 					continue
@@ -650,11 +657,25 @@ func (c *Connection) readPump() {
 					continue
 				}
 
-				c.fileSync, err = filesync.NewFileSync(c.urlConfig, dataDirs)
+				// Get credentials from the same place we use for WebSocket connection
+				apiKey, agentID, err := auth.LoadAgentKey(config.GetConfigDir())
+				if err != nil {
+					debug.Error("Failed to load agent credentials: %v", err)
+					continue
+				}
+
+				c.fileSync, err = filesync.NewFileSync(c.urlConfig, dataDirs, apiKey, agentID)
 				if err != nil {
 					debug.Error("Failed to initialize file sync: %v", err)
 					continue
 				}
+			}
+
+			// Pre-check: Look for binary archives that need extraction
+			// This ensures we extract any archives that were downloaded but not extracted
+			if err := c.checkAndExtractBinaryArchives(); err != nil {
+				debug.Error("Error during pre-sync binary archive check: %v", err)
+				// Continue anyway, this is just a pre-check
 			}
 
 			// Process each file in the command
@@ -664,7 +685,7 @@ func (c *Connection) readPump() {
 					defer cancel()
 
 					debug.Info("Downloading file: %s (%s)", file.Name, file.FileType)
-					if err := c.fileSync.DownloadFile(ctx, file.FileType, file.Name, file.Hash); err != nil {
+					if err := c.fileSync.DownloadFileFromInfo(ctx, &file); err != nil {
 						debug.Error("Failed to download file %s: %v", file.Name, err)
 					} else {
 						debug.Info("Successfully downloaded file: %s", file.Name)
@@ -843,4 +864,72 @@ func (c *Connection) Start() error {
 // Connect establishes a WebSocket connection to the server
 func (c *Connection) Connect() error {
 	return c.connect()
+}
+
+// checkAndExtractBinaryArchives checks all binary directories for .7z files without extracted executables
+func (c *Connection) checkAndExtractBinaryArchives() error {
+	if c.fileSync == nil {
+		return fmt.Errorf("file sync not initialized")
+	}
+
+	// Get the binaries directory
+	binaryDir, err := c.fileSync.GetFileTypeDir("binary")
+	if err != nil {
+		return fmt.Errorf("failed to get binary directory: %w", err)
+	}
+
+	// List all binary ID directories
+	entries, err := os.ReadDir(binaryDir)
+	if err != nil {
+		return fmt.Errorf("failed to read binary directory: %w", err)
+	}
+
+	debug.Info("Checking binary directories for archives without extracted executables")
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue // Skip non-directories
+		}
+
+		// Each directory represents a binary ID
+		binaryIDDir := filepath.Join(binaryDir, entry.Name())
+
+		// Check for .7z files in this directory
+		archiveFiles, err := filepath.Glob(filepath.Join(binaryIDDir, "*.7z"))
+		if err != nil {
+			debug.Error("Failed to search for archives in %s: %v", binaryIDDir, err)
+			continue
+		}
+
+		if len(archiveFiles) == 0 {
+			continue // No archives in this directory
+		}
+
+		// Check if any executables exist
+		execFiles, err := c.fileSync.FindExtractedExecutables(binaryIDDir)
+		if err != nil {
+			debug.Error("Failed to search for executables in %s: %v", binaryIDDir, err)
+			continue
+		}
+
+		// If we have archives but no executables, extract them
+		if len(execFiles) == 0 && len(archiveFiles) > 0 {
+			debug.Info("Found binary directory %s with archives but no executables, extracting...", entry.Name())
+
+			// Extract each archive
+			for _, archivePath := range archiveFiles {
+				archiveFilename := filepath.Base(archivePath)
+				debug.Info("Extracting binary archive %s during pre-sync check", archiveFilename)
+
+				if err := c.fileSync.ExtractBinary7z(archivePath, binaryIDDir); err != nil {
+					debug.Error("Failed to extract binary archive %s: %v", archiveFilename, err)
+					continue
+				}
+
+				debug.Info("Successfully extracted binary archive %s during pre-sync check", archiveFilename)
+			}
+		}
+	}
+
+	return nil
 }

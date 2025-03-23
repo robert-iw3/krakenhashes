@@ -22,6 +22,7 @@ import (
 type AgentService struct {
 	agentRepo   *repository.AgentRepository
 	voucherRepo *repository.ClaimVoucherRepository
+	fileRepo    *repository.FileRepository
 	tokens      map[string]downloadToken
 	tokenMutex  sync.RWMutex
 }
@@ -32,10 +33,11 @@ type downloadToken struct {
 }
 
 // NewAgentService creates a new instance of AgentService
-func NewAgentService(agentRepo *repository.AgentRepository, voucherRepo *repository.ClaimVoucherRepository) *AgentService {
+func NewAgentService(agentRepo *repository.AgentRepository, voucherRepo *repository.ClaimVoucherRepository, fileRepo *repository.FileRepository) *AgentService {
 	return &AgentService{
 		agentRepo:   agentRepo,
 		voucherRepo: voucherRepo,
+		fileRepo:    fileRepo,
 		tokens:      make(map[string]downloadToken),
 	}
 }
@@ -487,4 +489,15 @@ func (s *AgentService) UpdateHeartbeat(ctx context.Context, agentID int) error {
 
 	debug.Info("Successfully updated heartbeat for agent: %d", agentID)
 	return nil
+}
+
+// GetFiles retrieves files of specified types and category from the database
+func (s *AgentService) GetFiles(ctx context.Context, fileTypes []string, category string) ([]repository.FileInfo, error) {
+	debug.Info("Getting files of types %v, category %s", fileTypes, category)
+	return s.fileRepo.GetFiles(ctx, fileTypes, category)
+}
+
+// GetDB returns the database connection from the repository
+func (s *AgentService) GetDB() *sql.DB {
+	return s.agentRepo.GetDB()
 }

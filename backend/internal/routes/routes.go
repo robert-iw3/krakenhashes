@@ -190,6 +190,9 @@ func SetupRoutes(r *mux.Router, sqlDB *sql.DB, tlsProvider tls.Provider, agentSe
 	SetupWordlistRoutes(jwtRouter, sqlDB, appConfig, agentService)
 	SetupRuleRoutes(jwtRouter, sqlDB, appConfig, agentService)
 
+	// Setup file download routes for agents
+	SetupFileDownloadRoutes(r, sqlDB, appConfig, agentService)
+
 	debug.Info("Route configuration completed successfully")
 	logRegisteredRoutes(r)
 }

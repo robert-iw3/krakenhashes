@@ -165,7 +165,7 @@ func main() {
 	// Initialize repositories and services
 	debug.Debug("Initializing repositories and services")
 	agentRepo := repository.NewAgentRepository(dbWrapper)
-	agentService := services.NewAgentService(agentRepo, repository.NewClaimVoucherRepository(dbWrapper))
+	agentService := services.NewAgentService(agentRepo, repository.NewClaimVoucherRepository(dbWrapper), repository.NewFileRepository(dbWrapper))
 
 	// Initialize wordlist and rule managers for monitoring
 	wordlistStore := wordlist.NewStore(sqlDB)

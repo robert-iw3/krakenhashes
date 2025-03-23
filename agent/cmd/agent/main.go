@@ -317,6 +317,15 @@ func main() {
 	debug.Info("- Base URL: %s", urlConfig.GetAPIBaseURL())
 	debug.Info("- WebSocket URL: %s", urlConfig.GetWebSocketURL())
 
+	// Initialize data directories early in the process
+	debug.Info("Initializing data directories...")
+	dataDirs, err := config.GetDataDirs()
+	if err != nil {
+		debug.Error("Failed to initialize data directories: %v", err)
+		os.Exit(1)
+	}
+	debug.Info("Data directories initialized successfully at %s", dataDirs.Binaries)
+
 	// Create metrics collector
 	collector, err := metrics.New(metrics.Config{
 		CollectionInterval: time.Duration(cfg.heartbeatInterval) * time.Second,

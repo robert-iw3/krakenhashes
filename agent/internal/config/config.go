@@ -19,10 +19,22 @@ const (
 
 // DataDirs represents the data directories used by the agent
 type DataDirs struct {
+	// Base directories
 	Binaries  string
 	Wordlists string
 	Rules     string
 	Hashlists string
+
+	// Wordlist type subdirectories
+	WordlistGeneral     string
+	WordlistSpecialized string
+	WordlistTargeted    string
+	WordlistCustom      string
+
+	// Rule type subdirectories
+	RuleHashcat string
+	RuleJohn    string
+	RuleCustom  string
 }
 
 // GetDataDirs returns the paths to the agent's data directories
@@ -81,10 +93,22 @@ func GetDataDirs() (*DataDirs, error) {
 
 	// Create data directories structure
 	dirs := &DataDirs{
+		// Base directories
 		Binaries:  filepath.Join(baseDataDir, "binaries"),
 		Wordlists: filepath.Join(baseDataDir, "wordlists"),
 		Rules:     filepath.Join(baseDataDir, "rules"),
 		Hashlists: filepath.Join(baseDataDir, "hashlists"),
+
+		// Wordlist type subdirectories
+		WordlistGeneral:     filepath.Join(baseDataDir, "wordlists", "general"),
+		WordlistSpecialized: filepath.Join(baseDataDir, "wordlists", "specialized"),
+		WordlistTargeted:    filepath.Join(baseDataDir, "wordlists", "targeted"),
+		WordlistCustom:      filepath.Join(baseDataDir, "wordlists", "custom"),
+
+		// Rule type subdirectories
+		RuleHashcat: filepath.Join(baseDataDir, "rules", "hashcat"),
+		RuleJohn:    filepath.Join(baseDataDir, "rules", "john"),
+		RuleCustom:  filepath.Join(baseDataDir, "rules", "custom"),
 	}
 
 	// Create each directory with appropriate permissions
@@ -99,6 +123,39 @@ func GetDataDirs() (*DataDirs, error) {
 			return nil, fmt.Errorf("failed to create %s directory: %w", name, err)
 		}
 		debug.Info("Created %s directory: %s", name, dir)
+	}
+
+	// Create subdirectories for wordlists based on type
+	wordlistSubdirs := []string{
+		"general",
+		"specialized",
+		"targeted",
+		"custom",
+	}
+
+	for _, subdir := range wordlistSubdirs {
+		dir := filepath.Join(dirs.Wordlists, subdir)
+		if err := os.MkdirAll(dir, 0750); err != nil {
+			debug.Error("Failed to create wordlist type directory %s: %v", dir, err)
+			return nil, fmt.Errorf("failed to create wordlist type directory: %w", err)
+		}
+		debug.Info("Created wordlist type directory: %s", dir)
+	}
+
+	// Create subdirectories for rules based on type
+	ruleSubdirs := []string{
+		"hashcat",
+		"john",
+		"custom",
+	}
+
+	for _, subdir := range ruleSubdirs {
+		dir := filepath.Join(dirs.Rules, subdir)
+		if err := os.MkdirAll(dir, 0750); err != nil {
+			debug.Error("Failed to create rule type directory %s: %v", dir, err)
+			return nil, fmt.Errorf("failed to create rule type directory: %w", err)
+		}
+		debug.Info("Created rule type directory: %s", dir)
 	}
 
 	return dirs, nil
