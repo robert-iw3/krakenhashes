@@ -17,6 +17,7 @@ import (
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/routes"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/rule"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/services"
+	retentionsvc "github.com/ZerkerEOD/krakenhashes/backend/internal/services/retention"
 	tlsprovider "github.com/ZerkerEOD/krakenhashes/backend/internal/tls"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/version"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/wordlist"
@@ -24,6 +25,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
+	"github.com/robfig/cron/v3"
 )
 
 func main() {
@@ -165,7 +167,14 @@ func main() {
 	// Initialize repositories and services
 	debug.Debug("Initializing repositories and services")
 	agentRepo := repository.NewAgentRepository(dbWrapper)
-	agentService := services.NewAgentService(agentRepo, repository.NewClaimVoucherRepository(dbWrapper), repository.NewFileRepository(dbWrapper))
+	agentService := services.NewAgentService(agentRepo, repository.NewClaimVoucherRepository(dbWrapper), repository.NewFileRepository(dbWrapper, appConfig.DataDir))
+
+	clientRepo := repository.NewClientRepository(dbWrapper)
+	clientSettingsRepo := repository.NewClientSettingsRepository(dbWrapper)
+	hashlistRepo := repository.NewHashListRepository(dbWrapper)
+	hashRepo := repository.NewHashRepository(dbWrapper)
+
+	retentionService := retentionsvc.NewRetentionService(dbWrapper, hashlistRepo, hashRepo, clientRepo, clientSettingsRepo)
 
 	// Initialize wordlist and rule managers for monitoring
 	wordlistStore := wordlist.NewStore(sqlDB)
@@ -215,6 +224,31 @@ func main() {
 		appConfig,
 		systemUserID,
 	)
+
+	// Initialize and start the Retention Purge Scheduler
+	debug.Info("Initializing data retention purge scheduler...")
+	cr := cron.New()
+	_, err = cr.AddFunc("@daily", func() { // Run once a day at midnight
+		debug.Info("Running scheduled data retention purge...")
+		if err := retentionService.PurgeOldHashlists(context.Background()); err != nil {
+			debug.Error("Scheduled data retention purge failed: %v", err)
+		}
+	})
+	if err != nil {
+		debug.Error("Failed to add retention purge job to scheduler: %v", err)
+		// Decide if this is fatal? For now, log and continue.
+	}
+	cr.Start()
+	debug.Info("Data retention purge scheduler started.")
+
+	// Run initial purge on startup (in background to not block startup)
+	go func() {
+		debug.Info("Running initial data retention purge on startup...")
+		time.Sleep(15 * time.Second) // Small delay after startup
+		if err := retentionService.PurgeOldHashlists(context.Background()); err != nil {
+			debug.Error("Initial data retention purge failed: %v", err)
+		}
+	}()
 
 	// Create routers
 	debug.Info("Creating routers")

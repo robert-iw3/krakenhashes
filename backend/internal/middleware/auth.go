@@ -56,11 +56,21 @@ func RequireAuth(database *db.DB) func(http.Handler) http.Handler {
 				return
 			}
 
-			// Add user ID to request context
+			// Get user role from token
+			role, err := jwt.GetUserRole(cookie.Value)
+			if err != nil {
+				// This shouldn't happen if ValidateJWT passed, but handle defensively
+				debug.Warning("Failed to get role from valid token: %v", err)
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
+
+			// Add user ID and role to request context
 			ctx := context.WithValue(r.Context(), "user_id", userID)
+			ctx = context.WithValue(ctx, "user_role", role) // Add role to context
 			r = r.WithContext(ctx)
 
-			debug.Debug("Authentication successful for user: %s", userID)
+			debug.Debug("Authentication successful for user: %s with role: %s", userID, role)
 			next.ServeHTTP(w, r)
 		})
 	}

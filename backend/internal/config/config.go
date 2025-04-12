@@ -13,11 +13,14 @@ import (
 
 // Config holds the application configuration
 type Config struct {
-	Host      string
-	HTTPPort  int // Port for HTTP (CA certificate)
-	HTTPSPort int // Port for HTTPS (API)
-	ConfigDir string
-	DataDir   string
+	Host              string
+	HTTPPort          int    // Port for HTTP (CA certificate)
+	HTTPSPort         int    // Port for HTTPS (API)
+	ConfigDir         string // Base directory for config files (certs, etc.)
+	DataDir           string // Base directory for mutable data (uploads, db?)
+	HashlistBatchSize int    // Max number of hashes to process in one DB batch
+	MaxUploadSize     int64  // Max size for file uploads in bytes
+	HashUploadDir     string // Directory within DataDir to store hashlist uploads
 }
 
 // NewConfig creates a new Config instance with values from environment variables
@@ -135,12 +138,58 @@ func NewConfig() *Config {
 
 	debug.Info("Using data directory: %s", dataDir)
 
+	// Get hashlist batch size from environment or use default
+	hashlistBatchSize := 1000 // Default batch size
+	if batchSizeStr := os.Getenv("KH_HASHLIST_BATCH_SIZE"); batchSizeStr != "" {
+		if bs, err := strconv.Atoi(batchSizeStr); err == nil && bs > 0 {
+			hashlistBatchSize = bs
+			debug.Info("Using hashlist batch size from environment: %d", hashlistBatchSize)
+		} else {
+			debug.Warning("Invalid KH_HASHLIST_BATCH_SIZE value '%s', using default: %d", batchSizeStr, hashlistBatchSize)
+		}
+	} else {
+		debug.Info("Using default hashlist batch size: %d", hashlistBatchSize)
+	}
+
+	// Get Max Upload Size
+	maxUploadSize := int64(32 << 20) // Default 32 MiB
+	if sizeStr := env.GetOrDefault("KH_MAX_UPLOAD_SIZE_MB", "32"); sizeStr != "" {
+		if sizeMB, err := strconv.ParseInt(sizeStr, 10, 64); err == nil && sizeMB > 0 {
+			maxUploadSize = sizeMB * 1024 * 1024
+			debug.Info("Using Max Upload Size from environment: %d MiB", sizeMB)
+		} else {
+			debug.Warning("Invalid KH_MAX_UPLOAD_SIZE_MB value '%s', using default: 32 MiB", sizeStr)
+		}
+	} else {
+		debug.Info("Using default Max Upload Size: 32 MiB")
+	}
+
+	// Determine Hash Upload Directory (within DataDir)
+	hashUploadDir := filepath.Join(dataDir, "hashlist_uploads")
+	if uploadDirEnv := os.Getenv("KH_HASH_UPLOAD_DIR"); uploadDirEnv != "" {
+		// Allow overriding, potentially outside DataDir if absolute path is given
+		if filepath.IsAbs(uploadDirEnv) {
+			hashUploadDir = uploadDirEnv
+		} else {
+			hashUploadDir = filepath.Join(dataDir, uploadDirEnv) // Relative to dataDir
+		}
+	}
+	// Ensure the upload directory exists
+	if err := os.MkdirAll(hashUploadDir, 0750); err != nil {
+		// Log error but proceed, file saving will fail later if it doesn't exist
+		debug.Error("Failed to create hash upload directory '%s': %v", hashUploadDir, err)
+	}
+	debug.Info("Using Hash Upload directory: %s", hashUploadDir)
+
 	return &Config{
-		Host:      host,
-		HTTPPort:  httpPort,
-		HTTPSPort: httpsPort,
-		ConfigDir: configDir,
-		DataDir:   dataDir,
+		Host:              host,
+		HTTPPort:          httpPort,
+		HTTPSPort:         httpsPort,
+		ConfigDir:         configDir,
+		DataDir:           dataDir,
+		HashlistBatchSize: hashlistBatchSize,
+		MaxUploadSize:     maxUploadSize,
+		HashUploadDir:     hashUploadDir,
 	}
 }
 

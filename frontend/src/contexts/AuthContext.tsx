@@ -35,12 +35,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       
       return authCheck.authenticated;
-    } catch (error) {
-      console.error('Auth check failed:', error);
-      setAuth(false);
-      setUser(null);
-      setUserRole(null);
-      return false;
+    } finally {
     }
   }, []);
 
@@ -91,7 +86,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUser, 
         userRole, 
         setUserRole,
-        checkAuthStatus 
+        checkAuthStatus
       }}
     >
       {children}

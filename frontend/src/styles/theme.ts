@@ -83,6 +83,7 @@
  */
 
 import { createTheme, Theme } from '@mui/material/styles';
+import type {} from '@mui/x-data-grid/themeAugmentation'; // Import augmentation for theme typing
 
 const theme: Theme = createTheme({
   palette: {
@@ -104,6 +105,42 @@ const theme: Theme = createTheme({
         body: {
           backgroundColor: '#000000',
           color: '#ffffff',
+        },
+      },
+    },
+    MuiDataGrid: {
+      defaultProps: {
+        // Optional: Set default props if needed, e.g., disable borders globally
+        // border: 0,
+      },
+      styleOverrides: {
+        root: {
+          border: 'none',
+          backgroundColor: '#121212',
+          color: '#ffffff',
+          '& .MuiDataGrid-columnHeader, & .MuiDataGrid-cell': {
+            borderBottom: '1px solid rgba(81, 81, 81, 1)',
+            borderRight: 'none',
+          },
+          '& .MuiDataGrid-columnHeaders': {
+            borderBottom: '1px solid rgba(81, 81, 81, 1)',
+            backgroundColor: 'rgba(255, 255, 255, 0.08)',
+          },
+          '& .MuiDataGrid-columnHeaderTitle': {
+            fontWeight: 'bold',
+          },
+          '& .MuiDataGrid-cell:focus, & .MuiDataGrid-cell:focus-within, & .MuiDataGrid-columnHeader:focus, & .MuiDataGrid-columnHeader:focus-within': {
+            outline: 'none !important',
+          },
+          '& .MuiDataGrid-row:hover': {
+            backgroundColor: 'rgba(255, 255, 255, 0.05)',
+          },
+          '& .MuiIconButton-root': {
+            color: 'inherit',
+          },
+          '& .MuiTablePagination-root': {
+            color: 'inherit',
+          },
         },
       },
     },

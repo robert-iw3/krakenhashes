@@ -67,6 +67,7 @@ import {
   Info as InfoIcon,
   Description as DescriptionIcon,
   Rule as RuleIcon,
+  ListAlt as ListAltIcon,
 } from '@mui/icons-material';
 import { logout } from '../services/auth';
 import { useAuth } from '../contexts/AuthContext';
@@ -86,6 +87,7 @@ const drawerWidth = 240;
 const menuItems: MenuItem[] = [
   { text: 'Dashboard', icon: <DashboardIcon />, path: '/dashboard' },
   { text: 'Agents', icon: <ComputerIcon />, path: '/agents' },
+  { text: 'Hashlists', icon: <ListAltIcon />, path: '/hashlists' },
   { text: 'Wordlists', icon: <DescriptionIcon />, path: '/wordlists' },
   { text: 'Rules', icon: <RuleIcon />, path: '/rules' },
 ];

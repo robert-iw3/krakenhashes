@@ -3,6 +3,7 @@
  */
 import axios from 'axios';
 import type { AxiosError } from 'axios';
+import { Client } from '../types/client'; // Moved import to top
 
 // Use HTTPS API URL for all secure endpoints
 const API_URL = process.env.REACT_APP_API_URL || 'https://localhost:31337';
@@ -111,7 +112,6 @@ export const api = axios.create({
   baseURL: API_URL,
   withCredentials: true, // Required for cookies/session
   headers: {
-    'Content-Type': 'application/json',
   }
 });
 
@@ -126,15 +126,13 @@ api.interceptors.request.use((config) => {
   }
   
   // Special handling for multipart/form-data uploads
-  if (config.headers && config.headers['Content-Type'] === 'multipart/form-data') {
-    console.debug('[API] Handling multipart/form-data upload');
-    // Let the browser set the Content-Type header with boundary for multipart/form-data
-    delete config.headers['Content-Type'];
-    
-    // Ensure withCredentials is set for uploads
+  if (config.data instanceof FormData) {
+    console.debug('[API] Handling FormData upload');
     config.withCredentials = true;
-    
-    // Log cookies being sent with upload
+    console.debug('[API] Upload request cookies:', document.cookie);
+  } else if (config.headers && config.headers['Content-Type'] === 'multipart/form-data') {
+    console.warn('[API] multipart/form-data Content-Type header was set manually?');
+    config.withCredentials = true;
     console.debug('[API] Upload request cookies:', document.cookie);
   }
   
@@ -223,4 +221,51 @@ export const deleteEmailTemplate = (id: number) => api.delete(`/api/admin/email/
 export const getEmailTemplate = (id: number) => api.get(`/api/admin/email/templates/${id}`);
 
 // Email usage
-export const getEmailUsage = () => api.get('/api/admin/email/usage'); 
+export const getEmailUsage = () => api.get('/api/admin/email/usage');
+
+// --- Client Settings (Admin) ---
+
+// Define the actual API response structure
+interface ClientSettingResponse { 
+  data: ClientSetting;
+}
+
+// Define the setting object structure
+interface ClientSetting { 
+  key: string;
+  value?: string | null;
+  description?: string | null;
+  updatedAt: string;
+}
+
+interface UpdateClientSettingPayload {
+  value: string; // Value must be sent as string
+}
+
+// Get Default Client Data Retention Setting
+export const getDefaultClientRetentionSetting = () => api.get<ClientSettingResponse>('/api/admin/settings/retention');
+
+// Update Default Client Data Retention Setting
+export const updateDefaultClientRetentionSetting = (payload: UpdateClientSettingPayload) => 
+  api.put<any>('/api/admin/settings/retention', payload); // Backend expects { value: "months" }
+
+
+// --- Client Management (Admin) ---
+
+
+// List all clients
+export const listAdminClients = () => api.get<{data: Client[]}>('/api/admin/clients');
+
+// Get a single client by ID
+export const getAdminClient = (id: string) => api.get<{data: Client}>(`/api/admin/clients/${id}`);
+
+// Create a new client
+export const createAdminClient = (clientData: Omit<Client, 'id' | 'createdAt' | 'updatedAt'>) => 
+  api.post<{data: Client}>('/api/admin/clients', clientData);
+
+// Update an existing client
+export const updateAdminClient = (id: string, clientData: Partial<Omit<Client, 'id' | 'createdAt' | 'updatedAt'>>) => 
+  api.put<{data: Client}>(`/api/admin/clients/${id}`, clientData);
+
+// Delete a client
+export const deleteAdminClient = (id: string) => api.delete<any>(`/api/admin/clients/${id}`); 

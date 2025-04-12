@@ -35,4 +35,7 @@ var (
 
 	// ErrInvalidMetrics is returned when invalid metrics are provided
 	ErrInvalidMetrics = errors.New("invalid metrics")
+
+	// ErrDuplicateRecord is returned when attempting to create a record that violates a unique constraint
+	ErrDuplicateRecord = errors.New("duplicate record")
 )

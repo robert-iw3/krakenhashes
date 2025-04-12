@@ -102,7 +102,7 @@ const PrivateRoute: React.FC<PrivateRouteProps> = ({ children }) => {
       setIsLoading(false);
     };
     checkAuth();
-  }, [location.pathname, checkAuthStatus]);
+  }, [checkAuthStatus]);
 
   if (isLoading) {
     return (

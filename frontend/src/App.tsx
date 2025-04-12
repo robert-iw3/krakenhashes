@@ -49,6 +49,7 @@ import Login from './pages/Login';
 import AgentManagement from './pages/AgentManagement';
 import WordlistsManagement from './pages/WordlistsManagement';
 import RulesManagement from './pages/RulesManagement';
+import HashlistsDashboard from './components/hashlist/HashlistsDashboard';
 import PrivateRoute from './components/PrivateRoute';
 import CertificateCheck from './components/CertificateCheck';
 import { AuthProvider } from './contexts/AuthContext';
@@ -56,7 +57,12 @@ import About from './pages/About';
 import AuthSettingsPage from './pages/admin/AuthSettings';
 import { SnackbarProvider } from 'notistack';
 import { AdminSettings } from './pages/AdminSettings';
+import { AdminClients } from './pages/AdminClients';
 import ProfileSettings from './pages/settings/ProfileSettings';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+
+// Create a client instance (outside the component to prevent recreation on renders)
+const queryClient = new QueryClient();
 
 const App: React.FC = () => {
   const [certVerified, setCertVerified] = useState(() => {
@@ -75,51 +81,56 @@ const App: React.FC = () => {
 
   return (
     <AuthProvider>
-      <ThemeProvider theme={theme}>
-        <CssBaseline />
-        <SnackbarProvider maxSnack={3}>
-          <Router>
-            <Routes>
-              {/* Public routes */}
-              <Route 
-                path="/login" 
-                element={<Login />} 
-              />
+      {/* Wrap with QueryClientProvider */}
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider theme={theme}>
+          <CssBaseline />
+          <SnackbarProvider maxSnack={3}>
+            <Router>
+              <Routes>
+                {/* Public routes */}
+                <Route 
+                  path="/login" 
+                  element={<Login />} 
+                />
 
-              {/* Protected routes */}
-              <Route element={<PrivateRoute><Layout /></PrivateRoute>}>
-                <Route path="/dashboard" element={<Dashboard />} />
-                <Route path="/agents" element={<AgentManagement />} />
-                <Route path="/wordlists" element={<WordlistsManagement />} />
-                <Route path="/rules" element={<RulesManagement />} />
-                <Route path="/admin/settings" element={<AdminSettings />} />
-                <Route path="/about" element={<About />} />
-                <Route path="/settings/profile" element={<ProfileSettings />} />
-              </Route>
-              <Route
-                path="/admin/auth/settings"
-                element={
-                  <PrivateRoute>
-                    <AuthSettingsPage />
-                  </PrivateRoute>
-                }
-              />
+                {/* Protected routes */}
+                <Route element={<PrivateRoute><Layout /></PrivateRoute>}>
+                  <Route path="/dashboard" element={<Dashboard />} />
+                  <Route path="/agents" element={<AgentManagement />} />
+                  <Route path="/hashlists" element={<HashlistsDashboard />} />
+                  <Route path="/wordlists" element={<WordlistsManagement />} />
+                  <Route path="/rules" element={<RulesManagement />} />
+                  <Route path="/admin/settings" element={<AdminSettings />} />
+                  <Route path="/admin/clients" element={<AdminClients />} />
+                  <Route path="/about" element={<About />} />
+                  <Route path="/settings/profile" element={<ProfileSettings />} />
+                </Route>
+                <Route
+                  path="/admin/auth/settings"
+                  element={
+                    <PrivateRoute>
+                      <AuthSettingsPage />
+                    </PrivateRoute>
+                  }
+                />
 
-              {/* Root route */}
-              <Route
-                path="/"
-                element={<Navigate to="/dashboard" replace />}
-              />
+                {/* Root route */}
+                <Route
+                  path="/"
+                  element={<Navigate to="/dashboard" replace />}
+                />
 
-              {/* Catch all route */}
-              <Route
-                path="*"
-                element={<Navigate to="/dashboard" replace />}
-              />
-            </Routes>
-          </Router>
-        </SnackbarProvider>
-      </ThemeProvider>
+                {/* Catch all route */}
+                <Route
+                  path="*"
+                  element={<Navigate to="/dashboard" replace />}
+                />
+              </Routes>
+            </Router>
+          </SnackbarProvider>
+        </ThemeProvider>
+      </QueryClientProvider>
     </AuthProvider>
   );
 };

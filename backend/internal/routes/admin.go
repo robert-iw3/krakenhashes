@@ -8,9 +8,14 @@ import (
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/db"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/email"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/admin/auth"
+	adminclient "github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/admin/client"
+	adminsettings "github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/admin/settings"
 	binaryhandler "github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/binary"
 	emailhandler "github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/email"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/middleware"
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/repository"
+	clientsvc "github.com/ZerkerEOD/krakenhashes/backend/internal/services/client"
+	retentionsvc "github.com/ZerkerEOD/krakenhashes/backend/internal/services/retention"
 	"github.com/ZerkerEOD/krakenhashes/backend/pkg/debug"
 	"github.com/gorilla/mux"
 )
@@ -19,9 +24,21 @@ import (
 func SetupAdminRoutes(router *mux.Router, database *db.DB, emailService *email.Service) *mux.Router {
 	debug.Debug("Setting up admin routes")
 
-	// Create handlers
+	// Create Repositories needed by handlers/services
+	clientRepo := repository.NewClientRepository(database)
+	clientSettingsRepo := repository.NewClientSettingsRepository(database)
+	hashlistRepo := repository.NewHashListRepository(database)
+	hashRepo := repository.NewHashRepository(database)
+
+	// Create Services
+	retentionService := retentionsvc.NewRetentionService(database, hashlistRepo, hashRepo, clientRepo, clientSettingsRepo)
+	clientService := clientsvc.NewClientService(clientRepo, hashlistRepo, clientSettingsRepo, retentionService)
+
+	// Create Handlers
 	authSettingsHandler := auth.NewAuthSettingsHandler(database)
 	emailHandler := emailhandler.NewHandler(emailService)
+	retentionSettingsHandler := adminsettings.NewRetentionSettingsHandler(clientSettingsRepo)
+	clientHandler := adminclient.NewClientHandler(clientRepo, clientService)
 
 	// Create admin router
 	adminRouter := router.PathPrefix("/admin").Subrouter()
@@ -36,6 +53,17 @@ func SetupAdminRoutes(router *mux.Router, database *db.DB, emailService *email.S
 	adminRouter.HandleFunc("/auth/settings/mfa", authSettingsHandler.UpdateMFASettings).Methods(http.MethodPut, http.MethodOptions)
 	adminRouter.HandleFunc("/auth/settings/password", authSettingsHandler.GetPasswordPolicy).Methods(http.MethodGet, http.MethodOptions)
 	adminRouter.HandleFunc("/auth/settings/security", authSettingsHandler.GetAccountSecurity).Methods(http.MethodGet, http.MethodOptions)
+
+	// Data Retention settings routes (New)
+	adminRouter.HandleFunc("/settings/retention", retentionSettingsHandler.GetDefaultRetention).Methods(http.MethodGet, http.MethodOptions)
+	adminRouter.HandleFunc("/settings/retention", retentionSettingsHandler.UpdateDefaultRetention).Methods(http.MethodPut, http.MethodOptions)
+
+	// Client Management routes (New)
+	adminRouter.HandleFunc("/clients", clientHandler.ListClients).Methods(http.MethodGet, http.MethodOptions)
+	adminRouter.HandleFunc("/clients", clientHandler.CreateClient).Methods(http.MethodPost, http.MethodOptions)
+	adminRouter.HandleFunc("/clients/{id:[0-9a-fA-F-]+}", clientHandler.GetClient).Methods(http.MethodGet, http.MethodOptions)
+	adminRouter.HandleFunc("/clients/{id:[0-9a-fA-F-]+}", clientHandler.UpdateClient).Methods(http.MethodPut, http.MethodOptions)
+	adminRouter.HandleFunc("/clients/{id:[0-9a-fA-F-]+}", clientHandler.DeleteClient).Methods(http.MethodDelete, http.MethodOptions)
 
 	// Email configuration endpoints
 	adminRouter.HandleFunc("/email/config", emailHandler.GetConfig).Methods("GET", "OPTIONS")

@@ -26,7 +26,7 @@ func SetupFileDownloadRoutes(r *mux.Router, sqlDB *sql.DB, cfg *config.Config, a
 
 	// Create file repository
 	dbWrapper := &db.DB{DB: sqlDB}
-	fileRepo := repository.NewFileRepository(dbWrapper)
+	fileRepo := repository.NewFileRepository(dbWrapper, cfg.DataDir)
 
 	// Create file download handlers
 	fileRouter := r.PathPrefix("/api/files").Subrouter()

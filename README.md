@@ -97,7 +97,7 @@ Instructions for setting up and running each component can be found in their res
 
 ### Job Processing System
 - [ ] Hashlist management
-  - [ ] Comprehensive hashcat hash type support
+  - [x] Comprehensive hashcat hash type support
   - [ ] Hash configuration database
     - [ ] Salt status tracking
     - [ ] Performance characteristics (slow/fast)
@@ -145,9 +145,9 @@ Instructions for setting up and running each component can be found in their res
   - [ ] Progress monitoring
   - [ ] Result viewing
 - [ ] Resource management pages
-  - [ ] Wordlist management
-  - [ ] Rules management
-  - [ ] Tool configuration
+  - [x] Wordlist management
+  - [x] Rules management
+  - [x] Tool configuration
 - [ ] Admin panel
   - [ ] System configuration
   - [ ] User management
@@ -163,10 +163,9 @@ Instructions for setting up and running each component can be found in their res
 - [ ] Deployment guides
 - [ ] User manual
   - [ ] Priority system guidelines
-  - [ ] Hash type reference
+  - [x] Hash type reference
   - [ ] Best practices
 - [ ] Administrator guide
-  - [ ] Team management guidelines
   - [ ] Security recommendations
 
 ### Version 2.0 Considerations
@@ -182,3 +181,4 @@ Instructions for setting up and running each component can be found in their res
   - [ ] Frontend team interfaces
     - [ ] Team management UI
     - [ ] Team assignment system
+    - [ ] Team management guidelines

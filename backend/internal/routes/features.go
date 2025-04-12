@@ -3,7 +3,6 @@ package routes
 import (
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/agent"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/dashboard"
-	"github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/hashlists"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/jobs"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/vouchers"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/services"
@@ -15,12 +14,6 @@ import (
 func SetupDashboardRoutes(jwtRouter *mux.Router) {
 	jwtRouter.HandleFunc("/dashboard", dashboard.GetDashboard).Methods("GET", "OPTIONS")
 	debug.Info("Configured dashboard endpoint: /dashboard")
-}
-
-// SetupHashlistRoutes configures hashlist-related routes
-func SetupHashlistRoutes(jwtRouter *mux.Router) {
-	jwtRouter.HandleFunc("/hashlists", hashlists.GetHashlists).Methods("GET", "OPTIONS")
-	debug.Info("Configured hashlists endpoint: /hashlists")
 }
 
 // SetupJobRoutes configures job-related routes

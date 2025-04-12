@@ -4,6 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io"
+	"mime/multipart"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/db"
@@ -22,13 +27,16 @@ type FileInfo struct {
 }
 
 // FileRepository handles database operations for files (wordlists, rules, binaries)
+// and file storage operations.
 type FileRepository struct {
-	db *db.DB
+	db       *db.DB
+	basePath string // Base directory for storing files (e.g., configured upload dir)
 }
 
 // NewFileRepository creates a new file repository
-func NewFileRepository(db *db.DB) *FileRepository {
-	return &FileRepository{db: db}
+func NewFileRepository(db *db.DB, basePath string) *FileRepository {
+	debug.Info("Initializing FileRepository with base path: %s", basePath)
+	return &FileRepository{db: db, basePath: basePath}
 }
 
 // GetWordlists retrieves wordlists matching the specified category
@@ -269,4 +277,105 @@ func (r *FileRepository) GetFiles(ctx context.Context, fileTypes []string, categ
 
 	debug.Info("Retrieved %d files from database", len(files))
 	return files, nil
+}
+
+// Save stores an uploaded file to a specified directory relative to the base path.
+// It ensures the target directory exists and returns the final saved filename.
+// It performs basic sanitization on the original filename.
+func (r *FileRepository) Save(file multipart.File, targetDir, originalFilename string) (string, error) {
+	// Ensure targetDir is relative to basePath or handle absolute paths appropriately?
+	// For now, assume targetDir is intended to be *within* basePath or an absolute path itself.
+	// Let's treat targetDir as the full intended directory path.
+	destDir := targetDir
+	if !filepath.IsAbs(targetDir) {
+		destDir = filepath.Join(r.basePath, targetDir)
+	}
+
+	// Create the target directory if it doesn't exist
+	if err := os.MkdirAll(destDir, 0750); err != nil {
+		return "", fmt.Errorf("failed to create target directory '%s': %w", destDir, err)
+	}
+
+	// Sanitize filename (basic example: remove path separators, limit chars)
+	sanitizedFilename := filepath.Base(originalFilename)                // Remove leading paths
+	sanitizedFilename = strings.ReplaceAll(sanitizedFilename, "..", "") // Prevent traversal
+	// Add more sanitization as needed (e.g., allowlist characters)
+	if sanitizedFilename == "" {
+		sanitizedFilename = "uploaded_file"
+	}
+
+	destPath := filepath.Join(destDir, sanitizedFilename)
+
+	// Create the destination file
+	dst, err := os.Create(destPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to create destination file '%s': %w", destPath, err)
+	}
+	defer dst.Close()
+
+	// Copy the uploaded file data
+	_, err = io.Copy(dst, file)
+	if err != nil {
+		// Attempt to remove partially created file on copy error
+		_ = os.Remove(destPath)
+		return "", fmt.Errorf("failed to copy file data to '%s': %w", destPath, err)
+	}
+
+	debug.Debug("Saved file to: %s", destPath)
+	return sanitizedFilename, nil
+}
+
+// Delete removes a file from the specified directory relative to the base path.
+func (r *FileRepository) Delete(targetDir, filename string) error {
+	// Construct full path
+	destDir := targetDir
+	if !filepath.IsAbs(targetDir) {
+		destDir = filepath.Join(r.basePath, targetDir)
+	}
+	filePath := filepath.Join(destDir, filename)
+
+	// Ensure the path is within expected bounds (simple check)
+	if !strings.HasPrefix(filePath, r.basePath) && !strings.HasPrefix(destDir, r.basePath) {
+		// Prevent deleting files outside the intended base/target path if targetDir was relative
+		// Note: This check is basic and might need refinement depending on how targetDir is used.
+		// If targetDir can be absolute, this check might be bypassed.
+		if !filepath.IsAbs(targetDir) {
+			debug.Error("Attempted to delete file outside base path: %s", filePath)
+			return fmt.Errorf("invalid file path for deletion")
+		}
+	}
+
+	// Remove the file
+	err := os.Remove(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			debug.Warning("Attempted to delete non-existent file: %s", filePath)
+			return nil // Not an error if it's already gone
+		}
+		return fmt.Errorf("failed to delete file '%s': %w", filePath, err)
+	}
+
+	debug.Debug("Deleted file: %s", filePath)
+	return nil
+}
+
+// Open returns a readable stream (os.File) for the given file path.
+// The path is assumed to be the full, absolute path or relative to the OS cwd.
+// TODO: Should this also join with basePath or assume full path is provided?
+// Assuming full path is provided from the HashList record for now.
+func (r *FileRepository) Open(filePath string) (*os.File, error) {
+	// Basic check to prevent path traversal if basePath joining were used
+	// cleanPath := filepath.Clean(filePath)
+	// if !strings.HasPrefix(cleanPath, r.basePath) { // If joining with basePath
+	// 	 return nil, fmt.Errorf("invalid file path")
+	// }
+
+	file, err := os.Open(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("file not found at path '%s'", filePath)
+		}
+		return nil, fmt.Errorf("failed to open file '%s': %w", filePath, err)
+	}
+	return file, nil
 }

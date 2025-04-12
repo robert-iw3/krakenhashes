@@ -17,6 +17,7 @@ import (
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/repository"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/services"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/tls"
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/websocket"
 	"github.com/ZerkerEOD/krakenhashes/backend/pkg/debug"
 	"github.com/gorilla/mux"
 )
@@ -192,6 +193,15 @@ func SetupRoutes(r *mux.Router, sqlDB *sql.DB, tlsProvider tls.Provider, agentSe
 
 	// Setup file download routes for agents
 	SetupFileDownloadRoutes(r, sqlDB, appConfig, agentService)
+
+	// Register Hashlist Management Routes (includes user/agent hashlist, clients, hash types, hash search)
+	registerHashlistRoutes(jwtRouter, sqlDB, appConfig, agentService)
+
+	// Setup WebSocket Routes
+	debug.Info("Setting up WebSocket routes...")
+	// Agent Update Handler (for cracked hashes)
+	updateHandler := websocket.NewAgentUpdateHandler(database, agentService, repository.NewHashRepository(database), repository.NewHashListRepository(database))
+	websocket.RegisterAgentUpdateRoutes(r, updateHandler)
 
 	debug.Info("Route configuration completed successfully")
 	logRegisteredRoutes(r)
