@@ -4,6 +4,16 @@
 import axios from 'axios';
 import type { AxiosError } from 'axios';
 import { Client } from '../types/client'; // Moved import to top
+import {
+  PresetJob,
+  JobWorkflow,
+  PresetJobFormDataResponse,
+  CreateWorkflowRequest,
+  UpdateWorkflowRequest,
+  PresetJobInput,
+  PresetJobApiData,
+  JobWorkflowFormDataResponse,
+} from '../types/adminJobs';
 
 // Use HTTPS API URL for all secure endpoints
 const API_URL = process.env.REACT_APP_API_URL || 'https://localhost:31337';
@@ -269,3 +279,101 @@ export const updateAdminClient = (id: string, clientData: Partial<Omit<Client, '
 
 // Delete a client
 export const deleteAdminClient = (id: string) => api.delete<any>(`/api/admin/clients/${id}`); 
+
+// --- Admin: Preset Jobs ---
+
+export const getPresetJobFormData = async (): Promise<PresetJobFormDataResponse> => {
+  const response = await api.get<PresetJobFormDataResponse>('/api/admin/preset-jobs/form-data');
+  return response.data;
+};
+
+export const listPresetJobs = async (): Promise<PresetJob[]> => {
+  // TODO: Add pagination params if needed
+  const response = await api.get<PresetJob[]>('/api/admin/preset-jobs');
+  return response.data;
+};
+
+export const getPresetJob = async (id: string): Promise<PresetJob> => {
+  const response = await api.get<PresetJob>(`/api/admin/preset-jobs/${id}`);
+  return response.data;
+};
+
+export const createPresetJob = async (data: PresetJobInput): Promise<PresetJob> => {
+  // Prepare the data to match what the backend expects (convert to strings)
+  console.log('Original input data:', JSON.stringify(data, null, 2));
+  
+  const apiData = {
+    ...data,
+    // Handle both number[] and string[] inputs by ensuring all IDs are strings
+    wordlist_ids: Array.isArray(data.wordlist_ids) 
+      ? data.wordlist_ids.map(id => id.toString())
+      : [],
+    rule_ids: Array.isArray(data.rule_ids) 
+      ? data.rule_ids.map(id => id.toString())
+      : []
+  };
+  
+  console.log('Converted API data:', JSON.stringify(apiData, null, 2));
+  
+  const response = await api.post<PresetJob>('/api/admin/preset-jobs', apiData);
+  return response.data;
+};
+
+export const updatePresetJob = async (id: string, data: PresetJobInput): Promise<PresetJob> => {
+  // Prepare the data to match what the backend expects (convert to strings)
+  console.log('Original update data:', JSON.stringify(data, null, 2));
+  
+  const apiData = {
+    ...data,
+    // Handle both number[] and string[] inputs by ensuring all IDs are strings
+    wordlist_ids: Array.isArray(data.wordlist_ids) 
+      ? data.wordlist_ids.map(id => id.toString())
+      : [],
+    rule_ids: Array.isArray(data.rule_ids) 
+      ? data.rule_ids.map(id => id.toString())
+      : []
+  };
+  
+  console.log('Converted update API data:', JSON.stringify(apiData, null, 2));
+  
+  const response = await api.put<PresetJob>(`/api/admin/preset-jobs/${id}`, apiData);
+  return response.data;
+};
+
+export const deletePresetJob = async (id: string): Promise<void> => {
+  await api.delete(`/api/admin/preset-jobs/${id}`);
+};
+
+// --- Admin: Job Workflows ---
+
+export const listJobWorkflows = async (): Promise<JobWorkflow[]> => {
+    // Returns list without steps populated
+  const response = await api.get<JobWorkflow[]>('/api/admin/job-workflows');
+  return response.data;
+};
+
+export const getJobWorkflow = async (id: string): Promise<JobWorkflow> => {
+    // Returns workflow with steps populated
+  const response = await api.get<JobWorkflow>(`/api/admin/job-workflows/${id}`);
+  return response.data;
+};
+
+export const getJobWorkflowFormData = async (): Promise<JobWorkflowFormDataResponse> => {
+  // Returns available preset jobs for workflow form
+  const response = await api.get<JobWorkflowFormDataResponse>('/api/admin/job-workflows/form-data');
+  return response.data;
+};
+
+export const createJobWorkflow = async (data: CreateWorkflowRequest): Promise<JobWorkflow> => {
+  const response = await api.post<JobWorkflow>('/api/admin/job-workflows', data);
+  return response.data;
+};
+
+export const updateJobWorkflow = async (id: string, data: UpdateWorkflowRequest): Promise<JobWorkflow> => {
+  const response = await api.put<JobWorkflow>(`/api/admin/job-workflows/${id}`, data);
+  return response.data;
+};
+
+export const deleteJobWorkflow = async (id: string): Promise<void> => {
+  await api.delete(`/api/admin/job-workflows/${id}`);
+}; 

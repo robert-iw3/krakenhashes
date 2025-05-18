@@ -23,7 +23,8 @@ const (
 	RuleTypeCustom  RuleType = "custom"
 )
 
-// Rule represents a hashcat rule in the system
+// Rule represents the structure of the 'rules' table.
+// Note: Add other fields from migration 000014 if needed for other contexts.
 type Rule struct {
 	ID                 int       `json:"id"`
 	Name               string    `json:"name"`
@@ -40,6 +41,12 @@ type Rule struct {
 	LastVerifiedAt     time.Time `json:"last_verified_at,omitempty"`
 	VerificationStatus string    `json:"verification_status"` // e.g., "pending", "verified", "failed"
 	Tags               []string  `json:"tags,omitempty"`
+}
+
+// RuleBasic is a subset of Rule used for simple listings (e.g., form data).
+type RuleBasic struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
 }
 
 // RuleAddRequest represents a request to add a new rule

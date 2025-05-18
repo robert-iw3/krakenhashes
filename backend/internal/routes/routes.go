@@ -167,6 +167,20 @@ func SetupRoutes(r *mux.Router, sqlDB *sql.DB, tlsProvider tls.Provider, agentSe
 	// Create MFA handler
 	mfaHandler := auth.NewMFAHandler(database, emailService)
 
+	// Initialize Repositories needed for new services
+	presetJobRepo := repository.NewPresetJobRepository(sqlDB)
+	workflowRepo := repository.NewJobWorkflowRepository(sqlDB)
+	debug.Info("Initialized PresetJob and JobWorkflow repositories")
+
+	// Initialize Services for preset jobs and workflows
+	presetJobService := services.NewAdminPresetJobService(presetJobRepo)
+	workflowService := services.NewAdminJobWorkflowService(sqlDB, workflowRepo, presetJobRepo) // Pass db, workflowRepo, presetJobRepo
+	debug.Info("Initialized AdminPresetJobService and AdminJobWorkflowService")
+
+	// Initialize Handler for new admin job routes
+	adminJobsHandler := NewAdminJobsHandler(presetJobService, workflowService)
+	debug.Info("Initialized AdminJobsHandler")
+
 	// Setup public routes
 	SetupPublicRoutes(apiRouter, database, agentService, appConfig, tlsProvider)
 
@@ -181,7 +195,7 @@ func SetupRoutes(r *mux.Router, sqlDB *sql.DB, tlsProvider tls.Provider, agentSe
 	SetupJobRoutes(jwtRouter)
 	SetupAgentRoutes(jwtRouter, agentService)
 	SetupVoucherRoutes(jwtRouter, services.NewClaimVoucherService(repository.NewClaimVoucherRepository(database)))
-	SetupAdminRoutes(jwtRouter, database, emailService)
+	SetupAdminRoutes(jwtRouter, database, emailService, adminJobsHandler) // Pass adminJobsHandler
 	SetupUserRoutes(jwtRouter, database)
 	SetupMFARoutes(jwtRouter, mfaHandler, database, emailService)
 	SetupWebSocketRoutes(r, agentService, tlsProvider)

@@ -105,12 +105,25 @@ func RunMigrations() error {
 		return err
 	}
 
-	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
-		debug.Error("Migration failed: %v", err)
-		return err
+	if err := m.Up(); err != nil {
+		if err == migrate.ErrNoChange {
+			debug.Info("Database schema is already up to date.")
+		} else if e, ok := err.(migrate.ErrDirty); ok {
+			// Specific handling for Dirty state error
+			debug.Error("Migration failed because the database is in a dirty state for version %d.", e.Version)
+			debug.Error("This usually means a previous migration attempt failed partway through.")
+			debug.Error("Check the logs from the *first* time migration %d failed for the specific SQL error.", e.Version)
+			debug.Error("You may need to manually clean the database and reset the migration version. Original error: %v", err)
+			return fmt.Errorf("dirty migration version %d: %w", e.Version, err)
+		} else {
+			// Handle other migration errors
+			debug.Error("Migration failed with unexpected error: %v", err)
+			return err
+		}
+	} else {
+		debug.Info("Database migrations completed successfully")
 	}
 
-	debug.Info("Database migrations completed successfully")
 	return nil
 }
 

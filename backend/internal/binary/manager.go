@@ -81,8 +81,15 @@ func (m *manager) AddVersion(ctx context.Context, version *BinaryVersion) error 
 		return fmt.Errorf("failed to download binary after %d attempts: %w", maxDownloadAttempts, lastErr)
 	}
 
-	// Calculate hash and verify the binary
+	// Get file info to set the file size
 	filePath := m.getBinaryPath(version)
+	fileInfo, err := os.Stat(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to get file info: %w", err)
+	}
+	version.FileSize = fileInfo.Size()
+
+	// Calculate hash and verify the binary
 	file, err := os.Open(filePath)
 	if err != nil {
 		return fmt.Errorf("failed to open binary file: %w", err)
@@ -101,7 +108,7 @@ func (m *manager) AddVersion(ctx context.Context, version *BinaryVersion) error 
 	now := time.Now()
 	version.LastVerifiedAt = &now
 
-	// Update version with hash and verification status
+	// Update version with hash, file size, and verification status
 	if err := m.store.UpdateVersion(ctx, version); err != nil {
 		return fmt.Errorf("failed to update version with calculated hash: %w", err)
 	}

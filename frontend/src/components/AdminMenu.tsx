@@ -1,7 +1,7 @@
 import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { List, ListItem, ListItemIcon, ListItemText } from '@mui/material';
-import { Settings as SettingsIcon, People as PeopleIcon } from '@mui/icons-material';
+import { List, ListItemButton, ListItemIcon, ListItemText } from '@mui/material';
+import { Settings as SettingsIcon, People as PeopleIcon, PlaylistAddCheck as PlaylistAddCheckIcon, AccountTree as AccountTreeIcon } from '@mui/icons-material';
 
 const AdminMenu: React.FC = () => {
   const navigate = useNavigate();
@@ -9,8 +9,7 @@ const AdminMenu: React.FC = () => {
 
   return (
     <List>
-      <ListItem
-        button
+      <ListItemButton
         onClick={() => navigate('/admin/settings')}
         selected={location.pathname.startsWith('/admin/settings')}
         sx={{
@@ -28,10 +27,9 @@ const AdminMenu: React.FC = () => {
           <SettingsIcon />
         </ListItemIcon>
         <ListItemText primary="Admin Settings" />
-      </ListItem>
+      </ListItemButton>
 
-      <ListItem
-        button
+      <ListItemButton
         onClick={() => navigate('/admin/clients')}
         selected={location.pathname.startsWith('/admin/clients')}
         sx={{
@@ -49,7 +47,47 @@ const AdminMenu: React.FC = () => {
           <PeopleIcon />
         </ListItemIcon>
         <ListItemText primary="Client Management" />
-      </ListItem>
+      </ListItemButton>
+
+      <ListItemButton
+        onClick={() => navigate('/admin/preset-jobs')}
+        selected={location.pathname.startsWith('/admin/preset-jobs')}
+        sx={{
+          minHeight: 48,
+          px: 2.5,
+        }}
+      >
+        <ListItemIcon
+          sx={{
+            minWidth: 0,
+            mr: 3,
+            justifyContent: 'center',
+          }}
+        >
+          <PlaylistAddCheckIcon />
+        </ListItemIcon>
+        <ListItemText primary="Preset Jobs" />
+      </ListItemButton>
+
+      <ListItemButton
+        onClick={() => navigate('/admin/job-workflows')}
+        selected={location.pathname.startsWith('/admin/job-workflows')}
+        sx={{
+          minHeight: 48,
+          px: 2.5,
+        }}
+      >
+        <ListItemIcon
+          sx={{
+            minWidth: 0,
+            mr: 3,
+            justifyContent: 'center',
+          }}
+        >
+          <AccountTreeIcon />
+        </ListItemIcon>
+        <ListItemText primary="Job Workflows" />
+      </ListItemButton>
     </List>
   );
 };

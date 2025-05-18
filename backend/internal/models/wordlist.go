@@ -26,24 +26,31 @@ const (
 	WordlistFormatCompressed WordlistFormat = "compressed"
 )
 
-// Wordlist represents a wordlist in the system
+// Wordlist represents the structure of the 'wordlists' table.
+// Note: Add other fields from migration 000013 if needed for other contexts.
 type Wordlist struct {
-	ID                 int       `json:"id"`
-	Name               string    `json:"name"`
+	ID                 int       `json:"id" db:"id"`
+	Name               string    `json:"name" db:"name"`
 	Description        string    `json:"description"`
 	WordlistType       string    `json:"wordlist_type"` // e.g., "dictionary", "password", "custom"
 	Format             string    `json:"format"`        // e.g., "txt", "gz", "zip"
 	FileName           string    `json:"file_name"`
 	MD5Hash            string    `json:"md5_hash"`
-	FileSize           int64     `json:"file_size"`
+	FileSize           int64     `json:"file_size" db:"file_size"`
 	WordCount          int64     `json:"word_count"`
-	CreatedAt          time.Time `json:"created_at"`
-	CreatedBy          uuid.UUID `json:"created_by"`
+	CreatedAt          time.Time `json:"created_at" db:"created_at"`
+	CreatedBy          uuid.UUID `json:"created_by" db:"created_by"`
 	UpdatedAt          time.Time `json:"updated_at"`
 	UpdatedBy          uuid.UUID `json:"updated_by,omitempty"`
 	LastVerifiedAt     time.Time `json:"last_verified_at,omitempty"`
 	VerificationStatus string    `json:"verification_status"` // e.g., "pending", "verified", "failed"
 	Tags               []string  `json:"tags,omitempty"`
+}
+
+// WordlistBasic is a subset of Wordlist used for simple listings (e.g., form data).
+type WordlistBasic struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
 }
 
 // WordlistAddRequest represents a request to add a new wordlist

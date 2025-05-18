@@ -38,37 +38,55 @@
  * @returns {JSX.Element} Root application component
  */
 
-import React, { useState } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import React, { useState, Suspense, lazy } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { ThemeProvider } from '@mui/material/styles';
-import CssBaseline from '@mui/material/CssBaseline';
+import { CssBaseline, CircularProgress, Box } from '@mui/material';
 import theme from './styles/theme';
 import Layout from './components/Layout';
-import Dashboard from './pages/Dashboard';
-import Login from './pages/Login';
-import AgentManagement from './pages/AgentManagement';
-import WordlistsManagement from './pages/WordlistsManagement';
-import RulesManagement from './pages/RulesManagement';
-import HashlistsDashboard from './components/hashlist/HashlistsDashboard';
 import PrivateRoute from './components/PrivateRoute';
 import CertificateCheck from './components/CertificateCheck';
-import { AuthProvider } from './contexts/AuthContext';
-import About from './pages/About';
-import AuthSettingsPage from './pages/admin/AuthSettings';
-import { SnackbarProvider } from 'notistack';
-import { AdminSettings } from './pages/AdminSettings';
-import { AdminClients } from './pages/AdminClients';
-import ProfileSettings from './pages/settings/ProfileSettings';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { SnackbarProvider, useSnackbar } from 'notistack';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
-// Create a client instance (outside the component to prevent recreation on renders)
+// Create a client instance
 const queryClient = new QueryClient();
+
+// Lazy load pages
+const LoginPage = lazy(() => import('./pages/Login'));
+const DashboardPage = lazy(() => import('./pages/Dashboard'));
+const AgentManagementPage = lazy(() => import('./pages/AgentManagement'));
+const WordlistsManagementPage = lazy(() => import('./pages/WordlistsManagement'));
+const RulesManagementPage = lazy(() => import('./pages/RulesManagement'));
+const HashlistsDashboardPage = lazy(() => import('./components/hashlist/HashlistsDashboard'));
+const AboutPage = lazy(() => import('./pages/About'));
+const ProfileSettingsPage = lazy(() => import('./pages/settings/ProfileSettings'));
+
+// Lazy load Admin Pages
+const PresetJobListPage = lazy(() => import('./pages/admin/PresetJobList'));
+const PresetJobFormPage = lazy(() => import('./pages/admin/PresetJobForm'));
+const JobWorkflowListPage = lazy(() => import('./pages/admin/JobWorkflowList'));
+const JobWorkflowFormPage = lazy(() => import('./pages/admin/JobWorkflowForm'));
+const AdminAuthSettingsPage = lazy(() => import('./pages/admin/AuthSettings'));
+const AdminClientsPage = lazy(() => import('./pages/AdminClients').then(module => ({ default: module.AdminClients })));
+const AdminSettingsIndexPage = lazy(() => import('./pages/AdminSettings').then(module => ({ default: module.AdminSettings })));
+const AdminEmailSettingsIndexPage = lazy(() => import('./pages/AdminSettings/EmailSettings').then(module => ({ default: module.EmailSettings })));
+const AdminEmailProviderConfigPage = lazy(() => import('./pages/AdminSettings/EmailSettings/ProviderConfig').then(module => ({ default: module.ProviderConfig })));
+const AdminEmailTemplateEditorPage = lazy(() => import('./pages/AdminSettings/EmailSettings/TemplateEditor').then(module => ({ default: module.TemplateEditor })));
 
 const App: React.FC = () => {
   const [certVerified, setCertVerified] = useState(() => {
     // Check if we've already verified the cert
     return localStorage.getItem('cert_valid') === 'true';
   });
+
+  // Use snackbar for notifications
+  const { enqueueSnackbar } = useSnackbar();
+
+  const handleNotification = (message: string, variant: 'success' | 'error' | 'warning' | 'info') => {
+    enqueueSnackbar(message, { variant });
+  };
 
   if (!certVerified) {
     return (
@@ -81,58 +99,91 @@ const App: React.FC = () => {
 
   return (
     <AuthProvider>
-      {/* Wrap with QueryClientProvider */}
       <QueryClientProvider client={queryClient}>
         <ThemeProvider theme={theme}>
           <CssBaseline />
           <SnackbarProvider maxSnack={3}>
             <Router>
+              <Suspense fallback={
+                <Box display="flex" justifyContent="center" alignItems="center" minHeight="100vh">
+                  <CircularProgress />
+                </Box>
+              }>
               <Routes>
-                {/* Public routes */}
+                  <Route path="/login" element={<LoginPage />} />
+
+                  {/* Authenticated Routes */}
+                  <Route element={<RequireAuth><Layout /></RequireAuth>}>
+                    <Route path="/dashboard" element={<DashboardPage />} />
+                    <Route path="/agents" element={<AgentManagementPage />} />
+                    <Route path="/hashlists" element={<HashlistsDashboardPage />} />
+                    <Route path="/wordlists" element={<WordlistsManagementPage />} />
+                    <Route path="/rules" element={<RulesManagementPage />} />
+                    <Route path="/about" element={<AboutPage />} />
+                    <Route path="/settings/profile" element={<ProfileSettingsPage />} />
+
+                    {/* Admin Section Routes */}
+                    <Route path="/admin" element={<RequireAdmin><Outlet /></RequireAdmin>}>
+                      <Route index element={<Navigate to="auth-settings" replace />} />
+                      <Route path="preset-jobs" element={<PresetJobListPage />} />
+                      <Route path="preset-jobs/new" element={<PresetJobFormPage />} />
+                      <Route path="preset-jobs/:presetJobId/edit" element={<PresetJobFormPage />} />
+                      <Route path="job-workflows" element={<JobWorkflowListPage />} />
+                      <Route path="job-workflows/new" element={<JobWorkflowFormPage />} />
+                      <Route path="job-workflows/:jobWorkflowId/edit" element={<JobWorkflowFormPage />} />
+                      <Route path="auth-settings" element={<AdminAuthSettingsPage />} />
+                      <Route path="clients" element={<AdminClientsPage />} />
+                      <Route path="settings" element={<AdminSettingsIndexPage />} />
+                      <Route path="settings/email" element={<AdminEmailSettingsIndexPage />} />
                 <Route 
-                  path="/login" 
-                  element={<Login />} 
-                />
-
-                {/* Protected routes */}
-                <Route element={<PrivateRoute><Layout /></PrivateRoute>}>
-                  <Route path="/dashboard" element={<Dashboard />} />
-                  <Route path="/agents" element={<AgentManagement />} />
-                  <Route path="/hashlists" element={<HashlistsDashboard />} />
-                  <Route path="/wordlists" element={<WordlistsManagement />} />
-                  <Route path="/rules" element={<RulesManagement />} />
-                  <Route path="/admin/settings" element={<AdminSettings />} />
-                  <Route path="/admin/clients" element={<AdminClients />} />
-                  <Route path="/about" element={<About />} />
-                  <Route path="/settings/profile" element={<ProfileSettings />} />
-                </Route>
+                        path="settings/email/provider" 
+                        element={<AdminEmailProviderConfigPage onNotification={handleNotification} />} 
+                      />
                 <Route
-                  path="/admin/auth/settings"
-                  element={
-                    <PrivateRoute>
-                      <AuthSettingsPage />
-                    </PrivateRoute>
-                  }
-                />
+                        path="settings/email/templates" 
+                        element={<AdminEmailTemplateEditorPage onNotification={handleNotification} />} 
+                      />
+                    </Route>
 
-                {/* Root route */}
-                <Route
-                  path="/"
-                  element={<Navigate to="/dashboard" replace />}
-                />
+                    {/* Catch-all for authenticated users */}
+                    <Route path="*" element={<Navigate to="/dashboard" replace />} />
+                  </Route>
 
-                {/* Catch all route */}
-                <Route
-                  path="*"
-                  element={<Navigate to="/dashboard" replace />}
-                />
+                  {/* Redirect root based on auth */}
+                  <Route path="/" element={<AuthRedirect />} />
               </Routes>
+              </Suspense>
             </Router>
           </SnackbarProvider>
         </ThemeProvider>
       </QueryClientProvider>
     </AuthProvider>
   );
+};
+
+// Helper component to redirect from root based on authentication status
+const AuthRedirect = () => {
+  const { isAuth } = useAuth();
+  return <Navigate to={isAuth ? "/dashboard" : "/login"} replace />;
+};
+
+// Define RequireAuth and RequireAdmin components
+const RequireAuth: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { isAuth } = useAuth();
+  const location = useLocation();
+
+  if (!isAuth) {
+    return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+  return <>{children}</>;
+};
+
+const RequireAdmin: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { userRole } = useAuth();
+  if (userRole !== 'admin') {
+    return <Navigate to="/dashboard" replace />;
+  }
+  return <>{children}</>;
 };
 
 export default App; 

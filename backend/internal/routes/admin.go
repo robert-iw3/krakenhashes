@@ -21,7 +21,8 @@ import (
 )
 
 // SetupAdminRoutes configures all admin-related routes
-func SetupAdminRoutes(router *mux.Router, database *db.DB, emailService *email.Service) *mux.Router {
+// It now accepts an AdminJobsHandler to set up job and workflow routes.
+func SetupAdminRoutes(router *mux.Router, database *db.DB, emailService *email.Service, jobHandler *AdminJobsHandler) *mux.Router {
 	debug.Debug("Setting up admin routes")
 
 	// Create Repositories needed by handlers/services
@@ -98,6 +99,10 @@ func SetupAdminRoutes(router *mux.Router, database *db.DB, emailService *email.S
 			debug.Info("Configured admin binary management routes: /admin/binary/*")
 		}
 	}
+
+	// Setup Preset Job and Job Workflow routes using the passed handler
+	SetupAdminJobRoutes(adminRouter, jobHandler)
+	debug.Info("Configured admin preset job and workflow routes: /admin/preset-jobs/*, /admin/job-workflows/*")
 
 	debug.Info("Configured admin routes: /admin/*")
 
