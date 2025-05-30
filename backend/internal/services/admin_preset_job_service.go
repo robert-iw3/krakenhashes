@@ -24,15 +24,17 @@ type AdminPresetJobService interface {
 
 // adminPresetJobService implements AdminPresetJobService.
 type adminPresetJobService struct {
-	presetJobRepo repository.PresetJobRepository
+	presetJobRepo      repository.PresetJobRepository
+	systemSettingsRepo *repository.SystemSettingsRepository
 	// Add other repositories if needed for deeper validation (e.g., binaryRepo)
 	// For now, ListFormData provides enough for basic checks.
 }
 
 // NewAdminPresetJobService creates a new service for managing preset jobs.
-func NewAdminPresetJobService(presetJobRepo repository.PresetJobRepository) AdminPresetJobService {
+func NewAdminPresetJobService(presetJobRepo repository.PresetJobRepository, systemSettingsRepo *repository.SystemSettingsRepository) AdminPresetJobService {
 	return &adminPresetJobService{
-		presetJobRepo: presetJobRepo,
+		presetJobRepo:      presetJobRepo,
+		systemSettingsRepo: systemSettingsRepo,
 	}
 }
 
@@ -69,6 +71,17 @@ func (s *adminPresetJobService) validatePresetJob(ctx context.Context, params mo
 
 	if params.Priority < 0 {
 		return errors.New("priority cannot be negative")
+	}
+
+	// Check priority against system maximum
+	maxPriority, err := s.systemSettingsRepo.GetMaxJobPriority(ctx)
+	if err != nil {
+		debug.Warning("Failed to get max priority setting, using default: %v", err)
+		maxPriority = 1000 // Default fallback
+	}
+
+	if params.Priority > maxPriority {
+		return fmt.Errorf("priority %d exceeds the maximum allowed priority of %d", params.Priority, maxPriority)
 	}
 
 	if params.ChunkSizeSeconds <= 0 {

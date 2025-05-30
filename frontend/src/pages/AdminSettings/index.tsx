@@ -5,6 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { Navigate } from 'react-router-dom';
 import AuthSettings from '../../components/admin/AuthSettings';
 import BinaryManagement from '../../components/admin/BinaryManagement';
+import SystemSettings from '../../components/admin/SystemSettings';
 import { HashTypeManager } from '../../components/admin/HashTypeManager';
 import { useSnackbar } from 'notistack';
 import { updateAuthSettings } from '../../services/auth';
@@ -218,7 +219,7 @@ export const AdminSettings = () => {
           <BinaryManagement />
         </TabPanel>
         <TabPanel value={currentTab} index={3}>
-          <Typography variant="body1">System Settings Coming Soon</Typography>
+          <SystemSettings />
         </TabPanel>
         <TabPanel value={currentTab} index={4}>
           <ClientSettingsTab />

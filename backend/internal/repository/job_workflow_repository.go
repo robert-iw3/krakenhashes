@@ -194,16 +194,23 @@ func (r *jobWorkflowRepository) CreateWorkflowStep(ctx context.Context, workflow
 	return &step, nil
 }
 
-// GetWorkflowSteps retrieves all steps for a given workflow, ordered by step_order, including preset job names.
+// GetWorkflowSteps retrieves all steps for a given workflow, ordered by priority, including preset job details.
 func (r *jobWorkflowRepository) GetWorkflowSteps(ctx context.Context, workflowID uuid.UUID) ([]models.JobWorkflowStep, error) {
 	query := `
 		SELECT 
 			jws.id, jws.job_workflow_id, jws.preset_job_id, jws.step_order,
-			pj.name as preset_job_name
+			pj.name as preset_job_name,
+			pj.attack_mode as preset_job_attack_mode,
+			pj.priority as preset_job_priority,
+			pj.binary_version_id as preset_job_binary_id,
+			bv.file_name as preset_job_binary_name,
+			pj.wordlist_ids as preset_job_wordlist_ids,
+			pj.rule_ids as preset_job_rule_ids
 		FROM job_workflow_steps jws
 		JOIN preset_jobs pj ON jws.preset_job_id = pj.id
+		LEFT JOIN binary_versions bv ON pj.binary_version_id = bv.id
 		WHERE jws.job_workflow_id = $1
-		ORDER BY jws.step_order`
+		ORDER BY pj.priority DESC, jws.step_order`
 
 	rows, err := r.db.QueryContext(ctx, query, workflowID)
 	if err != nil {
@@ -215,12 +222,17 @@ func (r *jobWorkflowRepository) GetWorkflowSteps(ctx context.Context, workflowID
 	steps := []models.JobWorkflowStep{}
 	for rows.Next() {
 		var step models.JobWorkflowStep
+		var binaryName sql.NullString
 		if err := rows.Scan(
 			&step.ID, &step.JobWorkflowID, &step.PresetJobID, &step.StepOrder,
-			&step.PresetJobName,
+			&step.PresetJobName, &step.PresetJobAttackMode, &step.PresetJobPriority,
+			&step.PresetJobBinaryID, &binaryName, &step.PresetJobWordlistIDs, &step.PresetJobRuleIDs,
 		); err != nil {
 			debug.Error("Error scanning job workflow step row: %v", err)
 			return nil, fmt.Errorf("error scanning job workflow step row: %w", err)
+		}
+		if binaryName.Valid {
+			step.PresetJobBinaryName = binaryName.String
 		}
 		steps = append(steps, step)
 	}

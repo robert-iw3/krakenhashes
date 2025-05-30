@@ -9,7 +9,6 @@ import {
   List, 
   ListItem, 
   ListItemText, 
-  ListItemIcon, 
   ListItemSecondaryAction, 
   IconButton, 
   Divider, 
@@ -22,13 +21,13 @@ import {
   FormHelperText,
   SelectChangeEvent,
   Grid,
-  Autocomplete
+  Autocomplete,
+  Chip,
+  Stack
 } from '@mui/material';
-import DragHandleIcon from '@mui/icons-material/DragHandle';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
-import { DragDropContext, Droppable, Draggable, DropResult } from 'react-beautiful-dnd';
 import { 
   getJobWorkflowFormData, 
   getJobWorkflow, 
@@ -38,8 +37,23 @@ import {
 import { 
   PresetJobBasic, 
   JobWorkflowFormData, 
-  CreateWorkflowRequest 
+  CreateWorkflowRequest,
+  AttackMode,
+  JobWorkflowStep
 } from '../../types/adminJobs';
+
+// Helper function to get attack mode display name
+const getAttackModeName = (mode?: AttackMode): string => {
+  switch (mode) {
+    case AttackMode.Straight: return 'Straight';
+    case AttackMode.Combination: return 'Combination';
+    case AttackMode.BruteForce: return 'Brute Force';
+    case AttackMode.HybridWordlistMask: return 'Hybrid: Wordlist + Mask';
+    case AttackMode.HybridMaskWordlist: return 'Hybrid: Mask + Wordlist';
+    case AttackMode.Association: return 'Association';
+    default: return 'Unknown';
+  }
+};
 
 const JobWorkflowFormPage: React.FC = () => {
   const { jobWorkflowId } = useParams<{ jobWorkflowId?: string }>();
@@ -52,6 +66,9 @@ const JobWorkflowFormPage: React.FC = () => {
     preset_job_ids: [],
     orderedJobs: []
   });
+
+  // Store detailed workflow steps separately
+  const [workflowSteps, setWorkflowSteps] = useState<JobWorkflowStep[]>([]);
 
   // Available preset jobs for selection
   const [availablePresetJobs, setAvailablePresetJobs] = useState<PresetJobBasic[]>([]);
@@ -88,22 +105,38 @@ const JobWorkflowFormPage: React.FC = () => {
           try {
             const workflow = await getJobWorkflow(jobWorkflowId);
             
-            // Create mapping of IDs to names for rendering
-            const orderedJobs: PresetJobBasic[] = [];
+            // Store the detailed workflow steps
             if (workflow.steps?.length) {
-              // Use the step ordering and names from the API response
-              workflow.steps.sort((a, b) => a.step_order - b.step_order);
-              orderedJobs.push(...workflow.steps.map(step => ({
+              // Sort by priority (descending) then by step order
+              const sortedSteps = [...workflow.steps].sort((a, b) => {
+                if (a.preset_job_priority !== undefined && b.preset_job_priority !== undefined) {
+                  if (a.preset_job_priority !== b.preset_job_priority) {
+                    return b.preset_job_priority - a.preset_job_priority; // Descending priority
+                  }
+                }
+                return a.step_order - b.step_order; // Fallback to step order
+              });
+              
+              setWorkflowSteps(sortedSteps);
+              
+              // Create mapping of IDs to names for rendering
+              const orderedJobs: PresetJobBasic[] = sortedSteps.map(step => ({
                 id: step.preset_job_id,
                 name: step.preset_job_name
-              })));
+              }));
+              
+              setFormData({
+                name: workflow.name,
+                preset_job_ids: sortedSteps.map(step => step.preset_job_id),
+                orderedJobs
+              });
+            } else {
+              setFormData({
+                name: workflow.name,
+                preset_job_ids: [],
+                orderedJobs: []
+              });
             }
-            
-            setFormData({
-              name: workflow.name,
-              preset_job_ids: workflow.steps?.map(step => step.preset_job_id) || [],
-              orderedJobs
-            });
           } catch (err) {
             console.error('Error fetching job workflow:', err);
             setError('Failed to load workflow. Please try again.');
@@ -161,29 +194,6 @@ const JobWorkflowFormPage: React.FC = () => {
     setFormData(prev => {
       const newOrderedJobs = prev.orderedJobs.filter(job => job.id !== jobId);
       const newPresetJobIds = prev.preset_job_ids.filter(id => id !== jobId);
-      
-      return {
-        ...prev,
-        preset_job_ids: newPresetJobIds,
-        orderedJobs: newOrderedJobs
-      };
-    });
-  };
-
-  // Handle drag and drop reordering
-  const handleDragEnd = (result: DropResult) => {
-    if (!result.destination) return;
-    
-    const { source, destination } = result;
-    if (source.index === destination.index) return;
-    
-    setFormData(prev => {
-      const newOrderedJobs = Array.from(prev.orderedJobs);
-      const [removed] = newOrderedJobs.splice(source.index, 1);
-      newOrderedJobs.splice(destination.index, 0, removed);
-      
-      // Update preset_job_ids to match new order
-      const newPresetJobIds = newOrderedJobs.map(job => job.id);
       
       return {
         ...prev,
@@ -322,50 +332,77 @@ const JobWorkflowFormPage: React.FC = () => {
             </Alert>
           ) : (
             <Paper variant="outlined" sx={{ mb: 3 }}>
-              <DragDropContext onDragEnd={handleDragEnd}>
-                <Droppable droppableId="workflow-steps">
-                  {(provided) => (
-                    <List
-                      {...provided.droppableProps}
-                      ref={provided.innerRef}
-                      sx={{ width: '100%', bgcolor: 'background.paper' }}
-                    >
-                      {formData.orderedJobs.map((job, index) => (
-                        <React.Fragment key={job.id}>
-                          <Draggable draggableId={job.id} index={index}>
-                            {(provided) => (
-                              <ListItem
-                                ref={provided.innerRef}
-                                {...provided.draggableProps}
-                                sx={{ pr: 9 }}
-                              >
-                                <ListItemIcon {...provided.dragHandleProps}>
-                                  <DragHandleIcon />
-                                </ListItemIcon>
-                                <ListItemText
-                                  primary={`${index + 1}. ${job.name}`}
-                                  secondary="Drag to reorder"
-                                />
-                                <ListItemSecondaryAction>
-                                  <IconButton
-                                    edge="end"
-                                    onClick={() => handleRemovePresetJob(job.id)}
-                                    disabled={submitting}
-                                  >
-                                    <DeleteIcon />
-                                  </IconButton>
-                                </ListItemSecondaryAction>
-                              </ListItem>
+              {formData.orderedJobs.map((job, index) => {
+                // Find the corresponding workflow step for detailed info
+                const workflowStep = workflowSteps.find(step => step.preset_job_id === job.id);
+                
+                return (
+                  <React.Fragment key={job.id}>
+                    <ListItem sx={{ py: 2 }}>
+                      <ListItemText
+                        primary={
+                          <Box display="flex" alignItems="center" gap={1}>
+                            <Typography variant="h6" component="span">
+                              {index + 1}. {job.name}
+                            </Typography>
+                            {workflowStep?.preset_job_priority !== undefined && (
+                              <Chip 
+                                label={`Priority: ${workflowStep.preset_job_priority}`} 
+                                size="small" 
+                                color="primary"
+                              />
                             )}
-                          </Draggable>
-                          {index < formData.orderedJobs.length - 1 && <Divider />}
-                        </React.Fragment>
-                      ))}
-                      {provided.placeholder}
-                    </List>
-                  )}
-                </Droppable>
-              </DragDropContext>
+                          </Box>
+                        }
+                        secondary={
+                          <Stack spacing={1} sx={{ mt: 1 }}>
+                            <Box display="flex" flexWrap="wrap" gap={1}>
+                              {workflowStep?.preset_job_attack_mode !== undefined && (
+                                <Chip 
+                                  label={getAttackModeName(workflowStep.preset_job_attack_mode)}
+                                  size="small"
+                                  variant="outlined"
+                                />
+                              )}
+                              {workflowStep?.preset_job_binary_name && (
+                                <Chip 
+                                  label={`Binary: ${workflowStep.preset_job_binary_name}`}
+                                  size="small"
+                                  variant="outlined"
+                                />
+                              )}
+                              {workflowStep?.preset_job_wordlist_ids && (
+                                <Chip 
+                                  label={`${workflowStep.preset_job_wordlist_ids.length} Wordlist${workflowStep.preset_job_wordlist_ids.length !== 1 ? 's' : ''}`}
+                                  size="small"
+                                  variant="outlined"
+                                />
+                              )}
+                              {workflowStep?.preset_job_rule_ids && (
+                                <Chip 
+                                  label={`${workflowStep.preset_job_rule_ids.length} Rule${workflowStep.preset_job_rule_ids.length !== 1 ? 's' : ''}`}
+                                  size="small"
+                                  variant="outlined"
+                                />
+                              )}
+                            </Box>
+                          </Stack>
+                        }
+                      />
+                      <ListItemSecondaryAction>
+                        <IconButton
+                          edge="end"
+                          onClick={() => handleRemovePresetJob(job.id)}
+                          disabled={submitting}
+                        >
+                          <DeleteIcon />
+                        </IconButton>
+                      </ListItemSecondaryAction>
+                    </ListItem>
+                    {index < formData.orderedJobs.length - 1 && <Divider />}
+                  </React.Fragment>
+                );
+              })}
             </Paper>
           )}
           

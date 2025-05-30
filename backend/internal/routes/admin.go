@@ -28,6 +28,7 @@ func SetupAdminRoutes(router *mux.Router, database *db.DB, emailService *email.S
 	// Create Repositories needed by handlers/services
 	clientRepo := repository.NewClientRepository(database)
 	clientSettingsRepo := repository.NewClientSettingsRepository(database)
+	systemSettingsRepo := repository.NewSystemSettingsRepository(database)
 	hashlistRepo := repository.NewHashListRepository(database)
 	hashRepo := repository.NewHashRepository(database)
 
@@ -35,10 +36,15 @@ func SetupAdminRoutes(router *mux.Router, database *db.DB, emailService *email.S
 	retentionService := retentionsvc.NewRetentionService(database, hashlistRepo, hashRepo, clientRepo, clientSettingsRepo)
 	clientService := clientsvc.NewClientService(clientRepo, hashlistRepo, clientSettingsRepo, retentionService)
 
+	// Get preset job repository from handler - we need to find a way to access this
+	// For now, create it again here since we can't access it from the handler
+	presetJobRepo := repository.NewPresetJobRepository(database.DB)
+
 	// Create Handlers
 	authSettingsHandler := auth.NewAuthSettingsHandler(database)
 	emailHandler := emailhandler.NewHandler(emailService)
 	retentionSettingsHandler := adminsettings.NewRetentionSettingsHandler(clientSettingsRepo)
+	systemSettingsHandler := adminsettings.NewSystemSettingsHandler(systemSettingsRepo, presetJobRepo)
 	clientHandler := adminclient.NewClientHandler(clientRepo, clientService)
 
 	// Create admin router
@@ -58,6 +64,10 @@ func SetupAdminRoutes(router *mux.Router, database *db.DB, emailService *email.S
 	// Data Retention settings routes (New)
 	adminRouter.HandleFunc("/settings/retention", retentionSettingsHandler.GetDefaultRetention).Methods(http.MethodGet, http.MethodOptions)
 	adminRouter.HandleFunc("/settings/retention", retentionSettingsHandler.UpdateDefaultRetention).Methods(http.MethodPut, http.MethodOptions)
+
+	// System settings routes (New)
+	adminRouter.HandleFunc("/settings/max-priority", systemSettingsHandler.GetMaxPriority).Methods(http.MethodGet, http.MethodOptions)
+	adminRouter.HandleFunc("/settings/max-priority", systemSettingsHandler.UpdateMaxPriority).Methods(http.MethodPut, http.MethodOptions)
 
 	// Client Management routes (New)
 	adminRouter.HandleFunc("/clients", clientHandler.ListClients).Methods(http.MethodGet, http.MethodOptions)

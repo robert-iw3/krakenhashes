@@ -12,6 +12,7 @@ import (
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/config"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/db"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/email"
+	adminsettings "github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/admin/settings"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/auth"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/middleware"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/repository"
@@ -169,11 +170,12 @@ func SetupRoutes(r *mux.Router, sqlDB *sql.DB, tlsProvider tls.Provider, agentSe
 
 	// Initialize Repositories needed for new services
 	presetJobRepo := repository.NewPresetJobRepository(sqlDB)
+	systemSettingsRepo := repository.NewSystemSettingsRepository(database)
 	workflowRepo := repository.NewJobWorkflowRepository(sqlDB)
-	debug.Info("Initialized PresetJob and JobWorkflow repositories")
+	debug.Info("Initialized PresetJob, SystemSettings, and JobWorkflow repositories")
 
 	// Initialize Services for preset jobs and workflows
-	presetJobService := services.NewAdminPresetJobService(presetJobRepo)
+	presetJobService := services.NewAdminPresetJobService(presetJobRepo, systemSettingsRepo)
 	workflowService := services.NewAdminJobWorkflowService(sqlDB, workflowRepo, presetJobRepo) // Pass db, workflowRepo, presetJobRepo
 	debug.Info("Initialized AdminPresetJobService and AdminJobWorkflowService")
 
@@ -189,12 +191,19 @@ func SetupRoutes(r *mux.Router, sqlDB *sql.DB, tlsProvider tls.Provider, agentSe
 	jwtRouter.Use(middleware.RequireAuth(database))
 	jwtRouter.Use(loggingMiddleware)
 
+	// Create system settings handler for users (read-only access to max priority)
+	userSystemSettingsHandler := adminsettings.NewSystemSettingsHandler(systemSettingsRepo, presetJobRepo)
+
 	// Setup feature-specific routes
 	SetupDashboardRoutes(jwtRouter)
 	SetupHashlistRoutes(jwtRouter)
 	SetupJobRoutes(jwtRouter)
 	SetupAgentRoutes(jwtRouter, agentService)
 	SetupVoucherRoutes(jwtRouter, services.NewClaimVoucherService(repository.NewClaimVoucherRepository(database)))
+
+	// Add user accessible route for max priority (read-only)
+	jwtRouter.HandleFunc("/settings/max-priority", userSystemSettingsHandler.GetMaxPriorityForUsers).Methods(http.MethodGet, http.MethodOptions)
+
 	SetupAdminRoutes(jwtRouter, database, emailService, adminJobsHandler) // Pass adminJobsHandler
 	SetupUserRoutes(jwtRouter, database)
 	SetupMFARoutes(jwtRouter, mfaHandler, database, emailService)

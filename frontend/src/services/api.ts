@@ -304,13 +304,19 @@ export const createPresetJob = async (data: PresetJobInput): Promise<PresetJob> 
   
   const apiData = {
     ...data,
+    // Convert priority to number if it's a string
+    priority: typeof data.priority === 'string' ? parseInt(data.priority) || 0 : data.priority,
     // Handle both number[] and string[] inputs by ensuring all IDs are strings
     wordlist_ids: Array.isArray(data.wordlist_ids) 
       ? data.wordlist_ids.map(id => id.toString())
       : [],
     rule_ids: Array.isArray(data.rule_ids) 
       ? data.rule_ids.map(id => id.toString())
-      : []
+      : [],
+    // Add missing required fields
+    status_updates_enabled: true, // Default to true for new jobs
+    // Ensure allow_high_priority_override is properly set
+    allow_high_priority_override: Boolean(data.allow_high_priority_override)
   };
   
   console.log('Converted API data:', JSON.stringify(apiData, null, 2));
@@ -325,13 +331,19 @@ export const updatePresetJob = async (id: string, data: PresetJobInput): Promise
   
   const apiData = {
     ...data,
+    // Convert priority to number if it's a string
+    priority: typeof data.priority === 'string' ? parseInt(data.priority) || 0 : data.priority,
     // Handle both number[] and string[] inputs by ensuring all IDs are strings
     wordlist_ids: Array.isArray(data.wordlist_ids) 
       ? data.wordlist_ids.map(id => id.toString())
       : [],
     rule_ids: Array.isArray(data.rule_ids) 
       ? data.rule_ids.map(id => id.toString())
-      : []
+      : [],
+    // Add missing required fields
+    status_updates_enabled: true, // Default to true for updated jobs
+    // Ensure allow_high_priority_override is properly set
+    allow_high_priority_override: Boolean(data.allow_high_priority_override)
   };
   
   console.log('Converted update API data:', JSON.stringify(apiData, null, 2));

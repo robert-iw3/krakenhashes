@@ -27,6 +27,7 @@ import {
   createPresetJob, 
   updatePresetJob 
 } from '../../services/api';
+import { getMaxPriorityForUsers } from '../../services/systemSettings';
 import { 
   PresetJob, 
   PresetJobInput, 
@@ -55,7 +56,7 @@ const initialFormState: PresetJobFormData = {
   wordlist_ids: [],
   rule_ids: [],
   attack_mode: AttackMode.Straight,
-  priority: 0,
+  priority: '', // Empty string to show placeholder
   chunk_size_seconds: 300, // 5 minutes default
   is_small_job: false,
   binary_version_id: 0,
@@ -127,6 +128,7 @@ const PresetJobFormPage: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [maxPriority, setMaxPriority] = useState<number>(1000);
 
   // Get current attack mode info
   const currentModeInfo = attackModeInfo[formData.attack_mode];
@@ -142,8 +144,13 @@ const PresetJobFormPage: React.FC = () => {
         setLoading(true);
         setError(null);
         
-        // Fetch form options (wordlists, rules, binary versions)
-        const formDataResponse = await getPresetJobFormData();
+        // Fetch form options (wordlists, rules, binary versions) and max priority
+        const [formDataResponse, maxPriorityResponse] = await Promise.all([
+          getPresetJobFormData(),
+          getMaxPriorityForUsers()
+        ]);
+        
+        setMaxPriority(maxPriorityResponse.max_priority);
 
         if (!formDataResponse.wordlists?.length) {
           setError('No wordlists available. Please add wordlists before creating preset jobs.');
@@ -222,10 +229,42 @@ const PresetJobFormPage: React.FC = () => {
   // Handle form field changes
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value, type, checked } = e.target;
+    
+    let convertedValue: any = type === 'checkbox' ? checked : value;
+    
+    // Convert numeric fields to numbers, but allow empty values for better UX
+    if (name === 'priority' || name === 'chunk_size_seconds' || name === 'binary_version_id') {
+      // Allow empty string during editing, convert to number otherwise
+      convertedValue = value === '' ? '' : parseInt(value) || 0;
+    }
+    
     setFormData(prev => ({
       ...prev,
-      [name]: type === 'checkbox' ? checked : value
+      [name]: convertedValue
     }));
+  };
+
+  // Handle field blur to ensure numeric fields have valid values
+  const handleBlur = (e: React.FocusEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    
+    if (name === 'priority') {
+      // If priority is empty on blur, set it to default 10
+      if (value === '' || isNaN(parseInt(value))) {
+        setFormData(prev => ({
+          ...prev,
+          priority: 10
+        }));
+      }
+    } else if (name === 'chunk_size_seconds') {
+      // If chunk_size_seconds is empty on blur, set it to default 300
+      if (value === '' || isNaN(parseInt(value))) {
+        setFormData(prev => ({
+          ...prev,
+          chunk_size_seconds: 300
+        }));
+      }
+    }
   };
 
   // Handle select changes
@@ -252,10 +291,10 @@ const PresetJobFormPage: React.FC = () => {
         if (formData.wordlist_ids.length > 0) {
           setFirstWordlist(formData.wordlist_ids[0].toString());
           setSecondWordlist(formData.wordlist_ids.length > 1 ? formData.wordlist_ids[1].toString() : formData.wordlist_ids[0].toString());
-        } else if (wordlists.length > 0) {
-          // Set defaults if we have wordlists available
-          setFirstWordlist(wordlists[0].id.toString());
-          setSecondWordlist(wordlists[0].id.toString());
+        } else {
+          // Start with empty selections to show placeholders
+          setFirstWordlist('');
+          setSecondWordlist('');
         }
         
         // Initialize wordlist_ids based on the above selections
@@ -378,7 +417,12 @@ const PresetJobFormPage: React.FC = () => {
         
       case AttackMode.Combination:
         if (formData.wordlist_ids.length !== 2) {
-          setError('Combination mode requires exactly two wordlists');
+          setError('Combination mode requires exactly two wordlists to be selected');
+          return false;
+        }
+        // Also check that both dropdown selections are made
+        if (firstWordlist === '' || secondWordlist === '') {
+          setError('Please select both wordlists for combination mode');
           return false;
         }
         break;
@@ -434,16 +478,22 @@ const PresetJobFormPage: React.FC = () => {
     // Debug logging
     console.log('Submitting form data:', JSON.stringify(formData, null, 2));
     
+    // Prepare form data for submission, applying defaults for empty fields
+    const submissionData = {
+      ...formData,
+      priority: formData.priority === '' ? 10 : (typeof formData.priority === 'string' ? parseInt(formData.priority) || 10 : formData.priority)
+    };
+    
     try {
       if (isEditing && presetJobId) {
         console.log('Updating preset job:', presetJobId);
         // Type casting to handle the mismatch in types
-        await updatePresetJob(presetJobId, formData as any);
+        await updatePresetJob(presetJobId, submissionData as any);
         setSuccessMessage('Preset job updated successfully');
       } else {
         console.log('Creating new preset job');
         // Type casting to handle the mismatch in types
-        await createPresetJob(formData as any);
+        await createPresetJob(submissionData as any);
         setSuccessMessage('Preset job created successfully');
         // Reset form after successful creation
         setFormData(initialFormState);
@@ -597,8 +647,9 @@ const PresetJobFormPage: React.FC = () => {
             onChange={handleChange}
             fullWidth
             margin="normal"
-            inputProps={{ min: 0 }}
-            helperText="Priority level (0 or greater)"
+            inputProps={{ min: 0, max: maxPriority }}
+            placeholder="10"
+            helperText={`Priority level (0-${maxPriority.toLocaleString()}, defaults to 10 if empty)`}
           />
         </Grid>
 
@@ -635,13 +686,17 @@ const PresetJobFormPage: React.FC = () => {
             <Grid container spacing={2}>
               <Grid item xs={12} sm={6}>
                 <FormControl fullWidth margin="normal" required>
-                  <InputLabel id="first-wordlist-label">First Wordlist</InputLabel>
+                  <InputLabel id="first-wordlist-label" shrink>First Wordlist</InputLabel>
                   <Select
                     labelId="first-wordlist-label"
                     value={firstWordlist}
                     onChange={(e) => handleSelectChange(e, 'firstWordlist')}
                     label="First Wordlist"
+                    displayEmpty
                   >
+                    <MenuItem value="" disabled>
+                      <em>Select first wordlist</em>
+                    </MenuItem>
                     {wordlists.map((wordlist) => (
                       <MenuItem key={`first-${wordlist.id}`} value={wordlist.id}>
                         {wordlist.name}
@@ -653,13 +708,17 @@ const PresetJobFormPage: React.FC = () => {
               </Grid>
               <Grid item xs={12} sm={6}>
                 <FormControl fullWidth margin="normal" required>
-                  <InputLabel id="second-wordlist-label">Second Wordlist</InputLabel>
+                  <InputLabel id="second-wordlist-label" shrink>Second Wordlist</InputLabel>
                   <Select
                     labelId="second-wordlist-label"
                     value={secondWordlist}
                     onChange={(e) => handleSelectChange(e, 'secondWordlist')}
                     label="Second Wordlist"
+                    displayEmpty
                   >
+                    <MenuItem value="" disabled>
+                      <em>Select second wordlist</em>
+                    </MenuItem>
                     {wordlists.map((wordlist) => (
                       <MenuItem key={`second-${wordlist.id}`} value={wordlist.id}>
                         {wordlist.name}
@@ -780,6 +839,7 @@ const PresetJobFormPage: React.FC = () => {
             type="number"
             value={formData.chunk_size_seconds}
             onChange={handleChange}
+            onBlur={handleBlur}
             fullWidth
             margin="normal"
             inputProps={{ min: 60 }}
