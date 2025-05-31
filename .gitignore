@@ -71,4 +71,7 @@ backend/**/*.cover
 # Certificate storage
 /certs/
 backend/certs/
-.krakenhashes/ 
+.krakenhashes/
+
+# Claude configuration
+CLAUDE.md 

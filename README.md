@@ -64,6 +64,15 @@ We plan to implement proper database migration tooling and versioned API contrac
 > **License**: AGPLv3 (See LICENSE.md)  
 > **Status**: Actively in development, there will be bugs and major braking changes
 
+## Documentation
+
+Comprehensive documentation is available in the [docs/](docs/) directory:
+
+- **[Documentation Index](docs/README.md)** - Complete documentation overview
+- **[User Guide](docs/user/understanding_jobs_and_workflows.md)** - Understanding jobs and workflows
+- **[Admin Guide](docs/admin/preset_jobs_and_workflows.md)** - Creating and managing attack strategies
+- **[Docker Setup](docs/docker/initialization.md)** - Getting started with Docker
+
 ## Development
 
 Instructions for setting up and running each component can be found in their respective directories.
@@ -103,9 +112,9 @@ Instructions for setting up and running each component can be found in their res
     - [ ] Performance characteristics (slow/fast)
   - [ ] Agent-side validation with error parsing
 - [ ] Task management
-  - [ ] Multi-level priority system
-    - [ ] FIFO within priority levels
-    - [ ] Pre-defined task templates
+  - [x] Multi-level priority system
+    - [x] Priority-based execution (0-1000)
+    - [x] Pre-defined task templates (Preset Jobs & Workflows)
   - [ ] Intelligent job distribution
     - [ ] Team-based routing
     - [ ] Agent availability tracking
