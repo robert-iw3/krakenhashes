@@ -21,7 +21,8 @@ CREATE TABLE hash_types (
     example TEXT,
     needs_processing BOOLEAN NOT NULL DEFAULT FALSE,
     processing_logic JSONB, -- Store processing rules as JSON
-    is_enabled BOOLEAN NOT NULL DEFAULT TRUE
+    is_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    slow BOOLEAN NOT NULL DEFAULT FALSE -- Indicates if this is a slow hash algorithm
 );
 
 COMMENT ON TABLE hash_types IS 'Stores information about supported hash types, keyed by hashcat mode ID';
