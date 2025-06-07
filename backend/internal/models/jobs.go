@@ -108,3 +108,176 @@ type PresetJobBasic struct {
 	ID   uuid.UUID `json:"id" db:"id"`
 	Name string    `json:"name" db:"name"`
 }
+
+// JobExecutionStatus represents the status of a job execution
+type JobExecutionStatus string
+
+const (
+	JobExecutionStatusPending   JobExecutionStatus = "pending"
+	JobExecutionStatusRunning   JobExecutionStatus = "running"
+	JobExecutionStatusPaused    JobExecutionStatus = "paused"
+	JobExecutionStatusCompleted JobExecutionStatus = "completed"
+	JobExecutionStatusFailed    JobExecutionStatus = "failed"
+	JobExecutionStatusCancelled JobExecutionStatus = "cancelled"
+)
+
+// JobExecution represents an actual running instance of a preset job
+type JobExecution struct {
+	ID                uuid.UUID          `json:"id" db:"id"`
+	PresetJobID       uuid.UUID          `json:"preset_job_id" db:"preset_job_id"`
+	HashlistID        int64              `json:"hashlist_id" db:"hashlist_id"`
+	Status            JobExecutionStatus `json:"status" db:"status"`
+	Priority          int                `json:"priority" db:"priority"`
+	TotalKeyspace     *int64             `json:"total_keyspace" db:"total_keyspace"`
+	ProcessedKeyspace int64              `json:"processed_keyspace" db:"processed_keyspace"`
+	AttackMode        AttackMode         `json:"attack_mode" db:"attack_mode"`
+	CreatedAt         time.Time          `json:"created_at" db:"created_at"`
+	StartedAt         *time.Time         `json:"started_at" db:"started_at"`
+	CompletedAt       *time.Time         `json:"completed_at" db:"completed_at"`
+	ErrorMessage      *string            `json:"error_message" db:"error_message"`
+	InterruptedBy     *uuid.UUID         `json:"interrupted_by" db:"interrupted_by"`
+
+	// Populated fields from JOINs
+	PresetJobName  string `json:"preset_job_name,omitempty" db:"preset_job_name"`
+	HashlistName   string `json:"hashlist_name,omitempty" db:"hashlist_name"`
+	TotalHashes    int    `json:"total_hashes,omitempty" db:"total_hashes"`
+	CrackedHashes  int    `json:"cracked_hashes,omitempty" db:"cracked_hashes"`
+}
+
+// JobTaskStatus represents the status of a job task
+type JobTaskStatus string
+
+const (
+	JobTaskStatusPending   JobTaskStatus = "pending"
+	JobTaskStatusAssigned  JobTaskStatus = "assigned"
+	JobTaskStatusRunning   JobTaskStatus = "running"
+	JobTaskStatusCompleted JobTaskStatus = "completed"
+	JobTaskStatusFailed    JobTaskStatus = "failed"
+	JobTaskStatusCancelled JobTaskStatus = "cancelled"
+)
+
+// JobTask represents a chunk of work assigned to an agent
+type JobTask struct {
+	ID               uuid.UUID     `json:"id" db:"id"`
+	JobExecutionID   uuid.UUID     `json:"job_execution_id" db:"job_execution_id"`
+	AgentID          int           `json:"agent_id" db:"agent_id"`
+	Status           JobTaskStatus `json:"status" db:"status"`
+	KeyspaceStart    int64         `json:"keyspace_start" db:"keyspace_start"`
+	KeyspaceEnd      int64         `json:"keyspace_end" db:"keyspace_end"`
+	KeyspaceProcessed int64         `json:"keyspace_processed" db:"keyspace_processed"`
+	BenchmarkSpeed   *int64        `json:"benchmark_speed" db:"benchmark_speed"` // hashes per second
+	ChunkDuration    int           `json:"chunk_duration" db:"chunk_duration"`    // seconds
+	AssignedAt       time.Time     `json:"assigned_at" db:"assigned_at"`
+	StartedAt        *time.Time    `json:"started_at" db:"started_at"`
+	CompletedAt      *time.Time    `json:"completed_at" db:"completed_at"`
+	LastCheckpoint   *time.Time    `json:"last_checkpoint" db:"last_checkpoint"`
+	ErrorMessage     *string       `json:"error_message" db:"error_message"`
+
+	// Populated fields from JOINs
+	AgentName string `json:"agent_name,omitempty" db:"agent_name"`
+}
+
+// AgentBenchmark stores benchmark results for an agent
+type AgentBenchmark struct {
+	ID         uuid.UUID  `json:"id" db:"id"`
+	AgentID    int        `json:"agent_id" db:"agent_id"`
+	AttackMode AttackMode `json:"attack_mode" db:"attack_mode"`
+	HashType   int        `json:"hash_type" db:"hash_type"`
+	Speed      int64      `json:"speed" db:"speed"` // hashes per second
+	CreatedAt  time.Time  `json:"created_at" db:"created_at"`
+	UpdatedAt  time.Time  `json:"updated_at" db:"updated_at"`
+}
+
+// MetricType represents the type of metric being tracked
+type MetricType string
+
+const (
+	MetricTypeHashRate    MetricType = "hash_rate"
+	MetricTypeUtilization MetricType = "utilization"
+	MetricTypeTemperature MetricType = "temperature"
+	MetricTypePowerUsage  MetricType = "power_usage"
+)
+
+// JobMetricType represents job-specific metric types
+type JobMetricType string
+
+const (
+	JobMetricTypeHashRate         JobMetricType = "hash_rate"
+	JobMetricTypeProgressPercent  JobMetricType = "progress_percentage"
+	JobMetricTypeCracksFound      JobMetricType = "cracks_found"
+)
+
+// AggregationLevel represents the level of metric aggregation
+type AggregationLevel string
+
+const (
+	AggregationLevelRealtime AggregationLevel = "realtime"
+	AggregationLevelDaily    AggregationLevel = "daily"
+	AggregationLevelWeekly   AggregationLevel = "weekly"
+)
+
+// AgentPerformanceMetric stores performance metrics for agents
+type AgentPerformanceMetric struct {
+	ID               uuid.UUID        `json:"id" db:"id"`
+	AgentID          int              `json:"agent_id" db:"agent_id"`
+	MetricType       MetricType       `json:"metric_type" db:"metric_type"`
+	Value            float64          `json:"value" db:"value"`
+	Timestamp        time.Time        `json:"timestamp" db:"timestamp"`
+	AggregationLevel AggregationLevel `json:"aggregation_level" db:"aggregation_level"`
+	PeriodStart      *time.Time       `json:"period_start" db:"period_start"`
+	PeriodEnd        *time.Time       `json:"period_end" db:"period_end"`
+}
+
+// JobPerformanceMetric stores performance metrics for job executions
+type JobPerformanceMetric struct {
+	ID               uuid.UUID        `json:"id" db:"id"`
+	JobExecutionID   uuid.UUID        `json:"job_execution_id" db:"job_execution_id"`
+	MetricType       JobMetricType    `json:"metric_type" db:"metric_type"`
+	Value            float64          `json:"value" db:"value"`
+	Timestamp        time.Time        `json:"timestamp" db:"timestamp"`
+	AggregationLevel AggregationLevel `json:"aggregation_level" db:"aggregation_level"`
+	PeriodStart      *time.Time       `json:"period_start" db:"period_start"`
+	PeriodEnd        *time.Time       `json:"period_end" db:"period_end"`
+}
+
+// AgentHashlist tracks hashlist distribution to agents
+type AgentHashlist struct {
+	ID           uuid.UUID  `json:"id" db:"id"`
+	AgentID      int        `json:"agent_id" db:"agent_id"`
+	HashlistID   int64      `json:"hashlist_id" db:"hashlist_id"`
+	FilePath     string     `json:"file_path" db:"file_path"`
+	DownloadedAt time.Time  `json:"downloaded_at" db:"downloaded_at"`
+	LastUsedAt   time.Time  `json:"last_used_at" db:"last_used_at"`
+	FileHash     *string    `json:"file_hash" db:"file_hash"` // MD5 hash for verification
+}
+
+// JobTaskAssignment contains the information sent to an agent to execute a task
+type JobTaskAssignment struct {
+	TaskID          uuid.UUID   `json:"task_id"`
+	JobExecutionID  uuid.UUID   `json:"job_execution_id"`
+	HashlistID      int64       `json:"hashlist_id"`
+	HashlistPath    string      `json:"hashlist_path"`    // Path where agent should download hashlist
+	AttackMode      AttackMode  `json:"attack_mode"`
+	HashType        int         `json:"hash_type"`
+	KeyspaceStart   int64       `json:"keyspace_start"`
+	KeyspaceEnd     int64       `json:"keyspace_end"`
+	WordlistPaths   []string    `json:"wordlist_paths"`   // Local paths on agent
+	RulePaths       []string    `json:"rule_paths"`       // Local paths on agent
+	Mask            string      `json:"mask,omitempty"`   // For mask-based attacks
+	BinaryPath      string      `json:"binary_path"`      // Hashcat binary to use
+	ChunkDuration   int         `json:"chunk_duration"`   // Expected duration in seconds
+	ReportInterval  int         `json:"report_interval"`  // Progress reporting interval
+	OutputFormat    string      `json:"output_format"`    // Hashcat output format
+}
+
+// JobProgress represents a progress update from an agent
+type JobProgress struct {
+	TaskID            uuid.UUID `json:"task_id"`
+	KeyspaceProcessed int64     `json:"keyspace_processed"`
+	HashRate          int64     `json:"hash_rate"`         // Current hashes per second
+	Temperature       *float64  `json:"temperature"`       // GPU temperature
+	Utilization       *float64  `json:"utilization"`       // GPU utilization percentage
+	TimeRemaining     *int      `json:"time_remaining"`    // Estimated seconds remaining
+	CrackedCount      int       `json:"cracked_count"`     // Number of hashes cracked in this update
+	CrackedHashes     []string  `json:"cracked_hashes"`    // Actual cracked hash:plain pairs
+}

@@ -7,6 +7,7 @@ import AuthSettings from '../../components/admin/AuthSettings';
 import BinaryManagement from '../../components/admin/BinaryManagement';
 import SystemSettings from '../../components/admin/SystemSettings';
 import { HashTypeManager } from '../../components/admin/HashTypeManager';
+import JobExecutionSettings from '../../components/admin/JobExecutionSettings';
 import { useSnackbar } from 'notistack';
 import { updateAuthSettings } from '../../services/auth';
 import { getDefaultClientRetentionSetting, updateDefaultClientRetentionSetting } from '../../services/api';
@@ -155,7 +156,7 @@ export const AdminSettings = () => {
   const [currentTab, setCurrentTab] = useState(() => {
     const savedTab = localStorage.getItem('adminSettingsTab');
     const initialTab = savedTab ? parseInt(savedTab, 10) : 0;
-    return initialTab >= 0 && initialTab < 6 ? initialTab : 0;
+    return initialTab >= 0 && initialTab < 7 ? initialTab : 0;
   });
   
   const [loading, setLoading] = useState(false);
@@ -191,6 +192,7 @@ export const AdminSettings = () => {
             <Tab label="System Settings" />
             <Tab label="Client Settings" />
             <Tab label="Hash Types" />
+            <Tab label="Job Execution" />
           </Tabs>
         </Box>
 
@@ -226,6 +228,9 @@ export const AdminSettings = () => {
         </TabPanel>
         <TabPanel value={currentTab} index={5}>
           <HashTypeManager />
+        </TabPanel>
+        <TabPanel value={currentTab} index={6}>
+          <JobExecutionSettings />
         </TabPanel>
       </Paper>
     </Box>

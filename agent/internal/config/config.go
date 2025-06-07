@@ -17,6 +17,27 @@ const (
 	DefaultDataDir = "data"
 )
 
+// Config represents the agent configuration
+type Config struct {
+	DataDirectory string
+}
+
+// NewConfig creates a new agent configuration
+func NewConfig() *Config {
+	dataDirs, err := GetDataDirs()
+	if err != nil {
+		debug.Error("Failed to get data directories: %v", err)
+		return &Config{DataDirectory: "data"}
+	}
+	
+	// Use the base data directory
+	baseDataDir := filepath.Dir(dataDirs.Binaries)
+	
+	return &Config{
+		DataDirectory: baseDataDir,
+	}
+}
+
 // DataDirs represents the data directories used by the agent
 type DataDirs struct {
 	// Base directories

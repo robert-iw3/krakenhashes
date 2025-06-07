@@ -14,6 +14,7 @@ import (
 
 	"github.com/ZerkerEOD/krakenhashes/agent/internal/agent"
 	"github.com/ZerkerEOD/krakenhashes/agent/internal/config"
+	"github.com/ZerkerEOD/krakenhashes/agent/internal/jobs"
 	"github.com/ZerkerEOD/krakenhashes/agent/internal/metrics"
 	"github.com/ZerkerEOD/krakenhashes/agent/pkg/debug"
 	"github.com/joho/godotenv"
@@ -398,6 +399,19 @@ func main() {
 		debug.Debug("Certificate length: %d bytes", len(cert))
 	}
 
+	// Create job manager before establishing connection
+	debug.Info("Creating job manager...")
+	agentConfig := config.NewConfig()
+	
+	// Progress callback function
+	progressCallback := func(progress *jobs.JobProgress) {
+		debug.Info("Job progress: Task %s, Keyspace %d, Hash rate %d H/s", 
+			progress.TaskID, progress.KeyspaceProcessed, progress.HashRate)
+	}
+	
+	jobManager := jobs.NewJobManager(agentConfig, progressCallback)
+	debug.Info("Job manager created successfully")
+
 	// Create connection with retry
 	debug.Info("Starting WebSocket connection process")
 	var lastError error
@@ -411,6 +425,10 @@ func main() {
 			time.Sleep(time.Second * time.Duration(i+1))
 			continue
 		}
+		
+		// Set the job manager in the connection
+		conn.SetJobManager(jobManager)
+		
 		if err := conn.Start(); err != nil {
 			lastError = err
 			debug.Warning("Connection attempt %d failed: %v", i+1, err)

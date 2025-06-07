@@ -62,7 +62,20 @@ func init() {
 }
 
 // Log prints a debug message with the specified level if debugging is enabled
-func Log(level LogLevel, format string, v ...interface{}) {
+// Log prints a structured log message if debugging is enabled
+func Log(message string, fields map[string]interface{}) {
+	if fields == nil {
+		LogWithLevel(LevelInfo, "%s", message)
+	} else {
+		var fieldStrs []string
+		for k, v := range fields {
+			fieldStrs = append(fieldStrs, fmt.Sprintf("%s=%v", k, v))
+		}
+		LogWithLevel(LevelInfo, "%s [%s]", message, strings.Join(fieldStrs, ", "))
+	}
+}
+
+func LogWithLevel(level LogLevel, format string, v ...interface{}) {
 	// Check if debugging is enabled and if the message level is high enough
 	if !IsEnabled || level < CurrentLevel {
 		return
@@ -88,22 +101,22 @@ func Log(level LogLevel, format string, v ...interface{}) {
 
 // Debug logs a debug level message
 func Debug(format string, v ...interface{}) {
-	Log(LevelDebug, format, v...)
+	LogWithLevel(LevelDebug, format, v...)
 }
 
 // Info logs an info level message
 func Info(format string, v ...interface{}) {
-	Log(LevelInfo, format, v...)
+	LogWithLevel(LevelInfo, format, v...)
 }
 
 // Warning logs a warning level message
 func Warning(format string, v ...interface{}) {
-	Log(LevelWarning, format, v...)
+	LogWithLevel(LevelWarning, format, v...)
 }
 
 // Error logs an error level message
 func Error(format string, v ...interface{}) {
-	Log(LevelError, format, v...)
+	LogWithLevel(LevelError, format, v...)
 }
 
 // Reinitialize updates the debug settings based on current environment variables

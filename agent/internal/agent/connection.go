@@ -18,6 +18,7 @@ import (
 	"github.com/ZerkerEOD/krakenhashes/agent/internal/config"
 	"github.com/ZerkerEOD/krakenhashes/agent/internal/hardware"
 	"github.com/ZerkerEOD/krakenhashes/agent/internal/hardware/types"
+	"github.com/ZerkerEOD/krakenhashes/agent/internal/jobs"
 	filesync "github.com/ZerkerEOD/krakenhashes/agent/internal/sync"
 	"github.com/ZerkerEOD/krakenhashes/agent/pkg/debug"
 	"github.com/gorilla/websocket"
@@ -36,6 +37,13 @@ const (
 	WSTypeFileSyncRequest  WSMessageType = "file_sync_request"
 	WSTypeFileSyncResponse WSMessageType = "file_sync_response"
 	WSTypeFileSyncCommand  WSMessageType = "file_sync_command"
+
+	// Job execution message types
+	WSTypeTaskAssignment   WSMessageType = "task_assignment"
+	WSTypeJobProgress      WSMessageType = "job_progress"
+	WSTypeJobStop          WSMessageType = "job_stop"
+	WSTypeBenchmarkRequest WSMessageType = "benchmark_request"
+	WSTypeBenchmarkResult  WSMessageType = "benchmark_result"
 )
 
 // WSMessage represents a WebSocket message
@@ -200,6 +208,16 @@ type Connection struct {
 
 	// File synchronization
 	fileSync *filesync.FileSync
+
+	// Job manager - initialized externally and set via SetJobManager
+	jobManager JobManager
+}
+
+// JobManager interface defines the methods required for job management
+type JobManager interface {
+	ProcessJobAssignment(ctx context.Context, assignmentData []byte) error
+	StopJob(taskID string) error
+	RunManualBenchmark(ctx context.Context, binaryPath string, hashType int, attackMode int) (*jobs.BenchmarkResult, error)
 }
 
 // loadCACertificate loads the CA certificate from disk
@@ -694,6 +712,135 @@ func (c *Connection) readPump() {
 			}
 
 			debug.Info("Started downloading %d files", len(commandPayload.Files))
+
+		case WSTypeTaskAssignment:
+			// Server sent a job task assignment
+			debug.Info("Received task assignment")
+
+			if c.jobManager == nil {
+				debug.Error("Job manager not initialized, cannot process task assignment")
+				continue
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+
+			if err := c.jobManager.ProcessJobAssignment(ctx, msg.Payload); err != nil {
+				debug.Error("Failed to process job assignment: %v", err)
+			} else {
+				debug.Info("Successfully processed job assignment")
+			}
+
+		case WSTypeJobStop:
+			// Server requested to stop a job
+			debug.Info("Received job stop command")
+
+			if c.jobManager == nil {
+				debug.Error("Job manager not initialized, cannot process job stop")
+				continue
+			}
+
+			var stopPayload struct {
+				TaskID string `json:"task_id"`
+				Reason string `json:"reason,omitempty"`
+			}
+			if err := json.Unmarshal(msg.Payload, &stopPayload); err != nil {
+				debug.Error("Failed to parse job stop payload: %v", err)
+				continue
+			}
+
+			if err := c.jobManager.StopJob(stopPayload.TaskID); err != nil {
+				debug.Error("Failed to stop job %s: %v", stopPayload.TaskID, err)
+			} else {
+				debug.Info("Successfully stopped job %s", stopPayload.TaskID)
+			}
+
+		case WSTypeBenchmarkRequest:
+			// Server requested a benchmark
+			debug.Info("Received benchmark request")
+
+			if c.jobManager == nil {
+				debug.Error("Job manager not initialized, cannot process benchmark request")
+				continue
+			}
+
+			var benchmarkPayload struct {
+				RequestID  string `json:"request_id"`
+				HashType   int    `json:"hash_type"`
+				AttackMode int    `json:"attack_mode"`
+				BinaryPath string `json:"binary_path"`
+			}
+			if err := json.Unmarshal(msg.Payload, &benchmarkPayload); err != nil {
+				debug.Error("Failed to parse benchmark request: %v", err)
+				continue
+			}
+
+			// Run benchmark in a goroutine to not block message processing
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+				defer cancel()
+
+				result, err := c.jobManager.RunManualBenchmark(ctx, benchmarkPayload.BinaryPath, benchmarkPayload.HashType, benchmarkPayload.AttackMode)
+				if err != nil {
+					debug.Error("Benchmark failed: %v", err)
+					// Send failure result
+					resultPayload := struct {
+						RequestID  string `json:"request_id"`
+						HashType   int    `json:"hash_type"`
+						AttackMode int    `json:"attack_mode"`
+						Speed      int64  `json:"speed"`
+						Success    bool   `json:"success"`
+						Error      string `json:"error,omitempty"`
+					}{
+						RequestID:  benchmarkPayload.RequestID,
+						HashType:   benchmarkPayload.HashType,
+						AttackMode: benchmarkPayload.AttackMode,
+						Speed:      0,
+						Success:    false,
+						Error:      err.Error(),
+					}
+
+					payloadBytes, _ := json.Marshal(resultPayload)
+					response := WSMessage{
+						Type:      WSTypeBenchmarkResult,
+						Payload:   payloadBytes,
+						Timestamp: time.Now(),
+					}
+					if err := c.ws.WriteJSON(response); err != nil {
+						debug.Error("Failed to send benchmark failure result: %v", err)
+					}
+					return
+				}
+
+				// Send success result
+				resultPayload := struct {
+					RequestID  string `json:"request_id"`
+					HashType   int    `json:"hash_type"`
+					AttackMode int    `json:"attack_mode"`
+					Speed      int64  `json:"speed"`
+					Success    bool   `json:"success"`
+					Error      string `json:"error,omitempty"`
+				}{
+					RequestID:  benchmarkPayload.RequestID,
+					HashType:   result.HashType,
+					AttackMode: result.AttackMode,
+					Speed:      result.Speed,
+					Success:    true,
+				}
+
+				payloadBytes, _ := json.Marshal(resultPayload)
+				response := WSMessage{
+					Type:      WSTypeBenchmarkResult,
+					Payload:   payloadBytes,
+					Timestamp: time.Now(),
+				}
+				if err := c.ws.WriteJSON(response); err != nil {
+					debug.Error("Failed to send benchmark result: %v", err)
+				} else {
+					debug.Info("Successfully sent benchmark result: %d H/s", result.Speed)
+				}
+			}()
+
 		default:
 			debug.Warning("Received unknown message type: %s", msg.Type)
 		}
@@ -864,6 +1011,11 @@ func (c *Connection) Start() error {
 // Connect establishes a WebSocket connection to the server
 func (c *Connection) Connect() error {
 	return c.connect()
+}
+
+// SetJobManager sets the job manager for handling job assignments
+func (c *Connection) SetJobManager(jm JobManager) {
+	c.jobManager = jm
 }
 
 // checkAndExtractBinaryArchives checks all binary directories for .7z files without extracted executables

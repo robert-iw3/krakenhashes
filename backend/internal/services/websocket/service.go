@@ -11,26 +11,36 @@ import (
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/services"
 )
 
+// JobHandler interface for handling job-related WebSocket messages
+type JobHandler interface {
+	ProcessJobProgress(ctx context.Context, agentID int, payload json.RawMessage) error
+	ProcessBenchmarkResult(ctx context.Context, agentID int, payload json.RawMessage) error
+}
+
 // MessageType represents the type of WebSocket message
 type MessageType string
 
 const (
 	// Agent -> Server messages
-	TypeHeartbeat    MessageType = "heartbeat"
-	TypeMetrics      MessageType = "metrics"
-	TypeTaskStatus   MessageType = "task_status"
-	TypeAgentStatus  MessageType = "agent_status"
-	TypeErrorReport  MessageType = "error_report"
-	TypeHardwareInfo MessageType = "hardware_info"
-	TypeSyncResponse MessageType = "file_sync_response"
-	TypeSyncStatus   MessageType = "file_sync_status"
+	TypeHeartbeat       MessageType = "heartbeat"
+	TypeMetrics         MessageType = "metrics"
+	TypeTaskStatus      MessageType = "task_status"
+	TypeJobProgress     MessageType = "job_progress"
+	TypeBenchmarkResult MessageType = "benchmark_result"
+	TypeAgentStatus     MessageType = "agent_status"
+	TypeErrorReport     MessageType = "error_report"
+	TypeHardwareInfo    MessageType = "hardware_info"
+	TypeSyncResponse    MessageType = "file_sync_response"
+	TypeSyncStatus      MessageType = "file_sync_status"
 
 	// Server -> Agent messages
-	TypeTaskAssignment MessageType = "task_assignment"
-	TypeAgentCommand   MessageType = "agent_command"
-	TypeConfigUpdate   MessageType = "config_update"
-	TypeSyncRequest    MessageType = "file_sync_request"
-	TypeSyncCommand    MessageType = "file_sync_command"
+	TypeTaskAssignment    MessageType = "task_assignment"
+	TypeJobStop          MessageType = "job_stop"
+	TypeBenchmarkRequest MessageType = "benchmark_request"
+	TypeAgentCommand     MessageType = "agent_command"
+	TypeConfigUpdate     MessageType = "config_update"
+	TypeSyncRequest      MessageType = "file_sync_request"
+	TypeSyncCommand      MessageType = "file_sync_command"
 )
 
 // Client represents a connected agent
@@ -147,11 +157,55 @@ type FileSyncResult struct {
 	MD5Hash string `json:"md5_hash,omitempty"`
 }
 
+// TaskAssignmentPayload represents a job task assignment sent to an agent
+type TaskAssignmentPayload struct {
+	TaskID          string   `json:"task_id"`
+	JobExecutionID  string   `json:"job_execution_id"`
+	HashlistID      int64    `json:"hashlist_id"`
+	HashlistPath    string   `json:"hashlist_path"`
+	AttackMode      int      `json:"attack_mode"`
+	HashType        int      `json:"hash_type"`
+	KeyspaceStart   int64    `json:"keyspace_start"`
+	KeyspaceEnd     int64    `json:"keyspace_end"`
+	WordlistPaths   []string `json:"wordlist_paths"`
+	RulePaths       []string `json:"rule_paths"`
+	Mask            string   `json:"mask,omitempty"`
+	BinaryPath      string   `json:"binary_path"`
+	ChunkDuration   int      `json:"chunk_duration"`
+	ReportInterval  int      `json:"report_interval"`
+	OutputFormat    string   `json:"output_format"`
+}
+
+// BenchmarkResultPayload represents benchmark results from an agent
+type BenchmarkResultPayload struct {
+	AttackMode int   `json:"attack_mode"`
+	HashType   int   `json:"hash_type"`
+	Speed      int64 `json:"speed"` // hashes per second
+	Success    bool  `json:"success"`
+	Error      string `json:"error,omitempty"`
+}
+
+// JobStopPayload represents a job stop command
+type JobStopPayload struct {
+	TaskID string `json:"task_id"`
+	JobExecutionID string `json:"job_execution_id"`
+	Reason         string `json:"reason"`
+}
+
+// BenchmarkRequestPayload represents a benchmark request sent to an agent
+type BenchmarkRequestPayload struct {
+	RequestID  string `json:"request_id"`
+	AttackMode int    `json:"attack_mode"`
+	HashType   int    `json:"hash_type"`
+	BinaryPath string `json:"binary_path"`
+}
+
 // Service handles WebSocket business logic
 type Service struct {
 	agentService *services.AgentService
 	clients      map[int]*Client
 	mu           sync.RWMutex
+	jobHandler   JobHandler // Interface for handling job-related messages
 }
 
 // NewService creates a new WebSocket service
@@ -160,6 +214,11 @@ func NewService(agentService *services.AgentService) *Service {
 		agentService: agentService,
 		clients:      make(map[int]*Client),
 	}
+}
+
+// SetJobHandler sets the job handler for processing job-related messages
+func (s *Service) SetJobHandler(handler JobHandler) {
+	s.jobHandler = handler
 }
 
 // HandleMessage processes incoming WebSocket messages
@@ -171,6 +230,10 @@ func (s *Service) HandleMessage(ctx context.Context, agent *models.Agent, msg *M
 		return s.handleMetrics(ctx, agent, msg)
 	case TypeTaskStatus:
 		return s.handleTaskStatus(ctx, agent, msg)
+	case TypeJobProgress:
+		return s.handleJobProgress(ctx, agent, msg)
+	case TypeBenchmarkResult:
+		return s.handleBenchmarkResult(ctx, agent, msg)
 	case TypeAgentStatus:
 		return s.handleAgentStatus(ctx, agent, msg)
 	case TypeErrorReport:
@@ -370,4 +433,28 @@ func (s *Service) handleSyncCommand(ctx context.Context, agent *models.Agent, ms
 	}
 
 	return nil
+}
+
+// handleJobProgress processes job progress messages from agents
+func (s *Service) handleJobProgress(ctx context.Context, agent *models.Agent, msg *Message) error {
+	// If no job handler is set, just log and ignore
+	if s.jobHandler == nil {
+		fmt.Printf("Received job progress from agent %d but no job handler set\n", agent.ID)
+		return nil
+	}
+	
+	// Forward to job handler
+	return s.jobHandler.ProcessJobProgress(ctx, agent.ID, msg.Payload)
+}
+
+// handleBenchmarkResult processes benchmark result messages from agents
+func (s *Service) handleBenchmarkResult(ctx context.Context, agent *models.Agent, msg *Message) error {
+	// If no job handler is set, just log and ignore
+	if s.jobHandler == nil {
+		fmt.Printf("Received benchmark result from agent %d but no job handler set\n", agent.ID)
+		return nil
+	}
+	
+	// Forward to job handler
+	return s.jobHandler.ProcessBenchmarkResult(ctx, agent.ID, msg.Payload)
 }

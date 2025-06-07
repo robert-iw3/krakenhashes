@@ -45,6 +45,7 @@ func SetupAdminRoutes(router *mux.Router, database *db.DB, emailService *email.S
 	emailHandler := emailhandler.NewHandler(emailService)
 	retentionSettingsHandler := adminsettings.NewRetentionSettingsHandler(clientSettingsRepo)
 	systemSettingsHandler := adminsettings.NewSystemSettingsHandler(systemSettingsRepo, presetJobRepo)
+	jobSettingsHandler := adminsettings.NewJobSettingsHandler(systemSettingsRepo)
 	clientHandler := adminclient.NewClientHandler(clientRepo, clientService)
 
 	// Create admin router
@@ -68,6 +69,10 @@ func SetupAdminRoutes(router *mux.Router, database *db.DB, emailService *email.S
 	// System settings routes (New)
 	adminRouter.HandleFunc("/settings/max-priority", systemSettingsHandler.GetMaxPriority).Methods(http.MethodGet, http.MethodOptions)
 	adminRouter.HandleFunc("/settings/max-priority", systemSettingsHandler.UpdateMaxPriority).Methods(http.MethodPut, http.MethodOptions)
+
+	// Job execution settings routes (New)
+	adminRouter.HandleFunc("/settings/job-execution", jobSettingsHandler.GetJobExecutionSettings).Methods(http.MethodGet, http.MethodOptions)
+	adminRouter.HandleFunc("/settings/job-execution", jobSettingsHandler.UpdateJobExecutionSettings).Methods(http.MethodPut, http.MethodOptions)
 
 	// Client Management routes (New)
 	adminRouter.HandleFunc("/clients", clientHandler.ListClients).Methods(http.MethodGet, http.MethodOptions)
