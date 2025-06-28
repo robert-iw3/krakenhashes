@@ -86,6 +86,17 @@ func NewConfig() *Config {
 			dataDir = filepath.Join(home, ".krakenhashes-data")
 		}
 	}
+	
+	// Convert to absolute path if it's relative
+	if !filepath.IsAbs(dataDir) {
+		absDataDir, err := filepath.Abs(dataDir)
+		if err != nil {
+			debug.Error("Failed to convert data directory to absolute path: %v", err)
+		} else {
+			debug.Info("Converting relative data directory '%s' to absolute path '%s'", dataDir, absDataDir)
+			dataDir = absDataDir
+		}
+	}
 
 	// Create data directory and its subdirectories if they don't exist
 	subdirs := []string{"binaries", "wordlists", "rules", "hashlists"}

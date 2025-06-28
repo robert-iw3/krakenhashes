@@ -48,8 +48,10 @@ import {
   Typography,
   Grid,
   Paper,
-  Container
+  Container,
+  Divider
 } from '@mui/material';
+// import JobStatusMonitor from '../components/JobStatusMonitor'; // Removed to improve page load performance
 
 /**
  * Dashboard component for displaying system overview and metrics
@@ -118,6 +120,21 @@ const Dashboard: React.FC = () => {
             </Typography>
           </Grid>
           {gridItems}
+          
+          <Grid item xs={12}>
+            <Divider sx={{ my: 2 }} />
+            <Typography variant="h5" component="h2" gutterBottom>
+              Job Management
+            </Typography>
+            <Paper sx={{ p: 2 }}>
+              <Typography variant="body1" gutterBottom>
+                Visit the <strong>Jobs</strong> page in the navigation menu to view and manage password cracking jobs in real-time.
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                The Jobs page provides live updates, job monitoring, and comprehensive management features.
+              </Typography>
+            </Paper>
+          </Grid>
         </Grid>
       </Box>
     </Container>

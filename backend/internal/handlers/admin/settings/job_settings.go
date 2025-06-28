@@ -35,6 +35,9 @@ type JobExecutionSettings struct {
 	MetricsRetentionRealtimeDays int  `json:"metrics_retention_realtime_days"`
 	MetricsRetentionDailyDays    int  `json:"metrics_retention_daily_days"`
 	MetricsRetentionWeeklyDays   int  `json:"metrics_retention_weekly_days"`
+	JobRefreshIntervalSeconds    int  `json:"job_refresh_interval_seconds"`
+	MaxChunkRetryAttempts        int  `json:"max_chunk_retry_attempts"`
+	JobsPerPageDefault           int  `json:"jobs_per_page_default"`
 }
 
 // GetJobExecutionSettings returns all job execution settings
@@ -55,6 +58,9 @@ func (h *JobSettingsHandler) GetJobExecutionSettings(w http.ResponseWriter, r *h
 		"metrics_retention_realtime_days",
 		"metrics_retention_daily_days",
 		"metrics_retention_weekly_days",
+		"job_refresh_interval_seconds",
+		"max_chunk_retry_attempts",
+		"jobs_per_page_default",
 	}
 
 	settings := JobExecutionSettings{
@@ -70,6 +76,9 @@ func (h *JobSettingsHandler) GetJobExecutionSettings(w http.ResponseWriter, r *h
 		MetricsRetentionRealtimeDays: 7,
 		MetricsRetentionDailyDays:    30,
 		MetricsRetentionWeeklyDays:   365,
+		JobRefreshIntervalSeconds:    5,
+		MaxChunkRetryAttempts:        3,
+		JobsPerPageDefault:           25,
 	}
 
 	// Retrieve each setting
@@ -126,6 +135,18 @@ func (h *JobSettingsHandler) GetJobExecutionSettings(w http.ResponseWriter, r *h
 				if val, err := strconv.Atoi(*setting.Value); err == nil {
 					settings.MetricsRetentionWeeklyDays = val
 				}
+			case "job_refresh_interval_seconds":
+				if val, err := strconv.Atoi(*setting.Value); err == nil {
+					settings.JobRefreshIntervalSeconds = val
+				}
+			case "max_chunk_retry_attempts":
+				if val, err := strconv.Atoi(*setting.Value); err == nil {
+					settings.MaxChunkRetryAttempts = val
+				}
+			case "jobs_per_page_default":
+				if val, err := strconv.Atoi(*setting.Value); err == nil {
+					settings.JobsPerPageDefault = val
+				}
 			}
 		}
 	}
@@ -157,6 +178,9 @@ func (h *JobSettingsHandler) UpdateJobExecutionSettings(w http.ResponseWriter, r
 		"metrics_retention_realtime_days":      strconv.Itoa(settings.MetricsRetentionRealtimeDays),
 		"metrics_retention_daily_days":         strconv.Itoa(settings.MetricsRetentionDailyDays),
 		"metrics_retention_weekly_days":        strconv.Itoa(settings.MetricsRetentionWeeklyDays),
+		"job_refresh_interval_seconds":         strconv.Itoa(settings.JobRefreshIntervalSeconds),
+		"max_chunk_retry_attempts":             strconv.Itoa(settings.MaxChunkRetryAttempts),
+		"jobs_per_page_default":                strconv.Itoa(settings.JobsPerPageDefault),
 	}
 
 	for key, value := range updates {

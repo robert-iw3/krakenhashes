@@ -24,8 +24,8 @@ func NewJobExecutionRepository(db *db.DB) *JobExecutionRepository {
 // Create creates a new job execution
 func (r *JobExecutionRepository) Create(ctx context.Context, exec *models.JobExecution) error {
 	query := `
-		INSERT INTO job_executions (preset_job_id, hashlist_id, status, priority, attack_mode, total_keyspace)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO job_executions (preset_job_id, hashlist_id, status, priority, max_agents, attack_mode, total_keyspace)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING id, created_at`
 
 	err := r.db.QueryRowContext(ctx, query,
@@ -33,6 +33,7 @@ func (r *JobExecutionRepository) Create(ctx context.Context, exec *models.JobExe
 		exec.HashlistID,
 		exec.Status,
 		exec.Priority,
+		exec.MaxAgents,
 		exec.AttackMode,
 		exec.TotalKeyspace,
 	).Scan(&exec.ID, &exec.CreatedAt)
@@ -48,13 +49,13 @@ func (r *JobExecutionRepository) Create(ctx context.Context, exec *models.JobExe
 func (r *JobExecutionRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.JobExecution, error) {
 	query := `
 		SELECT 
-			je.id, je.preset_job_id, je.hashlist_id, je.status, je.priority,
+			je.id, je.preset_job_id, je.hashlist_id, je.status, je.priority, COALESCE(je.max_agents, 0) as max_agents,
 			je.total_keyspace, je.processed_keyspace, je.attack_mode,
 			je.created_at, je.started_at, je.completed_at, je.error_message, je.interrupted_by,
 			pj.name as preset_job_name,
 			h.name as hashlist_name,
-			h.total_count as total_hashes,
-			h.cracked_count as cracked_hashes
+			h.total_hashes as total_hashes,
+			h.cracked_hashes as cracked_hashes
 		FROM job_executions je
 		JOIN preset_jobs pj ON je.preset_job_id = pj.id
 		JOIN hashlists h ON je.hashlist_id = h.id
@@ -62,7 +63,7 @@ func (r *JobExecutionRepository) GetByID(ctx context.Context, id uuid.UUID) (*mo
 
 	var exec models.JobExecution
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
-		&exec.ID, &exec.PresetJobID, &exec.HashlistID, &exec.Status, &exec.Priority,
+		&exec.ID, &exec.PresetJobID, &exec.HashlistID, &exec.Status, &exec.Priority, &exec.MaxAgents,
 		&exec.TotalKeyspace, &exec.ProcessedKeyspace, &exec.AttackMode,
 		&exec.CreatedAt, &exec.StartedAt, &exec.CompletedAt, &exec.ErrorMessage, &exec.InterruptedBy,
 		&exec.PresetJobName, &exec.HashlistName, &exec.TotalHashes, &exec.CrackedHashes,
@@ -85,10 +86,11 @@ func (r *JobExecutionRepository) GetPendingJobs(ctx context.Context) ([]models.J
 			je.id, je.preset_job_id, je.hashlist_id, je.status, je.priority,
 			je.total_keyspace, je.processed_keyspace, je.attack_mode,
 			je.created_at, je.started_at, je.completed_at, je.error_message, je.interrupted_by,
+			je.max_agents, je.updated_at,
 			pj.name as preset_job_name,
 			h.name as hashlist_name,
-			h.total_count as total_hashes,
-			h.cracked_count as cracked_hashes
+			h.total_hashes as total_hashes,
+			h.cracked_hashes as cracked_hashes
 		FROM job_executions je
 		JOIN preset_jobs pj ON je.preset_job_id = pj.id
 		JOIN hashlists h ON je.hashlist_id = h.id
@@ -108,6 +110,7 @@ func (r *JobExecutionRepository) GetPendingJobs(ctx context.Context) ([]models.J
 			&exec.ID, &exec.PresetJobID, &exec.HashlistID, &exec.Status, &exec.Priority,
 			&exec.TotalKeyspace, &exec.ProcessedKeyspace, &exec.AttackMode,
 			&exec.CreatedAt, &exec.StartedAt, &exec.CompletedAt, &exec.ErrorMessage, &exec.InterruptedBy,
+			&exec.MaxAgents, &exec.UpdatedAt,
 			&exec.PresetJobName, &exec.HashlistName, &exec.TotalHashes, &exec.CrackedHashes,
 		)
 		if err != nil {
@@ -152,12 +155,66 @@ func (r *JobExecutionRepository) GetRunningJobs(ctx context.Context) ([]models.J
 	return executions, nil
 }
 
+// GetJobsByStatus retrieves all job executions with the specified status
+func (r *JobExecutionRepository) GetJobsByStatus(ctx context.Context, status models.JobExecutionStatus) ([]models.JobExecution, error) {
+	query := `
+		SELECT 
+			id, hashlist_id, preset_job_id, priority, 
+			status, started_at, completed_at, created_at, updated_at,
+			attack_mode, total_keyspace, processed_keyspace
+		FROM job_executions
+		WHERE status = $1
+		ORDER BY created_at DESC`
+
+	rows, err := r.db.QueryContext(ctx, query, status)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get jobs by status: %w", err)
+	}
+	defer rows.Close()
+
+	var jobs []models.JobExecution
+	for rows.Next() {
+		var job models.JobExecution
+		err := rows.Scan(
+			&job.ID, &job.HashlistID, &job.PresetJobID, &job.Priority,
+			&job.Status, &job.StartedAt, &job.CompletedAt, &job.CreatedAt, &job.UpdatedAt,
+			&job.AttackMode, &job.TotalKeyspace, &job.ProcessedKeyspace,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan job execution: %w", err)
+		}
+		jobs = append(jobs, job)
+	}
+
+	return jobs, nil
+}
+
 // UpdateStatus updates the status of a job execution
 func (r *JobExecutionRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status models.JobExecutionStatus) error {
 	query := `UPDATE job_executions SET status = $1 WHERE id = $2`
 	result, err := r.db.ExecContext(ctx, query, status, id)
 	if err != nil {
 		return fmt.Errorf("failed to update job execution status: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return ErrNotFound
+	}
+
+	return nil
+}
+
+// UpdateErrorMessage updates the error message for a job execution
+func (r *JobExecutionRepository) UpdateErrorMessage(ctx context.Context, id uuid.UUID, errorMessage string) error {
+	query := `UPDATE job_executions SET error_message = $1 WHERE id = $2`
+	result, err := r.db.ExecContext(ctx, query, errorMessage, id)
+	if err != nil {
+		return fmt.Errorf("failed to update job execution error message: %w", err)
 	}
 
 	rowsAffected, err := result.RowsAffected()
@@ -190,6 +247,15 @@ func (r *JobExecutionRepository) UpdateProgress(ctx context.Context, id uuid.UUI
 	}
 
 	return nil
+}
+
+// UpdateCrackedCount updates the cracked_hashes count for a job execution
+// DEPRECATED: This method is deprecated as cracked counts are now tracked at the hashlist level
+func (r *JobExecutionRepository) UpdateCrackedCount(ctx context.Context, id uuid.UUID, crackedCount int) error {
+	// This method is deprecated and should not be used
+	// The job_executions table does not have a cracked_hashes column
+	// Cracked counts are tracked on the hashlists table
+	return fmt.Errorf("UpdateCrackedCount is deprecated - cracked counts are tracked on hashlists table")
 }
 
 // StartExecution marks a job execution as started
@@ -309,4 +375,24 @@ func (r *JobExecutionRepository) GetInterruptibleJobs(ctx context.Context, prior
 	}
 
 	return executions, nil
+}
+
+// ClearError clears the error message for a job execution
+func (r *JobExecutionRepository) ClearError(ctx context.Context, id uuid.UUID) error {
+	query := `UPDATE job_executions SET error_message = NULL WHERE id = $1`
+	result, err := r.db.ExecContext(ctx, query, id)
+	if err != nil {
+		return fmt.Errorf("failed to clear job execution error: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return ErrNotFound
+	}
+
+	return nil
 }

@@ -26,7 +26,7 @@ func GenerateToken(userID string, role string) (string, error) {
 	claims := token.Claims.(jwt.MapClaims)
 	claims["user_id"] = userID
 	claims["role"] = role
-	claims["exp"] = time.Now().Add(time.Hour * 24).Unix()
+	claims["exp"] = time.Now().Add(time.Hour * 24 * 7).Unix() // 1 week to match cookie
 
 	// Generate encoded token
 	tokenString, err := token.SignedString([]byte(os.Getenv("JWT_SECRET")))

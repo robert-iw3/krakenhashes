@@ -71,7 +71,7 @@ func (s *HashlistSyncService) EnsureHashlistOnAgent(ctx context.Context, agentID
 	}
 
 	// Get current hashlist file path and hash
-	hashlistFilePath := filepath.Join(s.dataDirectory, "hashlists", fmt.Sprintf("%s.hash", hashlistID))
+	hashlistFilePath := filepath.Join(s.dataDirectory, "hashlists", fmt.Sprintf("%d.hash", hashlistID))
 	currentFileHash, err := s.calculateFileHash(hashlistFilePath)
 	if err != nil {
 		return fmt.Errorf("failed to calculate hashlist file hash: %w", err)
@@ -102,7 +102,7 @@ func (s *HashlistSyncService) EnsureHashlistOnAgent(ctx context.Context, agentID
 	}
 
 	// Create or update agent hashlist record
-	targetFilePath := fmt.Sprintf("hashlists/%s.hash", hashlistID)
+	targetFilePath := fmt.Sprintf("hashlists/%d.hash", hashlistID)
 	agentHashlist := &models.AgentHashlist{
 		AgentID:    agentID,
 		HashlistID: hashlistID,
@@ -138,7 +138,7 @@ func (s *HashlistSyncService) GetHashlistSyncInfo(ctx context.Context, agentID i
 	}
 
 	// Get file path and calculate hash
-	hashlistFilePath := filepath.Join(s.dataDirectory, "hashlists", fmt.Sprintf("%s.hash", hashlistID))
+	hashlistFilePath := filepath.Join(s.dataDirectory, "hashlists", fmt.Sprintf("%d.hash", hashlistID))
 	fileHash, err := s.calculateFileHash(hashlistFilePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to calculate file hash: %w", err)
@@ -157,7 +157,7 @@ func (s *HashlistSyncService) GetHashlistSyncInfo(ctx context.Context, agentID i
 	}
 
 	syncRequired := !isCurrentOnAgent
-	targetFilePath := fmt.Sprintf("hashlists/%s.hash", hashlistID)
+	targetFilePath := fmt.Sprintf("hashlists/%d.hash", hashlistID)
 
 	result := &HashlistSyncResult{
 		SyncRequired:   syncRequired,
@@ -276,7 +276,7 @@ func (s *HashlistSyncService) UpdateHashlistAfterCracks(ctx context.Context, has
 	// 4. Updating the file hash
 	// 5. Marking all agent copies as outdated
 
-	hashlistFilePath := filepath.Join(s.dataDirectory, "hashlists", fmt.Sprintf("%s.hash", hashlistID))
+	hashlistFilePath := filepath.Join(s.dataDirectory, "hashlists", fmt.Sprintf("%d.hash", hashlistID))
 	
 	// For now, we'll just recalculate the file hash and mark all agent copies as outdated
 	// The actual file update logic would need to be implemented based on the hashlist format

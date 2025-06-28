@@ -123,12 +123,13 @@ func (s *AgentService) RegisterAgent(ctx context.Context, claimCode, hostname st
 
 	// Create new agent
 	agent := &models.Agent{
-		Name:        name,
-		Status:      models.AgentStatusPending,
-		CreatedByID: voucher.CreatedByID,
-		CreatedAt:   now,
-		UpdatedAt:   now,
-		Version:     "1.0.0", // Set initial version
+		Name:          name,
+		Status:        models.AgentStatusPending,
+		CreatedByID:   voucher.CreatedByID,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+		LastHeartbeat: now, // Initialize heartbeat timestamp
+		Version:       "1.0.0", // Set initial version
 		APIKey: sql.NullString{
 			String: apiKey,
 			Valid:  true,
@@ -475,15 +476,20 @@ func (s *AgentService) GetByAPIKey(ctx context.Context, apiKey string) (*models.
 // UpdateHeartbeat updates the last heartbeat timestamp for an agent
 func (s *AgentService) UpdateHeartbeat(ctx context.Context, agentID int) error {
 	debug.Info("Updating heartbeat for agent: %d", agentID)
+	
+	// First check if the agent has a zero timestamp and fix it
 	agent, err := s.agentRepo.GetByID(ctx, agentID)
 	if err != nil {
 		return fmt.Errorf("failed to get agent: %w", err)
 	}
-
-	agent.LastHeartbeat = time.Now()
-	agent.UpdatedAt = time.Now()
-
-	if err := s.agentRepo.Update(ctx, agent); err != nil {
+	
+	// Check for zero timestamp (0001-01-01)
+	if agent.LastHeartbeat.Year() < 2000 {
+		debug.Info("Agent %d has zero/invalid heartbeat timestamp, fixing it", agentID)
+		// Use the repository's UpdateHeartbeat which sets CURRENT_TIMESTAMP
+	}
+	
+	if err := s.agentRepo.UpdateHeartbeat(ctx, agentID); err != nil {
 		return fmt.Errorf("failed to update agent heartbeat: %w", err)
 	}
 

@@ -65,13 +65,28 @@ func (s *JobChunkingService) CalculateNextChunk(ctx context.Context, req ChunkCa
 		return nil, fmt.Errorf("failed to get next keyspace range: %w", err)
 	}
 
+	debug.Log("Retrieved keyspace start position", map[string]interface{}{
+		"job_execution_id": req.JobExecution.ID,
+		"keyspace_start":   keyspaceStart,
+	})
+
 	// If job has no total keyspace, we can't calculate chunks properly
 	if req.JobExecution.TotalKeyspace == nil {
+		debug.Log("Job has no total keyspace, using alternative calculation", map[string]interface{}{
+			"job_execution_id": req.JobExecution.ID,
+		})
 		return s.calculateChunkWithoutKeyspace(ctx, req, keyspaceStart)
 	}
 
 	totalKeyspace := *req.JobExecution.TotalKeyspace
 	remainingKeyspace := totalKeyspace - keyspaceStart
+
+	debug.Log("Calculated remaining keyspace", map[string]interface{}{
+		"job_execution_id":  req.JobExecution.ID,
+		"total_keyspace":    totalKeyspace,
+		"keyspace_start":    keyspaceStart,
+		"remaining_keyspace": remainingKeyspace,
+	})
 
 	if remainingKeyspace <= 0 {
 		return nil, fmt.Errorf("no remaining keyspace for job")
@@ -152,24 +167,9 @@ func (s *JobChunkingService) CalculateNextChunk(ctx context.Context, req ChunkCa
 
 // calculateChunkWithoutKeyspace handles chunk calculation for attacks that don't support keyspace
 func (s *JobChunkingService) calculateChunkWithoutKeyspace(ctx context.Context, req ChunkCalculationRequest, keyspaceStart int64) (*ChunkCalculationResult, error) {
-	debug.Log("Calculating chunk without keyspace support", map[string]interface{}{
-		"attack_mode": req.AttackMode,
-	})
-
-	// For attacks without keyspace support, we'll create a time-based chunk
-	// The actual work will be limited by hashcat's internal mechanisms
-	
-	// Estimate a reasonable chunk size (this is somewhat arbitrary)
-	estimatedChunkSize := int64(req.ChunkDuration * 1000) // 1000 hashes per second baseline
-	keyspaceEnd := keyspaceStart + estimatedChunkSize
-
-	return &ChunkCalculationResult{
-		KeyspaceStart:  keyspaceStart,
-		KeyspaceEnd:    keyspaceEnd,
-		BenchmarkSpeed: nil, // No benchmark available
-		ActualDuration: req.ChunkDuration,
-		IsLastChunk:    false, // We can't determine this without total keyspace
-	}, nil
+	// We no longer support chunk calculation without keyspace
+	// All jobs must have a calculated keyspace for proper distributed workload management
+	return nil, fmt.Errorf("keyspace calculation is required for all job types - attack mode %d does not support chunking without keyspace", req.AttackMode)
 }
 
 // getOrEstimateBenchmark gets the benchmark for an agent or estimates one if not available

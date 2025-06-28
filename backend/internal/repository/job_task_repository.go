@@ -156,6 +156,102 @@ func (r *JobTaskRepository) GetActiveTasksByAgent(ctx context.Context, agentID i
 	return tasks, nil
 }
 
+// GetStaleTasks retrieves tasks that are in assigned or running state
+func (r *JobTaskRepository) GetStaleTasks(ctx context.Context) ([]models.JobTask, error) {
+	query := `
+		SELECT 
+			id, job_execution_id, agent_id, status,
+			keyspace_start, keyspace_end, keyspace_processed,
+			benchmark_speed, chunk_duration, assigned_at,
+			started_at, completed_at, last_checkpoint, error_message,
+			created_at, updated_at
+		FROM job_tasks
+		WHERE status IN ('assigned', 'running')
+		ORDER BY assigned_at ASC`
+
+	rows, err := r.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get stale tasks: %w", err)
+	}
+	defer rows.Close()
+
+	var tasks []models.JobTask
+	for rows.Next() {
+		var task models.JobTask
+		err := rows.Scan(
+			&task.ID, &task.JobExecutionID, &task.AgentID, &task.Status,
+			&task.KeyspaceStart, &task.KeyspaceEnd, &task.KeyspaceProcessed,
+			&task.BenchmarkSpeed, &task.ChunkDuration, &task.AssignedAt,
+			&task.StartedAt, &task.CompletedAt, &task.LastCheckpoint, &task.ErrorMessage,
+			&task.CreatedAt, &task.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan job task: %w", err)
+		}
+		tasks = append(tasks, task)
+	}
+
+	return tasks, nil
+}
+
+// GetTasksNotUpdatedSince retrieves tasks that haven't been updated since the given time
+func (r *JobTaskRepository) GetTasksNotUpdatedSince(ctx context.Context, since time.Time) ([]models.JobTask, error) {
+	query := `
+		SELECT 
+			id, job_execution_id, agent_id, status,
+			keyspace_start, keyspace_end, keyspace_processed,
+			benchmark_speed, chunk_duration, assigned_at,
+			started_at, completed_at, last_checkpoint, error_message,
+			created_at, updated_at
+		FROM job_tasks
+		WHERE status IN ('assigned', 'running')
+		  AND (last_checkpoint IS NULL OR last_checkpoint < $1)
+		  AND updated_at < $1
+		ORDER BY assigned_at ASC`
+
+	rows, err := r.db.QueryContext(ctx, query, since)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get tasks not updated since %v: %w", since, err)
+	}
+	defer rows.Close()
+
+	var tasks []models.JobTask
+	for rows.Next() {
+		var task models.JobTask
+		err := rows.Scan(
+			&task.ID, &task.JobExecutionID, &task.AgentID, &task.Status,
+			&task.KeyspaceStart, &task.KeyspaceEnd, &task.KeyspaceProcessed,
+			&task.BenchmarkSpeed, &task.ChunkDuration, &task.AssignedAt,
+			&task.StartedAt, &task.CompletedAt, &task.LastCheckpoint, &task.ErrorMessage,
+			&task.CreatedAt, &task.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan job task: %w", err)
+		}
+		tasks = append(tasks, task)
+	}
+
+	return tasks, nil
+}
+
+// UpdateTaskError marks a task as failed with an error message
+func (r *JobTaskRepository) UpdateTaskError(ctx context.Context, taskID uuid.UUID, errorMessage string) error {
+	query := `
+		UPDATE job_tasks
+		SET status = $2,
+		    error_message = $3,
+		    completed_at = NOW(),
+		    updated_at = NOW()
+		WHERE id = $1`
+
+	_, err := r.db.ExecContext(ctx, query, taskID, models.JobTaskStatusFailed, errorMessage)
+	if err != nil {
+		return fmt.Errorf("failed to update task error: %w", err)
+	}
+
+	return nil
+}
+
 // UpdateStatus updates the status of a job task
 func (r *JobTaskRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status models.JobTaskStatus) error {
 	query := `UPDATE job_tasks SET status = $1 WHERE id = $2`
@@ -315,4 +411,141 @@ func (r *JobTaskRepository) GetIncompleteTasksCount(ctx context.Context, jobExec
 	}
 
 	return count, nil
+}
+
+// GetFailedTasksByJobExecution returns all failed tasks for a job execution
+func (r *JobTaskRepository) GetFailedTasksByJobExecution(ctx context.Context, jobExecutionID uuid.UUID) ([]models.JobTask, error) {
+	query := `
+		SELECT 
+			id, job_execution_id, agent_id, status, keyspace_start, keyspace_end,
+			keyspace_processed, benchmark_speed, chunk_duration, assigned_at,
+			started_at, completed_at, last_checkpoint, error_message,
+			COALESCE(crack_count, 0) as crack_count,
+			COALESCE(detailed_status, 'pending') as detailed_status,
+			COALESCE(retry_count, 0) as retry_count
+		FROM job_tasks
+		WHERE job_execution_id = $1 AND status = 'failed'`
+
+	rows, err := r.db.QueryContext(ctx, query, jobExecutionID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query failed tasks: %w", err)
+	}
+	defer rows.Close()
+
+	var tasks []models.JobTask
+	for rows.Next() {
+		var task models.JobTask
+		err := rows.Scan(
+			&task.ID,
+			&task.JobExecutionID,
+			&task.AgentID,
+			&task.Status,
+			&task.KeyspaceStart,
+			&task.KeyspaceEnd,
+			&task.KeyspaceProcessed,
+			&task.BenchmarkSpeed,
+			&task.ChunkDuration,
+			&task.AssignedAt,
+			&task.StartedAt,
+			&task.CompletedAt,
+			&task.LastCheckpoint,
+			&task.ErrorMessage,
+			&task.CrackCount,
+			&task.DetailedStatus,
+			&task.RetryCount,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan task: %w", err)
+		}
+		tasks = append(tasks, task)
+	}
+
+	return tasks, nil
+}
+
+// UpdateTaskStatus updates both status and detailed_status fields
+func (r *JobTaskRepository) UpdateTaskStatus(ctx context.Context, id uuid.UUID, status, detailedStatus string) error {
+	query := `
+		UPDATE job_tasks 
+		SET status = $2, detailed_status = $3
+		WHERE id = $1`
+
+	_, err := r.db.ExecContext(ctx, query, id, status, detailedStatus)
+	if err != nil {
+		return fmt.Errorf("failed to update task status: %w", err)
+	}
+
+	return nil
+}
+
+// ResetTaskForRetry resets a task for retry by incrementing retry count and resetting status
+func (r *JobTaskRepository) ResetTaskForRetry(ctx context.Context, id uuid.UUID) error {
+	query := `
+		UPDATE job_tasks 
+		SET 
+			status = 'pending',
+			detailed_status = 'pending',
+			retry_count = retry_count + 1,
+			started_at = NULL,
+			completed_at = NULL,
+			error_message = NULL,
+			keyspace_processed = 0
+		WHERE id = $1`
+
+	_, err := r.db.ExecContext(ctx, query, id)
+	if err != nil {
+		return fmt.Errorf("failed to reset task for retry: %w", err)
+	}
+
+	return nil
+}
+
+// UpdateTaskWithCracks updates a task with crack count and detailed status
+func (r *JobTaskRepository) UpdateTaskWithCracks(ctx context.Context, id uuid.UUID, crackCount int, detailedStatus string) error {
+	status := "completed"
+	if crackCount > 0 {
+		detailedStatus = "completed_with_cracks"
+	} else if detailedStatus == "" {
+		detailedStatus = "completed_no_cracks"
+	}
+
+	query := `
+		UPDATE job_tasks 
+		SET 
+			status = $2,
+			detailed_status = $3,
+			crack_count = $4,
+			completed_at = CURRENT_TIMESTAMP
+		WHERE id = $1`
+
+	_, err := r.db.ExecContext(ctx, query, id, status, detailedStatus, crackCount)
+	if err != nil {
+		return fmt.Errorf("failed to update task with cracks: %w", err)
+	}
+
+	return nil
+}
+
+// UpdateCrackCount increments the crack count for a task
+func (r *JobTaskRepository) UpdateCrackCount(ctx context.Context, id uuid.UUID, additionalCracks int) error {
+	if additionalCracks <= 0 {
+		return nil // Nothing to update
+	}
+	
+	query := `
+		UPDATE job_tasks 
+		SET 
+			crack_count = COALESCE(crack_count, 0) + $2,
+			detailed_status = CASE 
+				WHEN COALESCE(crack_count, 0) + $2 > 0 THEN 'running_with_cracks'
+				ELSE detailed_status
+			END
+		WHERE id = $1`
+
+	_, err := r.db.ExecContext(ctx, query, id, additionalCracks)
+	if err != nil {
+		return fmt.Errorf("failed to update crack count: %w", err)
+	}
+
+	return nil
 }

@@ -56,10 +56,12 @@ const queryClient = new QueryClient();
 // Lazy load pages
 const LoginPage = lazy(() => import('./pages/Login'));
 const DashboardPage = lazy(() => import('./pages/Dashboard'));
+const JobsPage = lazy(() => import('./pages/Jobs'));
 const AgentManagementPage = lazy(() => import('./pages/AgentManagement'));
 const WordlistsManagementPage = lazy(() => import('./pages/WordlistsManagement'));
 const RulesManagementPage = lazy(() => import('./pages/RulesManagement'));
 const HashlistsDashboardPage = lazy(() => import('./components/hashlist/HashlistsDashboard'));
+const HashlistDetailViewPage = lazy(() => import('./components/hashlist/HashlistDetailView'));
 const AboutPage = lazy(() => import('./pages/About'));
 const ProfileSettingsPage = lazy(() => import('./pages/settings/ProfileSettings'));
 
@@ -99,24 +101,26 @@ const App: React.FC = () => {
 
   return (
     <AuthProvider>
-      <QueryClientProvider client={queryClient}>
-        <ThemeProvider theme={theme}>
-          <CssBaseline />
-          <SnackbarProvider maxSnack={3}>
-            <Router>
-              <Suspense fallback={
-                <Box display="flex" justifyContent="center" alignItems="center" minHeight="100vh">
-                  <CircularProgress />
-                </Box>
-              }>
-              <Routes>
+        <QueryClientProvider client={queryClient}>
+          <ThemeProvider theme={theme}>
+            <CssBaseline />
+            <SnackbarProvider maxSnack={3}>
+              <Router>
+                <Suspense fallback={
+                  <Box display="flex" justifyContent="center" alignItems="center" minHeight="100vh">
+                    <CircularProgress />
+                  </Box>
+                }>
+                <Routes>
                   <Route path="/login" element={<LoginPage />} />
 
                   {/* Authenticated Routes */}
                   <Route element={<RequireAuth><Layout /></RequireAuth>}>
                     <Route path="/dashboard" element={<DashboardPage />} />
+                    <Route path="/jobs" element={<JobsPage />} />
                     <Route path="/agents" element={<AgentManagementPage />} />
                     <Route path="/hashlists" element={<HashlistsDashboardPage />} />
+                    <Route path="/hashlists/:id" element={<HashlistDetailViewPage />} />
                     <Route path="/wordlists" element={<WordlistsManagementPage />} />
                     <Route path="/rules" element={<RulesManagementPage />} />
                     <Route path="/about" element={<AboutPage />} />
@@ -151,26 +155,43 @@ const App: React.FC = () => {
 
                   {/* Redirect root based on auth */}
                   <Route path="/" element={<AuthRedirect />} />
-              </Routes>
-              </Suspense>
-            </Router>
-          </SnackbarProvider>
-        </ThemeProvider>
-      </QueryClientProvider>
+                </Routes>
+                </Suspense>
+              </Router>
+            </SnackbarProvider>
+          </ThemeProvider>
+        </QueryClientProvider>
     </AuthProvider>
   );
 };
 
 // Helper component to redirect from root based on authentication status
 const AuthRedirect = () => {
-  const { isAuth } = useAuth();
+  const { isAuth, isLoading } = useAuth();
+  
+  if (isLoading) {
+    return (
+      <Box display="flex" justifyContent="center" alignItems="center" minHeight="100vh">
+        <CircularProgress />
+      </Box>
+    );
+  }
+  
   return <Navigate to={isAuth ? "/dashboard" : "/login"} replace />;
 };
 
 // Define RequireAuth and RequireAdmin components
 const RequireAuth: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { isAuth } = useAuth();
+  const { isAuth, isLoading } = useAuth();
   const location = useLocation();
+
+  if (isLoading) {
+    return (
+      <Box display="flex" justifyContent="center" alignItems="center" minHeight="100vh">
+        <CircularProgress />
+      </Box>
+    );
+  }
 
   if (!isAuth) {
     return <Navigate to="/login" state={{ from: location }} replace />;

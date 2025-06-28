@@ -45,10 +45,18 @@ type hashlistHandler struct {
 	cfg                *config.Config
 	agentService       *services.AgentService
 	processor          *processor.HashlistDBProcessor
+	// Job-related dependencies
+	jobsHandler        interface {
+		GetAvailablePresetJobs(w http.ResponseWriter, r *http.Request)
+		CreateJobFromHashlist(w http.ResponseWriter, r *http.Request)
+	}
 }
 
 // registerHashlistRoutes configures all hashlist, hash type, client, and hash search routes
-func registerHashlistRoutes(r *mux.Router, sqlDB *sql.DB, cfg *config.Config, agentService *services.AgentService) {
+func registerHashlistRoutes(r *mux.Router, sqlDB *sql.DB, cfg *config.Config, agentService *services.AgentService, jobsHandler interface {
+	GetAvailablePresetJobs(w http.ResponseWriter, r *http.Request)
+	CreateJobFromHashlist(w http.ResponseWriter, r *http.Request)
+}) {
 	debug.Info("Registering hashlist, hash type, client, and hash search routes")
 
 	// Create DB wrapper for repositories
@@ -87,6 +95,7 @@ func registerHashlistRoutes(r *mux.Router, sqlDB *sql.DB, cfg *config.Config, ag
 		cfg:                cfg,
 		agentService:       agentService,
 		processor:          proc,
+		jobsHandler:        jobsHandler,
 	}
 
 	// === User Routes (Authenticated via JWT) ===
@@ -102,6 +111,9 @@ func registerHashlistRoutes(r *mux.Router, sqlDB *sql.DB, cfg *config.Config, ag
 	hashlistRouter.HandleFunc("/{id}", h.handleGetHashlist).Methods(http.MethodGet, http.MethodOptions)
 	hashlistRouter.HandleFunc("/{id}", h.handleDeleteHashlist).Methods(http.MethodDelete, http.MethodOptions)
 	hashlistRouter.HandleFunc("/{id}/download", h.handleDownloadHashlist).Methods(http.MethodGet, http.MethodOptions)
+	hashlistRouter.HandleFunc("/{id}/hashes", h.handleGetHashlistHashes).Methods(http.MethodGet, http.MethodOptions)
+	hashlistRouter.HandleFunc("/{id}/available-jobs", h.handleGetAvailableJobs).Methods(http.MethodGet, http.MethodOptions)
+	hashlistRouter.HandleFunc("/{id}/create-job", h.handleCreateJob).Methods(http.MethodPost, http.MethodOptions)
 
 	// 2.2. Hash Types API
 	hashTypeRouter := r.PathPrefix("/hashtypes").Subrouter() // Use 'r' directly
@@ -123,15 +135,7 @@ func registerHashlistRoutes(r *mux.Router, sqlDB *sql.DB, cfg *config.Config, ag
 	hashSearchRouter := r.PathPrefix("/hashes").Subrouter() // Use 'r' directly
 	hashSearchRouter.HandleFunc("/search", h.handleSearchHashes).Methods(http.MethodPost)
 
-	// === Agent Routes (Authenticated via API Key) ===
-	if agentService != nil {
-		agentRouter := r.PathPrefix("/agent/hashlists").Subrouter() // Separate prefix for agent routes
-		agentRouter.Use(AgentAPIKeyMiddleware(agentService))        // Use corrected agent auth middleware
-
-		// 2.5. Hashlist Download API (Agent)
-		agentRouter.HandleFunc("/{id}/download", h.handleDownloadHashlist).Methods(http.MethodGet)
-		// TODO: Potentially add other agent-specific endpoints here
-	}
+	// Agent routes are handled in filesync.go with proper API key authentication
 
 	debug.Info("Registered hashlist, hash type, client, and hash search routes under JWT router")
 }
@@ -621,6 +625,75 @@ func (h *hashlistHandler) handleDownloadHashlist(w http.ResponseWriter, r *http.
 		// Client might have disconnected, log but don't change status code if already sent
 		debug.Error("Error streaming hashlist file %s (Hashlist ID: %d): %v", filename, id, err)
 	}
+}
+
+// handleGetHashlistHashes retrieves hashes for a specific hashlist with pagination
+func (h *hashlistHandler) handleGetHashlistHashes(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	userID, err := getUserIDFromContext(ctx)
+	if err != nil {
+		debug.Error("Error extracting user from context: %v", err)
+		jsonError(w, "Authentication required", http.StatusUnauthorized)
+		return
+	}
+
+	// Parse hashlist ID from URL
+	vars := mux.Vars(r)
+	idStr := vars["id"]
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		jsonError(w, "Invalid hashlist ID", http.StatusBadRequest)
+		return
+	}
+
+	// Check if the user owns the hashlist
+	hashlist, err := h.hashlistRepo.GetByID(ctx, id)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			jsonError(w, "Hashlist not found", http.StatusNotFound)
+			return
+		}
+		debug.Error("Error retrieving hashlist (ID: %d) for user %s: %v", id, userID, err)
+		jsonError(w, "Failed to retrieve hashlist", http.StatusInternalServerError)
+		return
+	}
+
+	if hashlist.UserID != userID {
+		jsonError(w, "Hashlist not found", http.StatusNotFound)
+		return
+	}
+
+	// Parse pagination parameters
+	limit := 10
+	offset := 0
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 && parsedLimit <= 100 {
+			limit = parsedLimit
+		}
+	}
+	if offsetStr := r.URL.Query().Get("offset"); offsetStr != "" {
+		if parsedOffset, err := strconv.Atoi(offsetStr); err == nil && parsedOffset >= 0 {
+			offset = parsedOffset
+		}
+	}
+
+	// Get hashes for this hashlist
+	hashes, total, err := h.hashRepo.GetHashesByHashlistID(ctx, id, limit, offset)
+	if err != nil {
+		debug.Error("Error retrieving hashes for hashlist %d: %v", id, err)
+		jsonError(w, "Failed to retrieve hashes", http.StatusInternalServerError)
+		return
+	}
+
+	// Return the hashes with pagination info
+	response := map[string]interface{}{
+		"hashes": hashes,
+		"total":  total,
+		"limit":  limit,
+		"offset": offset,
+	}
+
+	jsonResponse(w, http.StatusOK, response)
 }
 
 // 2.2. Hash Types Handlers
@@ -1166,4 +1239,22 @@ func SanitizeFilenameSimple(filename string) string {
 		"\"", "_", "<", "_", ">", "_", "|", "_",
 	)
 	return replacer.Replace(filename)
+}
+
+// handleGetAvailableJobs delegates to the jobs handler
+func (h *hashlistHandler) handleGetAvailableJobs(w http.ResponseWriter, r *http.Request) {
+	if h.jobsHandler == nil {
+		jsonError(w, "Job functionality not available", http.StatusNotImplemented)
+		return
+	}
+	h.jobsHandler.GetAvailablePresetJobs(w, r)
+}
+
+// handleCreateJob delegates to the jobs handler
+func (h *hashlistHandler) handleCreateJob(w http.ResponseWriter, r *http.Request) {
+	if h.jobsHandler == nil {
+		jsonError(w, "Job functionality not available", http.StatusNotImplemented)
+		return
+	}
+	h.jobsHandler.CreateJobFromHashlist(w, r)
 }

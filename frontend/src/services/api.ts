@@ -182,11 +182,13 @@ api.interceptors.response.use(
     if (error.response?.status === 401) {
       console.debug('[API] Auth error, current cookies:', document.cookie);
       
-      // Don't handle 401s from login/logout endpoints to prevent loops
+      // Don't handle 401s from login/logout/check-auth endpoints to prevent loops
       // Also skip auto-logout for rule and wordlist update endpoints
       const skipAutoLogoutEndpoints = [
         '/login', 
         '/logout',
+        '/check-auth',  // Don't auto-logout when checking auth status
+        '/refresh-token', // Don't auto-logout when refreshing tokens
         '/api/rules/',
         '/api/wordlists/'
       ];
@@ -196,6 +198,7 @@ api.interceptors.response.use(
       );
       
       if (!shouldSkipAutoLogout) {
+        console.warn('[API] 401 error triggering automatic logout for:', error.config?.url);
         try {
           // Call logout endpoint to clean up server-side session
           await api.post('/api/logout');
@@ -388,4 +391,19 @@ export const updateJobWorkflow = async (id: string, data: UpdateWorkflowRequest)
 
 export const deleteJobWorkflow = async (id: string): Promise<void> => {
   await api.delete(`/api/admin/job-workflows/${id}`);
-}; 
+};
+
+// --- SSE Integration ---
+
+// Get the SSE endpoint URL for job streaming
+export const getJobStreamURL = (): string => {
+  return `${API_URL}/api/jobs/stream`;
+};
+
+// Check if SSE is supported by the browser
+export const isSSESupported = (): boolean => {
+  return typeof EventSource !== 'undefined';
+};
+
+// Export API_URL for SSE service
+export { API_URL }; 

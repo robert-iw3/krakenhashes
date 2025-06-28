@@ -2,17 +2,23 @@ package integration
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
 
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/binary"
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/db"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/models"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/repository"
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/rule"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/services"
 	wsservice "github.com/ZerkerEOD/krakenhashes/backend/internal/services/websocket"
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/wordlist"
 	"github.com/ZerkerEOD/krakenhashes/backend/pkg/debug"
 	"github.com/google/uuid"
+	"strconv"
 )
 
 // JobWebSocketIntegration handles the integration between job scheduling and WebSocket communication
@@ -24,8 +30,13 @@ type JobWebSocketIntegration struct {
 	benchmarkRepo        *repository.BenchmarkRepository
 	presetJobRepo        repository.PresetJobRepository
 	hashlistRepo         *repository.HashListRepository
+	hashRepo             *repository.HashRepository
 	jobTaskRepo          *repository.JobTaskRepository
 	agentRepo            *repository.AgentRepository
+	db                   *sql.DB
+	wordlistManager      wordlist.Manager
+	ruleManager          rule.Manager
+	binaryManager        binary.Manager
 	
 	// Progress tracking
 	progressMutex    sync.RWMutex
@@ -41,8 +52,13 @@ func NewJobWebSocketIntegration(
 	benchmarkRepo *repository.BenchmarkRepository,
 	presetJobRepo repository.PresetJobRepository,
 	hashlistRepo *repository.HashListRepository,
+	hashRepo *repository.HashRepository,
 	jobTaskRepo *repository.JobTaskRepository,
 	agentRepo *repository.AgentRepository,
+	db *sql.DB,
+	wordlistManager wordlist.Manager,
+	ruleManager rule.Manager,
+	binaryManager binary.Manager,
 ) *JobWebSocketIntegration {
 	return &JobWebSocketIntegration{
 		wsHandler:            wsHandler,
@@ -52,8 +68,13 @@ func NewJobWebSocketIntegration(
 		benchmarkRepo:        benchmarkRepo,
 		presetJobRepo:        presetJobRepo,
 		hashlistRepo:         hashlistRepo,
+		hashRepo:             hashRepo,
 		jobTaskRepo:          jobTaskRepo,
 		agentRepo:            agentRepo,
+		db:                   db,
+		wordlistManager:      wordlistManager,
+		ruleManager:          ruleManager,
+		binaryManager:        binaryManager,
 		taskProgressMap:      make(map[string]*models.JobProgress),
 	}
 }
@@ -87,18 +108,59 @@ func (s *JobWebSocketIntegration) SendJobAssignment(ctx context.Context, task *m
 	// Build wordlist and rule paths
 	var wordlistPaths []string
 	for _, wordlistIDStr := range presetJob.WordlistIDs {
-		wordlistPath := fmt.Sprintf("wordlists/custom/%s.txt", wordlistIDStr)
+		// Convert string ID to int
+		wordlistID, err := strconv.Atoi(wordlistIDStr)
+		if err != nil {
+			return fmt.Errorf("invalid wordlist ID %s: %w", wordlistIDStr, err)
+		}
+		
+		// Look up the actual wordlist file path
+		wordlist, err := s.wordlistManager.GetWordlist(ctx, wordlistID)
+		if err != nil {
+			return fmt.Errorf("failed to get wordlist %d: %w", wordlistID, err)
+		}
+		if wordlist == nil {
+			return fmt.Errorf("wordlist %d not found", wordlistID)
+		}
+		
+		// Use the actual file path from the database
+		wordlistPath := fmt.Sprintf("wordlists/%s", wordlist.FileName)
 		wordlistPaths = append(wordlistPaths, wordlistPath)
 	}
 
 	var rulePaths []string
 	for _, ruleIDStr := range presetJob.RuleIDs {
-		rulePath := fmt.Sprintf("rules/custom/%s.rule", ruleIDStr)
+		// Convert string ID to int
+		ruleID, err := strconv.Atoi(ruleIDStr)
+		if err != nil {
+			return fmt.Errorf("invalid rule ID %s: %w", ruleIDStr, err)
+		}
+		
+		// Look up the actual rule file path
+		rule, err := s.ruleManager.GetRule(ctx, ruleID)
+		if err != nil {
+			return fmt.Errorf("failed to get rule %d: %w", ruleID, err)
+		}
+		if rule == nil {
+			return fmt.Errorf("rule %d not found", ruleID)
+		}
+		
+		// Use the actual file path from the database
+		rulePath := fmt.Sprintf("rules/%s", rule.FileName)
 		rulePaths = append(rulePaths, rulePath)
 	}
 
 	// Get binary path from binary version
-	binaryPath := fmt.Sprintf("binaries/hashcat_%d", presetJob.BinaryVersionID)
+	binaryVersion, err := s.binaryManager.GetVersion(ctx, int64(presetJob.BinaryVersionID))
+	if err != nil {
+		return fmt.Errorf("failed to get binary version %d: %w", presetJob.BinaryVersionID, err)
+	}
+	if binaryVersion == nil {
+		return fmt.Errorf("binary version %d not found", presetJob.BinaryVersionID)
+	}
+	
+	// Use the actual binary path - the ID is used as the directory name
+	binaryPath := fmt.Sprintf("binaries/%d", binaryVersion.ID)
 
 	// Get report interval from settings or use default
 	reportInterval := 5 // Default 5 seconds
@@ -264,6 +326,130 @@ func (s *JobWebSocketIntegration) SendBenchmarkRequest(ctx context.Context, agen
 	return nil
 }
 
+// RequestAgentBenchmark implements the JobWebSocketIntegration interface for requesting benchmarks
+func (s *JobWebSocketIntegration) RequestAgentBenchmark(ctx context.Context, agentID int, jobExecution *models.JobExecution) error {
+	// Get preset job details to find binary version and attack configuration
+	presetJob, err := s.presetJobRepo.GetByID(ctx, jobExecution.PresetJobID)
+	if err != nil {
+		return fmt.Errorf("failed to get preset job: %w", err)
+	}
+
+	// Get hashlist to get hash type
+	hashlist, err := s.hashlistRepo.GetByID(ctx, jobExecution.HashlistID)
+	if err != nil {
+		return fmt.Errorf("failed to get hashlist: %w", err)
+	}
+
+	// Get agent details
+	agent, err := s.agentRepo.GetByID(ctx, agentID)
+	if err != nil {
+		return fmt.Errorf("failed to get agent: %w", err)
+	}
+
+	// Build wordlist and rule paths for a more accurate benchmark
+	var wordlistPaths []string
+	for _, wordlistIDStr := range presetJob.WordlistIDs {
+		// Convert string ID to int
+		wordlistID, err := strconv.Atoi(wordlistIDStr)
+		if err != nil {
+			continue // Skip invalid IDs
+		}
+		
+		// Look up the actual wordlist file path
+		wordlist, err := s.wordlistManager.GetWordlist(ctx, wordlistID)
+		if err != nil || wordlist == nil {
+			continue // Skip missing wordlists
+		}
+		
+		// Use the actual file path from the database
+		wordlistPath := fmt.Sprintf("wordlists/%s", wordlist.FileName)
+		wordlistPaths = append(wordlistPaths, wordlistPath)
+	}
+
+	var rulePaths []string
+	for _, ruleIDStr := range presetJob.RuleIDs {
+		// Convert string ID to int
+		ruleID, err := strconv.Atoi(ruleIDStr)
+		if err != nil {
+			continue // Skip invalid IDs
+		}
+		
+		// Look up the actual rule file path
+		rule, err := s.ruleManager.GetRule(ctx, ruleID)
+		if err != nil || rule == nil {
+			continue // Skip missing rules
+		}
+		
+		// Use the actual file path from the database
+		rulePath := fmt.Sprintf("rules/%s", rule.FileName)
+		rulePaths = append(rulePaths, rulePath)
+	}
+
+	// Get binary path from binary version
+	binaryVersion, err := s.binaryManager.GetVersion(ctx, int64(presetJob.BinaryVersionID))
+	if err != nil {
+		return fmt.Errorf("failed to get binary version %d: %w", presetJob.BinaryVersionID, err)
+	}
+	if binaryVersion == nil {
+		return fmt.Errorf("binary version %d not found", presetJob.BinaryVersionID)
+	}
+	
+	// Use the actual binary path - the ID is used as the directory name
+	binaryPath := fmt.Sprintf("binaries/%d", binaryVersion.ID)
+
+	requestID := fmt.Sprintf("benchmark-%d-%d-%d-%d", agentID, hashlist.HashTypeID, jobExecution.AttackMode, time.Now().Unix())
+
+	debug.Log("Sending enhanced benchmark request to agent", map[string]interface{}{
+		"agent_id":        agentID,
+		"hash_type":       hashlist.HashTypeID,
+		"attack_mode":     jobExecution.AttackMode,
+		"request_id":      requestID,
+		"wordlist_count":  len(wordlistPaths),
+		"rule_count":      len(rulePaths),
+		"has_mask":        presetJob.Mask != "",
+	})
+
+	// Create enhanced benchmark request payload with job-specific configuration
+	benchmarkReq := wsservice.BenchmarkRequestPayload{
+		RequestID:      requestID,
+		TaskID:         fmt.Sprintf("benchmark-%s-%d", jobExecution.ID, time.Now().Unix()), // Generate a task ID for the benchmark
+		HashType:       hashlist.HashTypeID,
+		AttackMode:     int(jobExecution.AttackMode),
+		BinaryPath:     binaryPath,
+		HashlistID:     jobExecution.HashlistID,
+		HashlistPath:   fmt.Sprintf("hashlists/%d.hash", jobExecution.HashlistID),
+		WordlistPaths:  wordlistPaths,
+		RulePaths:      rulePaths,
+		Mask:           presetJob.Mask,
+		TestDuration:   30, // 30-second benchmark for accuracy
+	}
+
+	// Marshal payload
+	payloadBytes, err := json.Marshal(benchmarkReq)
+	if err != nil {
+		return fmt.Errorf("failed to marshal benchmark request: %w", err)
+	}
+
+	// Create WebSocket message
+	msg := &wsservice.Message{
+		Type:    wsservice.TypeBenchmarkRequest,
+		Payload: payloadBytes,
+	}
+
+	// Send via WebSocket
+	err = s.wsHandler.SendMessage(agent.ID, msg)
+	if err != nil {
+		return fmt.Errorf("failed to send benchmark request via WebSocket: %w", err)
+	}
+
+	debug.Log("Enhanced benchmark request sent successfully", map[string]interface{}{
+		"agent_id":   agentID,
+		"request_id": requestID,
+	})
+
+	return nil
+}
+
 // HandleJobProgress processes job progress updates from agents
 func (s *JobWebSocketIntegration) HandleJobProgress(ctx context.Context, agentID int, progress *models.JobProgress) error {
 	debug.Log("Processing job progress from agent", map[string]interface{}{
@@ -278,7 +464,37 @@ func (s *JobWebSocketIntegration) HandleJobProgress(ctx context.Context, agentID
 	s.taskProgressMap[progress.TaskID.String()] = progress
 	s.progressMutex.Unlock()
 
-	// Forward to job scheduling service
+	// Check if this is a failure update
+	if progress.Status == "failed" && progress.ErrorMessage != "" {
+		debug.Log("Task failed with error", map[string]interface{}{
+			"task_id": progress.TaskID,
+			"error":   progress.ErrorMessage,
+		})
+		
+		// Update task status to failed
+		err := s.jobTaskRepo.UpdateTaskError(ctx, progress.TaskID, progress.ErrorMessage)
+		if err != nil {
+			debug.Error("Failed to update task error: %v", err)
+		}
+		
+		// Update job execution status to failed
+		task, err := s.jobTaskRepo.GetByID(ctx, progress.TaskID)
+		if err == nil {
+			// Wrap sql.DB in custom DB type
+			database := &db.DB{DB: s.db}
+			jobExecRepo := repository.NewJobExecutionRepository(database)
+			if err := jobExecRepo.UpdateStatus(ctx, task.JobExecutionID, models.JobExecutionStatusFailed); err != nil {
+				debug.Error("Failed to update job execution status: %v", err)
+			}
+			if err := jobExecRepo.UpdateErrorMessage(ctx, task.JobExecutionID, progress.ErrorMessage); err != nil {
+				debug.Error("Failed to update job execution error message: %v", err)
+			}
+		}
+		
+		return nil
+	}
+
+	// Forward to job scheduling service for normal progress updates
 	err := s.jobSchedulingService.ProcessTaskProgress(ctx, progress.TaskID, progress)
 	if err != nil {
 		return fmt.Errorf("failed to process task progress: %w", err)
@@ -370,7 +586,7 @@ func (s *JobWebSocketIntegration) HandleBenchmarkResult(ctx context.Context, age
 }
 
 // processCrackedHashes processes cracked hashes from a job progress update
-func (s *JobWebSocketIntegration) processCrackedHashes(ctx context.Context, taskID uuid.UUID, crackedHashes []string) error {
+func (s *JobWebSocketIntegration) processCrackedHashes(ctx context.Context, taskID uuid.UUID, crackedHashes []models.CrackedHash) error {
 	// Get task details
 	task, err := s.jobTaskRepo.GetByID(ctx, taskID)
 	if err != nil {
@@ -383,23 +599,98 @@ func (s *JobWebSocketIntegration) processCrackedHashes(ctx context.Context, task
 		return fmt.Errorf("failed to get job execution: %w", err)
 	}
 
+	// Start a transaction for updating cracked hashes
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to start transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	var crackedCount int
+	crackedAt := time.Now()
+
 	// Process each cracked hash
 	for _, crackedEntry := range crackedHashes {
-		// Parse hash:plain format
-		// This is a simplified version - actual implementation would need proper parsing
-		debug.Log("Processing cracked hash", map[string]interface{}{
-			"hashlist_id": jobExecution.HashlistID,
-			"entry":       crackedEntry,
-		})
+		hashValue := crackedEntry.Hash
+		password := crackedEntry.Plain
+		crackPos := crackedEntry.CrackPos
 
-		// TODO: Forward to crack update handler
-		// This would integrate with the existing crack update WebSocket endpoint
+		// Find the hash in the database
+		hashes, err := s.hashRepo.GetByHashValues(ctx, []string{hashValue})
+		if err != nil {
+			return fmt.Errorf("failed to find hash: %w", err)
+		}
+		
+		if len(hashes) == 0 {
+			debug.Log("Hash not found in hashlist", map[string]interface{}{
+				"hash_value":  hashValue,
+				"hashlist_id": jobExecution.HashlistID,
+			})
+			continue
+		}
+		
+		// For now, we'll use the first hash found
+		// In a production system, we'd need to verify this hash belongs to the correct hashlist
+		// by checking the hashlist_hashes junction table
+		hash := hashes[0]
+
+		// Update crack status
+		err = s.hashRepo.UpdateCrackStatus(tx, hash.ID, password, crackedAt, nil)
+		if err != nil {
+			debug.Log("Failed to update crack status", map[string]interface{}{
+				"hash_id": hash.ID,
+				"error":   err.Error(),
+			})
+			continue
+		}
+
+		crackedCount++
+		debug.Log("Successfully cracked hash", map[string]interface{}{
+			"hash_id":     hash.ID,
+			"hash_value":  hashValue,
+			"hashlist_id": jobExecution.HashlistID,
+			"crack_pos":   crackPos,
+			"password":    password,
+		})
+	}
+
+	// Update hashlist cracked count
+	if crackedCount > 0 {
+		err = s.hashlistRepo.IncrementCrackedCount(ctx, jobExecution.HashlistID, crackedCount)
+		if err != nil {
+			debug.Log("Failed to update hashlist cracked count", map[string]interface{}{
+				"hashlist_id": jobExecution.HashlistID,
+				"error":       err.Error(),
+			})
+		}
+		
+		// Update job task crack count
+		err = s.jobTaskRepo.UpdateCrackCount(ctx, taskID, crackedCount)
+		if err != nil {
+			debug.Log("Failed to update job task crack count", map[string]interface{}{
+				"task_id": taskID,
+				"error":   err.Error(),
+			})
+		}
+	}
+
+	// Commit the transaction
+	err = tx.Commit()
+	if err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
 	// Update hashlist file to remove cracked hashes
-	err = s.hashlistSyncService.UpdateHashlistAfterCracks(ctx, jobExecution.HashlistID, crackedHashes)
+	// Convert CrackedHash array to string array for backward compatibility
+	var crackedHashStrings []string
+	for _, cracked := range crackedHashes {
+		// Format as hash:plain for hashlist sync
+		crackedHashStrings = append(crackedHashStrings, fmt.Sprintf("%s:%s", cracked.Hash, cracked.Plain))
+	}
+	
+	err = s.hashlistSyncService.UpdateHashlistAfterCracks(ctx, jobExecution.HashlistID, crackedHashStrings)
 	if err != nil {
-		debug.Log("Failed to update hashlist after cracks", map[string]interface{}{
+		debug.Log("Failed to update hashlist file after cracks", map[string]interface{}{
 			"hashlist_id": jobExecution.HashlistID,
 			"error":       err.Error(),
 		})

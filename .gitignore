@@ -74,4 +74,8 @@ backend/certs/
 .krakenhashes/
 
 # Claude configuration
-CLAUDE.md 
+CLAUDE.md
+
+# Logs
+logs/
+*.log 

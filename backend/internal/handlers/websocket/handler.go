@@ -203,11 +203,18 @@ func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) {
 
 	debug.Info("Agent %d fully registered and ready", agent.ID)
 
-	// Update agent status to active
+	// Update agent status to active and update heartbeat
 	if err := h.agentService.UpdateAgentStatus(ctx, agent.ID, models.AgentStatusActive, nil); err != nil {
 		debug.Error("Failed to update agent status to active: %v", err)
 	} else {
 		debug.Info("Successfully updated agent %d status to active", agent.ID)
+	}
+	
+	// Update heartbeat timestamp
+	if err := h.agentService.UpdateHeartbeat(ctx, agent.ID); err != nil {
+		debug.Error("Failed to update agent heartbeat: %v", err)
+	} else {
+		debug.Info("Successfully updated heartbeat for agent %d", agent.ID)
 	}
 
 	// Register client
@@ -273,6 +280,15 @@ func (c *Client) readPump() {
 			debug.Error("Agent %d: Failed to set read deadline: %v", c.agent.ID, err)
 			return err
 		}
+		
+		// Update heartbeat when we receive a pong (proof of active connection)
+		if err := c.handler.agentService.UpdateHeartbeat(c.ctx, c.agent.ID); err != nil {
+			debug.Error("Agent %d: Failed to update heartbeat on pong: %v", c.agent.ID, err)
+			// Don't return error - pong handling should continue
+		} else {
+			debug.Info("Agent %d: Updated heartbeat on pong", c.agent.ID)
+		}
+		
 		debug.Info("Agent %d: Successfully updated read deadline after pong", c.agent.ID)
 		return nil
 	})

@@ -113,12 +113,13 @@ type PresetJobBasic struct {
 type JobExecutionStatus string
 
 const (
-	JobExecutionStatusPending   JobExecutionStatus = "pending"
-	JobExecutionStatusRunning   JobExecutionStatus = "running"
-	JobExecutionStatusPaused    JobExecutionStatus = "paused"
-	JobExecutionStatusCompleted JobExecutionStatus = "completed"
-	JobExecutionStatusFailed    JobExecutionStatus = "failed"
-	JobExecutionStatusCancelled JobExecutionStatus = "cancelled"
+	JobExecutionStatusPending     JobExecutionStatus = "pending"
+	JobExecutionStatusRunning     JobExecutionStatus = "running"
+	JobExecutionStatusPaused      JobExecutionStatus = "paused"
+	JobExecutionStatusCompleted   JobExecutionStatus = "completed"
+	JobExecutionStatusFailed      JobExecutionStatus = "failed"
+	JobExecutionStatusCancelled   JobExecutionStatus = "cancelled"
+	JobExecutionStatusInterrupted JobExecutionStatus = "interrupted"
 )
 
 // JobExecution represents an actual running instance of a preset job
@@ -128,12 +129,14 @@ type JobExecution struct {
 	HashlistID        int64              `json:"hashlist_id" db:"hashlist_id"`
 	Status            JobExecutionStatus `json:"status" db:"status"`
 	Priority          int                `json:"priority" db:"priority"`
+	MaxAgents         int                `json:"max_agents" db:"max_agents"`
 	TotalKeyspace     *int64             `json:"total_keyspace" db:"total_keyspace"`
 	ProcessedKeyspace int64              `json:"processed_keyspace" db:"processed_keyspace"`
 	AttackMode        AttackMode         `json:"attack_mode" db:"attack_mode"`
 	CreatedAt         time.Time          `json:"created_at" db:"created_at"`
 	StartedAt         *time.Time         `json:"started_at" db:"started_at"`
 	CompletedAt       *time.Time         `json:"completed_at" db:"completed_at"`
+	UpdatedAt         time.Time          `json:"updated_at" db:"updated_at"`
 	ErrorMessage      *string            `json:"error_message" db:"error_message"`
 	InterruptedBy     *uuid.UUID         `json:"interrupted_by" db:"interrupted_by"`
 
@@ -167,11 +170,18 @@ type JobTask struct {
 	KeyspaceProcessed int64         `json:"keyspace_processed" db:"keyspace_processed"`
 	BenchmarkSpeed   *int64        `json:"benchmark_speed" db:"benchmark_speed"` // hashes per second
 	ChunkDuration    int           `json:"chunk_duration" db:"chunk_duration"`    // seconds
+	CreatedAt        time.Time     `json:"created_at" db:"created_at"`
 	AssignedAt       time.Time     `json:"assigned_at" db:"assigned_at"`
 	StartedAt        *time.Time    `json:"started_at" db:"started_at"`
 	CompletedAt      *time.Time    `json:"completed_at" db:"completed_at"`
+	UpdatedAt        time.Time     `json:"updated_at" db:"updated_at"`
 	LastCheckpoint   *time.Time    `json:"last_checkpoint" db:"last_checkpoint"`
 	ErrorMessage     *string       `json:"error_message" db:"error_message"`
+	
+	// Enhanced fields for detailed chunk tracking
+	CrackCount      int    `json:"crack_count" db:"crack_count"`
+	DetailedStatus  string `json:"detailed_status" db:"detailed_status"`
+	RetryCount      int    `json:"retry_count" db:"retry_count"`
 
 	// Populated fields from JOINs
 	AgentName string `json:"agent_name,omitempty" db:"agent_name"`
@@ -272,12 +282,57 @@ type JobTaskAssignment struct {
 
 // JobProgress represents a progress update from an agent
 type JobProgress struct {
-	TaskID            uuid.UUID `json:"task_id"`
-	KeyspaceProcessed int64     `json:"keyspace_processed"`
-	HashRate          int64     `json:"hash_rate"`         // Current hashes per second
-	Temperature       *float64  `json:"temperature"`       // GPU temperature
-	Utilization       *float64  `json:"utilization"`       // GPU utilization percentage
-	TimeRemaining     *int      `json:"time_remaining"`    // Estimated seconds remaining
-	CrackedCount      int       `json:"cracked_count"`     // Number of hashes cracked in this update
-	CrackedHashes     []string  `json:"cracked_hashes"`    // Actual cracked hash:plain pairs
+	TaskID            uuid.UUID      `json:"task_id"`
+	KeyspaceProcessed int64          `json:"keyspace_processed"`
+	HashRate          int64          `json:"hash_rate"`         // Current hashes per second
+	Temperature       *float64       `json:"temperature"`       // GPU temperature
+	Utilization       *float64       `json:"utilization"`       // GPU utilization percentage
+	TimeRemaining     *int           `json:"time_remaining"`    // Estimated seconds remaining
+	CrackedCount      int            `json:"cracked_count"`     // Number of hashes cracked in this update
+	CrackedHashes     []CrackedHash  `json:"cracked_hashes"`    // Detailed crack information
+	Status            string         `json:"status,omitempty"`  // Task status (running, completed, failed)
+	ErrorMessage      string         `json:"error_message,omitempty"` // Error message if status is failed
+}
+
+// CrackedHash represents a cracked hash with all available information
+type CrackedHash struct {
+	Hash         string `json:"hash"`          // The original hash
+	Salt         string `json:"salt"`          // Salt (if applicable)
+	Plain        string `json:"plain"`         // Plain text password
+	HexPlain     string `json:"hex_plain"`     // Hex representation of plain
+	CrackPos     string `json:"crack_pos"`     // Position in keyspace where found
+	FullLine     string `json:"full_line"`     // Full output line for reference
+}
+
+// BenchmarkRequest represents a request to test speed for a specific job configuration
+// Now enhanced to include full job configuration for real-world speed testing
+type BenchmarkRequest struct {
+	RequestID      string     `json:"request_id"`
+	TaskID         uuid.UUID  `json:"task_id"`
+	HashlistID     int64      `json:"hashlist_id"`
+	HashlistPath   string     `json:"hashlist_path"`
+	AttackMode     AttackMode `json:"attack_mode"`
+	HashType       int        `json:"hash_type"`
+	WordlistPaths  []string   `json:"wordlist_paths"`
+	RulePaths      []string   `json:"rule_paths"`
+	Mask           string     `json:"mask,omitempty"`
+	BinaryPath     string     `json:"binary_path"`
+	TestDuration   int        `json:"test_duration"` // How long to run test (seconds)
+}
+
+// BenchmarkResult represents the result of a speed test
+type BenchmarkResult struct {
+	RequestID      string        `json:"request_id"`
+	TaskID         uuid.UUID     `json:"task_id"`
+	TotalSpeed     int64         `json:"total_speed"` // Total H/s across all devices
+	DeviceSpeeds   []DeviceSpeed `json:"device_speeds"`
+	Success        bool          `json:"success"`
+	ErrorMessage   string        `json:"error_message,omitempty"`
+}
+
+// DeviceSpeed represents speed for a single device
+type DeviceSpeed struct {
+	DeviceID   int    `json:"device_id"`
+	DeviceName string `json:"device_name"`
+	Speed      int64  `json:"speed"` // H/s for this device
 }

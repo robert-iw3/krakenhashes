@@ -83,6 +83,12 @@ type Manager interface {
 
 	// GetLatestActive returns the latest active version for a binary type
 	GetLatestActive(ctx context.Context, binaryType BinaryType) (*BinaryVersion, error)
+
+	// ExtractBinary extracts the binary archive to a local directory for server use
+	ExtractBinary(ctx context.Context, id int64) error
+
+	// GetLocalBinaryPath returns the path to the extracted binary for server-side execution
+	GetLocalBinaryPath(ctx context.Context, id int64) (string, error)
 }
 
 // Store defines the interface for binary version storage operations

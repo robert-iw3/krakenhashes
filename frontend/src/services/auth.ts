@@ -44,6 +44,18 @@ export const isAuthenticated = async (): Promise<AuthCheckResponse> => {
   }
 };
 
+export const refreshToken = async (): Promise<LoginResponse> => {
+  try {
+    const response = await api.post<LoginResponse>('/api/refresh-token');
+    return response.data;
+  } catch (error: unknown) {
+    if (error && typeof error === 'object' && 'response' in error) {
+      throw (error as any).response?.data;
+    }
+    throw new Error('An error occurred during token refresh');
+  }
+};
+
 // Admin Auth Settings API
 export const getAuthSettings = async (): Promise<AuthSettings> => {
   const response = await api.get<AuthSettings>('/api/admin/auth/settings');

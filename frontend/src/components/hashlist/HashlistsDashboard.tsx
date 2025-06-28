@@ -39,6 +39,7 @@ import { api } from '../../services/api';
 import { AxiosResponse, AxiosError } from 'axios';
 import useDebounce from '../../hooks/useDebounce';
 import { useSnackbar } from 'notistack';
+import { useNavigate } from 'react-router-dom';
 import HashlistUploadForm from './HashlistUploadForm';
 import { format, parse, isValid, parseISO } from 'date-fns'; // Import parse and the format string
 
@@ -94,6 +95,7 @@ export default function HashlistsDashboard() {
   const debouncedNameFilter = useDebounce(nameFilter, 500); // Debounce name filter input
   const queryClient = useQueryClient(); // Get query client instance
   const { enqueueSnackbar } = useSnackbar(); // Snackbar hook
+  const navigate = useNavigate();
 
   // Update useQuery to include sorting and filtering parameters
   const { data: apiResponse, isLoading, isError: isFetchError } = useQuery<ApiHashlistResponse, AxiosError>({
@@ -368,7 +370,22 @@ export default function HashlistsDashboard() {
             )}
             {!isLoading && !deleteMutation.isPending && hashlists.map((hashlist) => (
               <TableRow key={hashlist.id}>
-                <TableCell>{hashlist.name}</TableCell>
+                <TableCell>
+                  <Typography
+                    component="a"
+                    sx={{
+                      cursor: 'pointer',
+                      color: 'primary.main',
+                      textDecoration: 'none',
+                      '&:hover': {
+                        textDecoration: 'underline'
+                      }
+                    }}
+                    onClick={() => navigate(`/hashlists/${hashlist.id}`)}
+                  >
+                    {hashlist.name}
+                  </Typography>
+                </TableCell>
                 <TableCell>
                   {hashlist.clientName || '-'}
                 </TableCell>

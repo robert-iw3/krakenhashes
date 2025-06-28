@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/binary"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/config"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/db"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/email"
@@ -16,9 +17,11 @@ import (
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/auth"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/middleware"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/repository"
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/rule"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/services"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/tls"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/websocket"
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/wordlist"
 	"github.com/ZerkerEOD/krakenhashes/backend/pkg/debug"
 	"github.com/gorilla/mux"
 )
@@ -67,7 +70,7 @@ func CORSMiddleware(next http.Handler) http.Handler {
 
 		// Set standard CORS headers
 		w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, X-API-Key, X-Agent-ID, Origin, Cookie")
+		w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, X-API-Key, X-Agent-ID, Origin, Cookie, Cache-Control")
 		w.Header().Set("Access-Control-Allow-Credentials", "true")
 		w.Header().Set("Access-Control-Max-Age", "3600")
 		w.Header().Set("Access-Control-Expose-Headers", "Content-Length, Content-Type, Authorization")
@@ -84,7 +87,7 @@ func CORSMiddleware(next http.Handler) http.Handler {
 				debug.Info("Detected potential multipart/form-data preflight request")
 				// Ensure we explicitly allow content-type header for multipart uploads
 				w.Header().Set("Access-Control-Allow-Headers",
-					"Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, X-API-Key, X-Agent-ID, Origin, Cookie")
+					"Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, X-API-Key, X-Agent-ID, Origin, Cookie, Cache-Control")
 			}
 
 			// Special handling for upload endpoints
@@ -93,7 +96,7 @@ func CORSMiddleware(next http.Handler) http.Handler {
 
 				// Ensure we explicitly allow content-type header for multipart uploads
 				w.Header().Set("Access-Control-Allow-Headers",
-					"Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, X-API-Key, X-Agent-ID, Origin, Cookie")
+					"Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, X-API-Key, X-Agent-ID, Origin, Cookie, Cache-Control")
 
 				// Ensure origin is set for upload endpoints
 				if origin != "" {
@@ -139,7 +142,7 @@ func CORSMiddleware(next http.Handler) http.Handler {
  *   - JWT authentication (protected routes)
  *   - API Key authentication (agent routes)
  */
-func SetupRoutes(r *mux.Router, sqlDB *sql.DB, tlsProvider tls.Provider, agentService *services.AgentService) {
+func SetupRoutes(r *mux.Router, sqlDB *sql.DB, tlsProvider tls.Provider, agentService *services.AgentService, wordlistManager wordlist.Manager, ruleManager rule.Manager, binaryManager binary.Manager) {
 	debug.Info("Initializing route configuration")
 
 	// Create our custom DB wrapper
@@ -191,24 +194,29 @@ func SetupRoutes(r *mux.Router, sqlDB *sql.DB, tlsProvider tls.Provider, agentSe
 	jwtRouter.Use(middleware.RequireAuth(database))
 	jwtRouter.Use(loggingMiddleware)
 
+	// Add token refresh endpoint (requires authentication)
+	authHandler := auth.NewHandler(database, emailService)
+	jwtRouter.HandleFunc("/refresh-token", authHandler.RefreshTokenHandler).Methods("POST", "OPTIONS")
+	debug.Info("Configured token refresh endpoint: /refresh-token")
+
 	// Create system settings handler for users (read-only access to max priority)
 	userSystemSettingsHandler := adminsettings.NewSystemSettingsHandler(systemSettingsRepo, presetJobRepo)
 
 	// Setup feature-specific routes
 	SetupDashboardRoutes(jwtRouter)
 	SetupHashlistRoutes(jwtRouter)
-	SetupJobRoutes(jwtRouter)
+	// Note: Skipping SetupJobRoutes(jwtRouter) as it conflicts with SetupUserRoutes - the real job routes are in SetupUserRoutes
 	SetupAgentRoutes(jwtRouter, agentService)
 	SetupVoucherRoutes(jwtRouter, services.NewClaimVoucherService(repository.NewClaimVoucherRepository(database)))
 
 	// Add user accessible route for max priority (read-only)
 	jwtRouter.HandleFunc("/settings/max-priority", userSystemSettingsHandler.GetMaxPriorityForUsers).Methods(http.MethodGet, http.MethodOptions)
 
-	SetupAdminRoutes(jwtRouter, database, emailService, adminJobsHandler) // Pass adminJobsHandler
-	SetupUserRoutes(jwtRouter, database)
+	SetupAdminRoutes(jwtRouter, database, emailService, adminJobsHandler, binaryManager) // Pass adminJobsHandler and binaryManager
+	SetupUserRoutes(jwtRouter, database, appConfig.DataDir, binaryManager)
 	SetupMFARoutes(jwtRouter, mfaHandler, database, emailService)
 	// Use the enhanced WebSocket setup with job integration
-	SetupWebSocketWithJobRoutes(r, agentService, tlsProvider, sqlDB, appConfig)
+	SetupWebSocketWithJobRoutes(r, agentService, tlsProvider, sqlDB, appConfig, wordlistManager, ruleManager, binaryManager)
 	SetupBinaryRoutes(jwtRouter, sqlDB, appConfig, agentService)
 
 	// Setup wordlist and rule routes
@@ -218,8 +226,11 @@ func SetupRoutes(r *mux.Router, sqlDB *sql.DB, tlsProvider tls.Provider, agentSe
 	// Setup file download routes for agents
 	SetupFileDownloadRoutes(r, sqlDB, appConfig, agentService)
 
+	// Create jobs handler for hashlist routes
+	jobsHandler := CreateJobsHandler(database, appConfig.DataDir, binaryManager)
+	
 	// Register Hashlist Management Routes (includes user/agent hashlist, clients, hash types, hash search)
-	registerHashlistRoutes(jwtRouter, sqlDB, appConfig, agentService)
+	registerHashlistRoutes(jwtRouter, sqlDB, appConfig, agentService, jobsHandler)
 
 	// Setup WebSocket Routes
 	debug.Info("Setting up WebSocket routes...")

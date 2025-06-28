@@ -27,6 +27,7 @@ type Manager interface {
 	UpdateRule(ctx context.Context, id int, req *models.RuleUpdateRequest, userID uuid.UUID) (*models.Rule, error)
 	DeleteRule(ctx context.Context, id int) error
 	VerifyRule(ctx context.Context, id int, req *models.RuleVerifyRequest) error
+	UpdateRuleFileInfo(ctx context.Context, id int, md5Hash string, fileSize int64) error
 	AddRuleTag(ctx context.Context, id int, tag string, userID uuid.UUID) error
 	DeleteRuleTag(ctx context.Context, id int, tag string) error
 	GetRulePath(filename string, ruleType string) string
@@ -46,6 +47,7 @@ type RuleStore interface {
 	UpdateRule(ctx context.Context, rule *models.Rule) error
 	DeleteRule(ctx context.Context, id int) error
 	UpdateRuleVerification(ctx context.Context, id int, status string, ruleCount *int64) error
+	UpdateRuleFileInfo(ctx context.Context, id int, md5Hash string, fileSize int64) error
 
 	// Tag operations
 	GetRuleTags(ctx context.Context, id int) ([]string, error)
@@ -279,6 +281,11 @@ func (m *manager) VerifyRule(ctx context.Context, id int, req *models.RuleVerify
 
 	// Update verification status
 	return m.store.UpdateRuleVerification(ctx, id, req.Status, req.RuleCount)
+}
+
+// UpdateRuleFileInfo updates a rule's file information (MD5 hash and file size)
+func (m *manager) UpdateRuleFileInfo(ctx context.Context, id int, md5Hash string, fileSize int64) error {
+	return m.store.UpdateRuleFileInfo(ctx, id, md5Hash, fileSize)
 }
 
 // AddRuleTag adds a tag to a rule

@@ -8,6 +8,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../services/api';
+import { useNavigate } from 'react-router-dom';
 
 const schema = z.object({
   name: z.string().min(1, 'Name is required'),
@@ -26,6 +27,7 @@ export default function HashlistUploadForm({ onSuccess }: HashlistUploadFormProp
   const [file, setFile] = useState<File | null>(null);
   const [uploadProgress, setUploadProgress] = useState(0);
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   
   const { control, handleSubmit, reset, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -77,10 +79,18 @@ export default function HashlistUploadForm({ onSuccess }: HashlistUploadFormProp
         }
       });
     },
-    onSuccess: () => {
-      if (onSuccess) {
+    onSuccess: (response) => {
+      // The backend returns the created hashlist data
+      const hashlistId = response.data?.id || response.data?.data?.id;
+      
+      if (hashlistId) {
+        // Navigate to the hashlist detail page
+        navigate(`/hashlists/${hashlistId}`);
+      } else if (onSuccess) {
+        // Fallback to the provided callback if no ID is returned
         onSuccess();
       }
+      
       reset();
       setFile(null);
       setUploadProgress(0);

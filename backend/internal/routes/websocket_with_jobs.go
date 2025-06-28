@@ -4,18 +4,25 @@ import (
 	cryptotls "crypto/tls"
 	"database/sql"
 
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/binary"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/config"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/db"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/auth/api"
 	wshandler "github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/websocket"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/integration"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/repository"
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/rule"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/services"
 	wsservice "github.com/ZerkerEOD/krakenhashes/backend/internal/services/websocket"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/tls"
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/wordlist"
 	"github.com/ZerkerEOD/krakenhashes/backend/pkg/debug"
 	"github.com/gorilla/mux"
 )
+
+// JobIntegrationManager is a global reference to the job integration manager
+// This is a temporary solution until we refactor main to properly manage lifecycle
+var JobIntegrationManager *integration.JobIntegrationManager
 
 // SetupWebSocketWithJobRoutes configures WebSocket routes with job execution integration
 func SetupWebSocketWithJobRoutes(
@@ -24,6 +31,9 @@ func SetupWebSocketWithJobRoutes(
 	tlsProvider tls.Provider,
 	sqlDB *sql.DB,
 	appConfig *config.Config,
+	wordlistManager wordlist.Manager,
+	ruleManager rule.Manager,
+	binaryManager binary.Manager,
 ) {
 	debug.Debug("Setting up WebSocket routes with job integration")
 	
@@ -34,11 +44,13 @@ func SetupWebSocketWithJobRoutes(
 	benchmarkRepo := repository.NewBenchmarkRepository(database)
 	presetJobRepo := repository.NewPresetJobRepository(sqlDB)
 	hashlistRepo := repository.NewHashListRepository(database)
+	hashRepo := repository.NewHashRepository(database)
 	jobTaskRepo := repository.NewJobTaskRepository(database)
 	agentRepo := repository.NewAgentRepository(database)
 	jobExecutionRepo := repository.NewJobExecutionRepository(database)
 	systemSettingsRepo := repository.NewSystemSettingsRepository(database)
 	agentHashlistRepo := repository.NewAgentHashlistRepository(database)
+	fileRepo := repository.NewFileRepository(database, appConfig.DataDir)
 	
 	// Create services
 	jobExecutionService := services.NewJobExecutionService(
@@ -50,7 +62,9 @@ func SetupWebSocketWithJobRoutes(
 		presetJobRepo,
 		hashlistRepo,
 		systemSettingsRepo,
-		"/usr/bin/hashcat", // hashcat binary path
+		fileRepo,
+		binaryManager,
+		"/usr/bin/hashcat", // hashcat binary path (deprecated, using binary manager now)
 		appConfig.DataDir,
 	)
 	
@@ -107,8 +121,13 @@ func SetupWebSocketWithJobRoutes(
 		benchmarkRepo,
 		presetJobRepo,
 		hashlistRepo,
+		hashRepo,
 		jobTaskRepo,
 		agentRepo,
+		sqlDB,
+		wordlistManager,
+		ruleManager,
+		binaryManager,
 	)
 	
 	// Set the job handler in the WebSocket service
@@ -122,10 +141,9 @@ func SetupWebSocketWithJobRoutes(
 	wsRouter.HandleFunc("/agent", wsHandler.ServeWS)
 	debug.Info("Configured WebSocket endpoint: /ws/agent with job integration and TLS: %v", tlsConfig != nil)
 	
-	// Start the job scheduler
-	// TODO: This should be started with a proper context from main()
-	// For now, we'll comment it out until we can properly manage the lifecycle
-	// jobIntegration.StartScheduler(context.Background())
+	// Return the job integration manager so it can be started from main
+	// Store it globally for now until we refactor the main function
+	JobIntegrationManager = jobIntegration
 	
 	if tlsConfig != nil {
 		debug.Debug("WebSocket TLS Configuration:")

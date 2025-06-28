@@ -248,6 +248,55 @@ func SetupFileDownloadRoutes(r *mux.Router, sqlDB *sql.DB, cfg *config.Config, a
 		}
 	}).Methods(http.MethodGet)
 
-	debug.Info("Registered file download routes for agents")
+	// Add hashlist download route for agents
+	// Create hashlist routes with API key authentication
+	hashlistRouter := r.PathPrefix("/api/agent/hashlists").Subrouter()
+	hashlistRouter.Use(api.APIKeyMiddleware(agentService))
+	
+	// Handler for /api/agent/hashlists/{id}/download
+	hashlistRouter.HandleFunc("/{id}/download", func(w http.ResponseWriter, r *http.Request) {
+		vars := mux.Vars(r)
+		hashlistID := vars["id"]
+		
+		debug.Info("Hashlist download request from agent: id=%s", hashlistID)
+		
+		// Build the hashlist file path
+		hashlistPath := filepath.Join(cfg.DataDir, "hashlists", fmt.Sprintf("%s.hash", hashlistID))
+		
+		debug.Info("Looking for hashlist at path: %s", hashlistPath)
+		
+		// Check if file exists
+		fileInfo, err := os.Stat(hashlistPath)
+		if err != nil {
+			debug.Error("Hashlist file not found: %s", hashlistPath)
+			http.Error(w, "Hashlist not found", http.StatusNotFound)
+			return
+		}
+		
+		// Open file
+		file, err := os.Open(hashlistPath)
+		if err != nil {
+			debug.Error("Failed to open hashlist file: %s - %v", hashlistPath, err)
+			http.Error(w, "Failed to open hashlist", http.StatusInternalServerError)
+			return
+		}
+		defer file.Close()
+		
+		// Set headers
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s.hash", hashlistID))
+		w.Header().Set("Content-Type", "text/plain")
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", fileInfo.Size()))
+		
+		// Stream file to response
+		written, err := io.Copy(w, file)
+		if err != nil {
+			debug.Error("Failed to stream hashlist file: %v", err)
+			// Can't send error response here as headers are already sent
+		} else {
+			debug.Info("Successfully sent hashlist %s to agent (%d bytes)", hashlistID, written)
+		}
+	}).Methods(http.MethodGet)
+
+	debug.Info("Registered file download routes for agents (including hashlists)")
 	return nil
 }

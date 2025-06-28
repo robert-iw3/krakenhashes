@@ -1,0 +1,98 @@
+import React from 'react';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  TablePagination,
+  Typography,
+  Box,
+} from '@mui/material';
+import JobRow from './JobRow';
+import { JobSummary, PaginationInfo } from '../../types/jobs';
+
+interface JobsTableProps {
+  jobs: JobSummary[];
+  pagination?: PaginationInfo;
+  onPageChange: (page: number) => void;
+  onPageSizeChange: (pageSize: number) => void;
+  currentPage: number;
+  pageSize: number;
+  onJobUpdated?: () => void;
+}
+
+const JobsTable: React.FC<JobsTableProps> = ({
+  jobs,
+  pagination,
+  onPageChange,
+  onPageSizeChange,
+  currentPage,
+  pageSize,
+  onJobUpdated,
+}) => {
+  const handleChangePage = (event: unknown, newPage: number) => {
+    onPageChange(newPage + 1); // Material-UI uses 0-based indexing
+  };
+
+  const handleChangeRowsPerPage = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const newPageSize = parseInt(event.target.value, 10);
+    onPageSizeChange(newPageSize);
+  };
+
+  if (!jobs || jobs.length === 0) {
+    return (
+      <Box sx={{ p: 4, textAlign: 'center' }}>
+        <Typography variant="h6" color="text.secondary">
+          No jobs found
+        </Typography>
+        <Typography variant="body2" color="text.secondary">
+          Create a new job from the Hashlists page to get started.
+        </Typography>
+      </Box>
+    );
+  }
+
+  return (
+    <>
+      <TableContainer>
+        <Table stickyHeader>
+          <TableHead>
+            <TableRow>
+              <TableCell>Job Name</TableCell>
+              <TableCell>Hashlist</TableCell>
+              <TableCell align="center">Dispatched / Searched</TableCell>
+              <TableCell align="center">Cracked</TableCell>
+              <TableCell align="center">Agents</TableCell>
+              <TableCell align="center">Priority</TableCell>
+              <TableCell align="center">Max Agents</TableCell>
+              <TableCell align="center">Actions</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {jobs.map((job) => (
+              <JobRow key={job.id} job={job} onJobUpdated={onJobUpdated} />
+            ))}
+          </TableBody>
+        </Table>
+      </TableContainer>
+      
+      {pagination && (
+        <TablePagination
+          rowsPerPageOptions={[25, 50, 100, 200]}
+          component="div"
+          count={pagination.total}
+          rowsPerPage={pageSize}
+          page={currentPage - 1} // Material-UI uses 0-based indexing
+          onPageChange={handleChangePage}
+          onRowsPerPageChange={handleChangeRowsPerPage}
+          showFirstButton
+          showLastButton
+        />
+      )}
+    </>
+  );
+};
+
+export default JobsTable;

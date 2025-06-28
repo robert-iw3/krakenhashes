@@ -395,10 +395,7 @@ func (fs *FileSync) DownloadFileFromInfo(ctx context.Context, fileInfo *FileInfo
 
 // DownloadFileWithInfoRetry downloads a file with retry logic using FileInfo struct
 func (fs *FileSync) DownloadFileWithInfoRetry(ctx context.Context, fileInfo *FileInfo, retryCount int) error {
-	if fileInfo.MD5Hash == "" {
-		debug.Error("Hash verification required but no MD5 hash provided for %s", fileInfo.Name)
-		return fmt.Errorf("MD5 hash verification required but no hash provided")
-	}
+	// Note: Empty MD5Hash means skip verification (used for hashlists)
 
 	// Get target directory based on file type
 	var targetDir string
@@ -406,13 +403,43 @@ func (fs *FileSync) DownloadFileWithInfoRetry(ctx context.Context, fileInfo *Fil
 
 	switch fileInfo.FileType {
 	case "wordlist":
-		// Use the main wordlists directory
+		// The backend includes the category in the Name field (e.g., "general/file.txt")
+		// We need to preserve this structure for proper organization
 		targetDir = fs.dataDirs.Wordlists
-		finalPath = filepath.Join(targetDir, fileInfo.Name)
+		
+		// Check if the name includes a category path
+		if strings.Contains(fileInfo.Name, "/") {
+			// Name includes category, use it as-is
+			finalPath = filepath.Join(targetDir, fileInfo.Name)
+			debug.Info("Wordlist download - Name includes category: %s -> %s", fileInfo.Name, finalPath)
+		} else if fileInfo.Category != "" {
+			// Use category field if available
+			finalPath = filepath.Join(targetDir, fileInfo.Category, fileInfo.Name)
+			debug.Info("Wordlist download - Using category field: %s/%s -> %s", fileInfo.Category, fileInfo.Name, finalPath)
+		} else {
+			// No category, save to root wordlists directory
+			finalPath = filepath.Join(targetDir, fileInfo.Name)
+			debug.Info("Wordlist download - No category: %s -> %s", fileInfo.Name, finalPath)
+		}
 	case "rule":
-		// Use the main rules directory
+		// The backend includes the category in the Name field (e.g., "hashcat/file.rule")
+		// We need to preserve this structure for proper organization
 		targetDir = fs.dataDirs.Rules
-		finalPath = filepath.Join(targetDir, fileInfo.Name)
+		
+		// Check if the name includes a category path
+		if strings.Contains(fileInfo.Name, "/") {
+			// Name includes category, use it as-is
+			finalPath = filepath.Join(targetDir, fileInfo.Name)
+			debug.Info("Rule download - Name includes category: %s -> %s", fileInfo.Name, finalPath)
+		} else if fileInfo.Category != "" {
+			// Use category field if available
+			finalPath = filepath.Join(targetDir, fileInfo.Category, fileInfo.Name)
+			debug.Info("Rule download - Using category field: %s/%s -> %s", fileInfo.Category, fileInfo.Name, finalPath)
+		} else {
+			// No category, save to root rules directory
+			finalPath = filepath.Join(targetDir, fileInfo.Name)
+			debug.Info("Rule download - No category: %s -> %s", fileInfo.Name, finalPath)
+		}
 	case "binary":
 		// For binaries, create a directory structure using the binary ID
 		if fileInfo.ID <= 0 {
@@ -435,6 +462,7 @@ func (fs *FileSync) DownloadFileWithInfoRetry(ctx context.Context, fileInfo *Fil
 		// Use the main hashlists directory
 		targetDir = fs.dataDirs.Hashlists
 		finalPath = filepath.Join(targetDir, fileInfo.Name)
+		debug.Info("Hashlist download - Target dir: %s, Final path: %s", targetDir, finalPath)
 	default:
 		debug.Error("Unsupported file type: %s", fileInfo.FileType)
 		return fmt.Errorf("unsupported file type: %s", fileInfo.FileType)
@@ -449,13 +477,12 @@ func (fs *FileSync) DownloadFileWithInfoRetry(ctx context.Context, fileInfo *Fil
 		return ctx.Err()
 	}
 
-	// Create target directory if it doesn't exist (for non-binary files)
-	if fileInfo.FileType != "binary" {
-		if err := os.MkdirAll(targetDir, 0750); err != nil {
-			debug.Error("Failed to create target directory %s: %v", targetDir, err)
-			return fs.retryOrFailInfo(ctx, fileInfo, retryCount,
-				fmt.Errorf("failed to create target directory: %w", err))
-		}
+	// Create parent directory for the final file path
+	parentDir := filepath.Dir(finalPath)
+	if err := os.MkdirAll(parentDir, 0750); err != nil {
+		debug.Error("Failed to create parent directory %s: %v", parentDir, err)
+		return fs.retryOrFailInfo(ctx, fileInfo, retryCount,
+			fmt.Errorf("failed to create parent directory: %w", err))
 	}
 
 	tempPath := finalPath + ".tmp"
@@ -473,7 +500,14 @@ func (fs *FileSync) DownloadFileWithInfoRetry(ctx context.Context, fileInfo *Fil
 	defer os.Remove(tempPath) // Clean up temp file on error
 
 	// Create download URL
-	url := fmt.Sprintf("%s/api/files/%s/%s", fs.urlConfig.BaseURL, fileInfo.FileType, fileInfo.Name)
+	var url string
+	if fileInfo.FileType == "hashlist" && fileInfo.ID > 0 {
+		// Hashlists use a different endpoint that requires the ID
+		url = fmt.Sprintf("%s/api/agent/hashlists/%d/download", fs.urlConfig.BaseURL, fileInfo.ID)
+	} else {
+		// Other file types use the generic file endpoint
+		url = fmt.Sprintf("%s/api/files/%s/%s", fs.urlConfig.BaseURL, fileInfo.FileType, fileInfo.Name)
+	}
 	debug.Info("Downloading file from %s", url)
 
 	// Create request
@@ -524,13 +558,18 @@ func (fs *FileSync) DownloadFileWithInfoRetry(ctx context.Context, fileInfo *Fil
 			fmt.Errorf("failed to close temporary file: %w", err))
 	}
 
-	// Verify MD5 hash
-	downloadedHash := fmt.Sprintf("%x", h.Sum(nil))
-	if downloadedHash != fileInfo.MD5Hash {
-		debug.Error("MD5 hash mismatch for %s: expected %s, got %s",
-			fileInfo.Name, fileInfo.MD5Hash, downloadedHash)
-		return fs.retryOrFailInfo(ctx, fileInfo, retryCount,
-			fmt.Errorf("md5 hash mismatch: expected %s, got %s", fileInfo.MD5Hash, downloadedHash))
+	// Verify MD5 hash if provided
+	if fileInfo.MD5Hash != "" {
+		downloadedHash := fmt.Sprintf("%x", h.Sum(nil))
+		if downloadedHash != fileInfo.MD5Hash {
+			debug.Error("MD5 hash mismatch for %s: expected %s, got %s",
+				fileInfo.Name, fileInfo.MD5Hash, downloadedHash)
+			return fs.retryOrFailInfo(ctx, fileInfo, retryCount,
+				fmt.Errorf("md5 hash mismatch: expected %s, got %s", fileInfo.MD5Hash, downloadedHash))
+		}
+		debug.Info("MD5 hash verified for %s", fileInfo.Name)
+	} else {
+		debug.Info("Skipping MD5 verification for %s (no hash provided)", fileInfo.Name)
 	}
 
 	// Move temporary file to final location
@@ -796,8 +835,16 @@ func (fs *FileSync) ExtractBinary7z(archivePath, targetDir string) error {
 		}
 
 		// Set executable permissions for binary files
-		if strings.HasSuffix(file.Name, ".bin") || !strings.Contains(file.Name, ".") {
-			if err := os.Chmod(outPath, 0750); err != nil {
+		// Check if this is likely an executable (hashcat, hashcat.exe, hashcat.bin, etc.)
+		baseName := filepath.Base(file.Name)
+		isExecutable := strings.HasPrefix(baseName, "hashcat") || 
+			strings.HasSuffix(file.Name, ".bin") || 
+			strings.HasSuffix(file.Name, ".exe") ||
+			(!strings.Contains(baseName, ".") && !file.FileInfo().IsDir())
+		
+		if isExecutable {
+			debug.Info("Setting executable permissions for %s", outPath)
+			if err := os.Chmod(outPath, 0755); err != nil {
 				debug.Warning("Failed to set executable permissions for %s: %v", outPath, err)
 				// Continue despite this error
 			}

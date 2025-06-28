@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { User } from '../types/auth';
 import { getUserProfile } from '../services/user';
-import { isAuthenticated } from '../services/auth';
+import { isAuthenticated, refreshToken } from '../services/auth';
 
 interface AuthContextType {
   isAuth: boolean;
@@ -11,6 +11,7 @@ interface AuthContextType {
   userRole: string | null;
   setUserRole: (role: string | null) => void;
   checkAuthStatus: () => Promise<boolean>;
+  isLoading: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -19,8 +20,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isAuth, setAuth] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const checkAuthStatus = useCallback(async () => {
+  const checkAuthStatus = useCallback(async (attemptRefresh = true): Promise<boolean> => {
     try {
       const authCheck = await isAuthenticated();
       setAuth(authCheck.authenticated);
@@ -29,20 +31,50 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (authCheck.authenticated) {
         const profile = await getUserProfile();
         setUser(profile);
+        return true;
       } else {
+        // If not authenticated and refresh allowed, try to refresh token
+        if (attemptRefresh) {
+          try {
+            console.debug('[Auth] Attempting token refresh...');
+            await refreshToken();
+            // Retry auth check without refresh to avoid infinite loop
+            return await checkAuthStatus(false);
+          } catch (refreshError) {
+            console.debug('[Auth] Token refresh failed:', refreshError);
+          }
+        }
+        
         setUser(null);
         setUserRole(null);
+        return false;
       }
-      
-      return authCheck.authenticated;
-    } finally {
+    } catch (error) {
+      console.error('[Auth] Auth check failed:', error);
+      setAuth(false);
+      setUser(null);
+      setUserRole(null);
+      return false;
     }
   }, []);
 
   // Initial auth check
   useEffect(() => {
-    checkAuthStatus();
-  }, [checkAuthStatus]);
+    let isMounted = true;
+    
+    const performInitialCheck = async () => {
+      if (isMounted) {
+        await checkAuthStatus();
+        setIsLoading(false);
+      }
+    };
+    
+    performInitialCheck();
+    
+    return () => {
+      isMounted = false;
+    };
+  }, []); // Empty dependency array for initial check only
 
   // Check auth on window focus
   useEffect(() => {
@@ -52,7 +84,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     window.addEventListener('focus', handleFocus);
     return () => window.removeEventListener('focus', handleFocus);
-  }, [checkAuthStatus]);
+  }, []); // Remove checkAuthStatus dependency
 
   // Check auth on visibility change (tab switch)
   useEffect(() => {
@@ -64,7 +96,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [checkAuthStatus]);
+  }, []); // Remove checkAuthStatus dependency
 
   // Periodic auth check when authenticated
   useEffect(() => {
@@ -75,7 +107,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }, 5 * 60 * 1000); // Check every 5 minutes
 
     return () => clearInterval(interval);
-  }, [isAuth, checkAuthStatus]);
+  }, [isAuth]); // Remove checkAuthStatus dependency
+
+  // Periodic token refresh to prevent expiration
+  useEffect(() => {
+    if (!isAuth) return;
+
+    const refreshInterval = setInterval(async () => {
+      try {
+        console.debug('[Auth] Performing periodic token refresh...');
+        await refreshToken();
+        console.debug('[Auth] Periodic token refresh successful');
+      } catch (error) {
+        console.error('[Auth] Periodic token refresh failed:', error);
+        // Force auth check which may trigger login redirect
+        checkAuthStatus();
+      }
+    }, 6 * 24 * 60 * 60 * 1000); // Refresh every 6 days (before 7-day expiration)
+
+    return () => clearInterval(refreshInterval);
+  }, [isAuth]); // Remove checkAuthStatus dependency
 
   return (
     <AuthContext.Provider 
@@ -86,7 +137,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUser, 
         userRole, 
         setUserRole,
-        checkAuthStatus
+        checkAuthStatus,
+        isLoading
       }}
     >
       {children}

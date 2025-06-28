@@ -3,20 +3,101 @@ package routes
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/binary"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/db"
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/jobs"
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/repository"
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/rule"
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/services"
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/wordlist"
 	"github.com/ZerkerEOD/krakenhashes/backend/pkg/debug"
 	"github.com/ZerkerEOD/krakenhashes/backend/pkg/jwt"
-	"github.com/ZerkerEOD/krakenhashes/backend/pkg/password"
 	"github.com/gorilla/mux"
 	"golang.org/x/crypto/bcrypt"
 )
 
+// CreateJobsHandler creates and returns the jobs handler
+func CreateJobsHandler(database *db.DB, dataDir string, binaryManager binary.Manager) *jobs.UserJobsHandler {
+	// Create repositories
+	dbWrapper := &db.DB{DB: database.DB}
+	jobExecRepo := repository.NewJobExecutionRepository(dbWrapper)
+	jobTaskRepo := repository.NewJobTaskRepository(dbWrapper)
+	hashlistRepo := repository.NewHashListRepository(dbWrapper)
+	presetJobRepo := repository.NewPresetJobRepository(database.DB)
+	benchmarkRepo := repository.NewBenchmarkRepository(dbWrapper)
+	agentHashlistRepo := repository.NewAgentHashlistRepository(dbWrapper)
+	agentRepo := repository.NewAgentRepository(dbWrapper)
+	systemSettingsRepo := repository.NewSystemSettingsRepository(dbWrapper)
+	fileRepo := repository.NewFileRepository(dbWrapper, dataDir)
+	
+	// Create client repository
+	clientRepo := repository.NewClientRepository(dbWrapper)
+	
+	// Create additional repositories for job creation
+	workflowRepo := repository.NewJobWorkflowRepository(database.DB)
+	wordlistStore := wordlist.NewStore(database.DB)
+	ruleStore := rule.NewStore(database.DB)
+	binaryStore := binary.NewStore(database.DB)
+	
+	// Create job execution service
+	jobExecutionService := services.NewJobExecutionService(
+		jobExecRepo,
+		jobTaskRepo,
+		benchmarkRepo,
+		agentHashlistRepo,
+		agentRepo,
+		presetJobRepo,
+		hashlistRepo,
+		systemSettingsRepo,
+		fileRepo,
+		binaryManager,
+		"", // hashcatBinaryPath - not needed for keyspace calculation
+		dataDir,
+	)
+	
+	// Create jobs handler
+	return jobs.NewUserJobsHandler(
+		jobExecRepo,
+		jobTaskRepo,
+		presetJobRepo,
+		hashlistRepo,
+		clientRepo,
+		workflowRepo,
+		wordlistStore,
+		ruleStore,
+		binaryStore,
+		jobExecutionService,
+	)
+}
+
 // SetupUserRoutes configures all user-related routes
-func SetupUserRoutes(router *mux.Router, database *db.DB) {
+func SetupUserRoutes(router *mux.Router, database *db.DB, dataDir string, binaryManager binary.Manager) {
+	// Force logging to ensure we can see execution
+	fmt.Printf("[STARTUP] ===== SetupUserRoutes CALLED =====\n")
 	debug.Info("Setting up user routes")
+	fmt.Printf("[STARTUP] Debug logging test from SetupUserRoutes\n")
+	
+	// Create jobs handler
+	jobsHandler := CreateJobsHandler(database, dataDir, binaryManager)
+	
+	// SSE removed - using polling instead
+	// The frontend now polls /jobs endpoint every 5 seconds for updates
+	
+	// IMPORTANT: Register specific routes before generic patterns to avoid conflicts
+	
+	// Other specific job routes (before generic {id} pattern)
+	router.HandleFunc("/jobs/finished", jobsHandler.DeleteFinishedJobs).Methods("DELETE", "OPTIONS")
+	
+	// Generic job routes (MUST come after specific routes)
+	router.HandleFunc("/jobs", jobsHandler.ListJobs).Methods("GET", "OPTIONS")
+	router.HandleFunc("/jobs/{id}", jobsHandler.GetJobDetail).Methods("GET", "OPTIONS")
+	router.HandleFunc("/jobs/{id}", jobsHandler.UpdateJob).Methods("PATCH", "OPTIONS")
+	router.HandleFunc("/jobs/{id}/retry", jobsHandler.RetryJob).Methods("POST", "OPTIONS")
+	router.HandleFunc("/jobs/{id}", jobsHandler.DeleteJob).Methods("DELETE", "OPTIONS")
 
 	// Get user profile
 	router.HandleFunc("/user/profile", func(w http.ResponseWriter, r *http.Request) {
@@ -38,30 +119,28 @@ func SetupUserRoutes(router *mux.Router, database *db.DB) {
 			ID       string `json:"id"`
 			Username string `json:"username"`
 			Email    string `json:"email"`
+			Role     string `json:"role"`
 		}
 
-		err := database.QueryRow(
-			"SELECT id, username, email FROM users WHERE id = $1",
-			userID,
-		).Scan(&profile.ID, &profile.Username, &profile.Email)
+		err := database.QueryRow(`
+			SELECT id, username, email, role 
+			FROM users 
+			WHERE id = $1
+		`, userID).Scan(&profile.ID, &profile.Username, &profile.Email, &profile.Role)
 
-		if err == sql.ErrNoRows {
-			http.Error(w, "User not found", http.StatusNotFound)
-			return
-		}
 		if err != nil {
-			debug.Error("Failed to fetch user profile: %v", err)
+			debug.Error("Failed to get user profile: %v", err)
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(profile)
-	}).Methods("GET", "OPTIONS")
+	}).Methods("GET")
 
-	// Update user profile
-	router.HandleFunc("/user/profile", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPut {
+	// Update password
+	router.HandleFunc("/user/password", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
@@ -73,168 +152,117 @@ func SetupUserRoutes(router *mux.Router, database *db.DB) {
 			return
 		}
 
-		// Parse request body
-		var update struct {
-			Email           string `json:"email"`
+		// Parse request
+		var req struct {
 			CurrentPassword string `json:"currentPassword"`
 			NewPassword     string `json:"newPassword"`
 		}
-
-		if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
-			http.Error(w, "Invalid request body", http.StatusBadRequest)
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request", http.StatusBadRequest)
 			return
 		}
 
-		// Start transaction
-		tx, err := database.Begin()
+		// Validate new password (basic validation)
+		if len(req.NewPassword) < 8 {
+			http.Error(w, "Password must be at least 8 characters long", http.StatusBadRequest)
+			return
+		}
+
+		// Get current password hash
+		var currentHash string
+		err := database.QueryRow("SELECT password_hash FROM users WHERE id = $1", userID).Scan(&currentHash)
 		if err != nil {
-			debug.Error("Failed to start transaction: %v", err)
+			debug.Error("Failed to get user password: %v", err)
+			http.Error(w, "User not found", http.StatusNotFound)
+			return
+		}
+
+		// Verify current password
+		if err := bcrypt.CompareHashAndPassword([]byte(currentHash), []byte(req.CurrentPassword)); err != nil {
+			http.Error(w, "Current password is incorrect", http.StatusUnauthorized)
+			return
+		}
+
+		// Hash new password
+		newHash, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
+		if err != nil {
+			debug.Error("Failed to hash password: %v", err)
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
-		defer tx.Rollback()
 
-		// Get current user data for verification
-		var currentUser struct {
-			PasswordHash string
-			Email        string
-		}
-		err = tx.QueryRow(
-			"SELECT password_hash, email FROM users WHERE id = $1",
-			userID,
-		).Scan(&currentUser.PasswordHash, &currentUser.Email)
+		// Update password
+		_, err = database.Exec("UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2", newHash, userID)
 		if err != nil {
-			debug.Error("Failed to get current user data: %v", err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
-			return
-		}
-
-		// Handle password change if requested
-		if update.NewPassword != "" {
-			// Require current password for password changes
-			if update.CurrentPassword == "" {
-				http.Error(w, "Current password is required to change password", http.StatusBadRequest)
-				return
-			}
-
-			// Verify current password
-			if err := bcrypt.CompareHashAndPassword([]byte(currentUser.PasswordHash), []byte(update.CurrentPassword)); err != nil {
-				debug.Info("Invalid current password provided for user %s", userID)
-				http.Error(w, "Invalid current password", http.StatusBadRequest)
-				return
-			}
-
-			// Get auth settings for password validation
-			settings, err := database.GetAuthSettings()
-			if err != nil {
-				debug.Error("Failed to get auth settings: %v", err)
-				http.Error(w, "Internal server error", http.StatusInternalServerError)
-				return
-			}
-
-			// Validate new password against policy
-			if err := password.Validate(update.NewPassword, settings); err != nil {
-				debug.Info("Password validation failed: %v", err)
-				http.Error(w, err.Error(), http.StatusBadRequest)
-				return
-			}
-
-			// Hash new password
-			hashedPassword, err := bcrypt.GenerateFromPassword([]byte(update.NewPassword), bcrypt.DefaultCost)
-			if err != nil {
-				debug.Error("Failed to hash new password: %v", err)
-				http.Error(w, "Internal server error", http.StatusInternalServerError)
-				return
-			}
-
-			// Update password
-			_, err = tx.Exec(
-				"UPDATE users SET password_hash = $1, last_password_change = CURRENT_TIMESTAMP WHERE id = $2",
-				string(hashedPassword), userID,
-			)
-			if err != nil {
-				debug.Error("Failed to update password: %v", err)
-				http.Error(w, "Internal server error", http.StatusInternalServerError)
-				return
-			}
-
-			// Get user role for token generation
-			var userRole string
-			err = tx.QueryRow("SELECT role FROM users WHERE id = $1", userID).Scan(&userRole)
-			if err != nil {
-				debug.Error("Failed to get user role: %v", err)
-				http.Error(w, "Internal server error", http.StatusInternalServerError)
-				return
-			}
-
-			// Generate and store new token
-			token, err := jwt.GenerateToken(userID, userRole)
-			if err != nil {
-				debug.Error("Failed to generate new token: %v", err)
-				http.Error(w, "Internal server error", http.StatusInternalServerError)
-				return
-			}
-
-			if err := database.StoreToken(userID, token); err != nil {
-				debug.Error("Failed to store new token: %v", err)
-				http.Error(w, "Internal server error", http.StatusInternalServerError)
-				return
-			}
-
-			// Set new auth cookie
-			http.SetCookie(w, &http.Cookie{
-				Name:     "token",
-				Value:    token,
-				Path:     "/",
-				HttpOnly: true,
-				Secure:   true,
-				SameSite: http.SameSiteLaxMode,
-				MaxAge:   int(time.Hour * 24 * 7 / time.Second), // 1 week
-			})
-		}
-
-		// Update email if provided and changed
-		if update.Email != "" && update.Email != currentUser.Email {
-			// Check if email is already in use
-			var exists bool
-			err = tx.QueryRow(
-				"SELECT EXISTS(SELECT 1 FROM users WHERE email = $1 AND id != $2)",
-				update.Email, userID,
-			).Scan(&exists)
-			if err != nil {
-				debug.Error("Failed to check email existence: %v", err)
-				http.Error(w, "Internal server error", http.StatusInternalServerError)
-				return
-			}
-			if exists {
-				http.Error(w, "Email already in use", http.StatusConflict)
-				return
-			}
-
-			// Update email
-			_, err = tx.Exec(
-				"UPDATE users SET email = $1 WHERE id = $2",
-				update.Email, userID,
-			)
-			if err != nil {
-				debug.Error("Failed to update email: %v", err)
-				http.Error(w, "Internal server error", http.StatusInternalServerError)
-				return
-			}
-		}
-
-		// Commit transaction
-		if err := tx.Commit(); err != nil {
-			debug.Error("Failed to commit transaction: %v", err)
+			debug.Error("Failed to update password: %v", err)
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
 
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{
-			"message": "Profile updated successfully",
-		})
-	}).Methods("PUT", "OPTIONS")
+		json.NewEncoder(w).Encode(map[string]string{"message": "Password updated successfully"})
+	}).Methods("POST")
 
-	debug.Info("User routes setup complete")
+	// Generate new refresh token
+	router.HandleFunc("/auth/refresh", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var req struct {
+			RefreshToken string `json:"refreshToken"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request", http.StatusBadRequest)
+			return
+		}
+
+		// Validate refresh token
+		var userID string
+		var expiresAt time.Time
+		err := database.QueryRow(`
+			SELECT user_id, expires_at 
+			FROM auth_tokens 
+			WHERE token = $1 AND token_type = 'refresh' AND revoked = false
+		`, req.RefreshToken).Scan(&userID, &expiresAt)
+
+		if err == sql.ErrNoRows {
+			http.Error(w, "Invalid refresh token", http.StatusUnauthorized)
+			return
+		}
+		if err != nil {
+			debug.Error("Failed to validate refresh token: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		// Check if token is expired
+		if time.Now().After(expiresAt) {
+			http.Error(w, "Refresh token expired", http.StatusUnauthorized)
+			return
+		}
+
+		// Get user role
+		var role string
+		err = database.QueryRow("SELECT role FROM users WHERE id = $1", userID).Scan(&role)
+		if err != nil {
+			debug.Error("Failed to get user role: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		// Generate new access token
+		accessToken, err := jwt.GenerateToken(userID, role)
+		if err != nil {
+			debug.Error("Failed to generate access token: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"accessToken": accessToken,
+		})
+	}).Methods("POST")
 }

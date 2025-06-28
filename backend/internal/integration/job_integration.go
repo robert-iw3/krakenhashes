@@ -2,14 +2,18 @@ package integration
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"time"
 
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/binary"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/models"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/repository"
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/rule"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/services"
 	wsservice "github.com/ZerkerEOD/krakenhashes/backend/internal/services/websocket"
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/wordlist"
 	"github.com/ZerkerEOD/krakenhashes/backend/pkg/debug"
 	"github.com/google/uuid"
 )
@@ -36,8 +40,13 @@ func NewJobIntegrationManager(
 	benchmarkRepo *repository.BenchmarkRepository,
 	presetJobRepo repository.PresetJobRepository,
 	hashlistRepo *repository.HashListRepository,
+	hashRepo *repository.HashRepository,
 	jobTaskRepo *repository.JobTaskRepository,
 	agentRepo *repository.AgentRepository,
+	db *sql.DB,
+	wordlistManager wordlist.Manager,
+	ruleManager rule.Manager,
+	binaryManager binary.Manager,
 ) *JobIntegrationManager {
 	// Create the WebSocket integration
 	wsIntegration := NewJobWebSocketIntegration(
@@ -48,8 +57,13 @@ func NewJobIntegrationManager(
 		benchmarkRepo,
 		presetJobRepo,
 		hashlistRepo,
+		hashRepo,
 		jobTaskRepo,
 		agentRepo,
+		db,
+		wordlistManager,
+		ruleManager,
+		binaryManager,
 	)
 
 	// Set the WebSocket integration in the scheduling service
@@ -89,14 +103,52 @@ func (m *JobIntegrationManager) StartScheduler(ctx context.Context) {
 	go m.jobSchedulingService.StartScheduler(ctx, 30*time.Second)
 }
 
-// StopJob stops a running job (TODO: implement in JobSchedulingService)
+// StopJob stops a running job
 func (m *JobIntegrationManager) StopJob(ctx context.Context, jobExecutionID uuid.UUID, reason string) error {
 	debug.Log("Stop job requested", map[string]interface{}{
 		"job_execution_id": jobExecutionID,
 		"reason":          reason,
 	})
-	// TODO: Implement stop job functionality in JobSchedulingService
-	return fmt.Errorf("stop job functionality not yet implemented")
+
+	// Stop the job in the scheduling service
+	err := m.jobSchedulingService.StopJob(ctx, jobExecutionID, reason)
+	if err != nil {
+		return fmt.Errorf("failed to stop job: %w", err)
+	}
+
+	// Get all tasks for this job execution
+	tasks, err := m.wsIntegration.jobTaskRepo.GetTasksByJobExecution(ctx, jobExecutionID)
+	if err != nil {
+		return fmt.Errorf("failed to get tasks for job: %w", err)
+	}
+
+	// Send stop commands to all agents running tasks for this job
+	for _, task := range tasks {
+		if task.Status == models.JobTaskStatusRunning {
+			// Get agent details
+			agent, err := m.wsIntegration.agentRepo.GetByID(ctx, task.AgentID)
+			if err != nil {
+				debug.Log("Failed to get agent for task stop", map[string]interface{}{
+					"task_id":  task.ID,
+					"agent_id": task.AgentID,
+					"error":    err.Error(),
+				})
+				continue
+			}
+
+			// Send stop command to agent
+			err = m.wsIntegration.SendJobStop(ctx, task.ID, reason)
+			if err != nil {
+				debug.Log("Failed to send stop command to agent", map[string]interface{}{
+					"task_id":  task.ID,
+					"agent_id": agent.ID,
+					"error":    err.Error(),
+				})
+			}
+		}
+	}
+
+	return nil
 }
 
 // GetConnectedAgentCount returns the number of connected agents

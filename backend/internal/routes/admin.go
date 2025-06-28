@@ -4,7 +4,6 @@ import (
 	"net/http"
 
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/binary"
-	"github.com/ZerkerEOD/krakenhashes/backend/internal/config"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/db"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/email"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/admin/auth"
@@ -22,7 +21,7 @@ import (
 
 // SetupAdminRoutes configures all admin-related routes
 // It now accepts an AdminJobsHandler to set up job and workflow routes.
-func SetupAdminRoutes(router *mux.Router, database *db.DB, emailService *email.Service, jobHandler *AdminJobsHandler) *mux.Router {
+func SetupAdminRoutes(router *mux.Router, database *db.DB, emailService *email.Service, jobHandler *AdminJobsHandler, binaryManager binary.Manager) *mux.Router {
 	debug.Debug("Setting up admin routes")
 
 	// Create Repositories needed by handlers/services
@@ -97,22 +96,16 @@ func SetupAdminRoutes(router *mux.Router, database *db.DB, emailService *email.S
 	adminRouter.HandleFunc("/email/usage", emailHandler.GetUsage).Methods("GET", "OPTIONS")
 
 	// Binary management endpoints
-	if database.DB != nil {
-		binaryStore := binary.NewStore(database.DB)
-		binaryManager, err := binary.NewManager(binaryStore, binary.Config{
-			DataDir: config.NewConfig().DataDir,
-		})
-		if err != nil {
-			debug.Error("Failed to initialize binary manager: %v", err)
-		} else {
-			binaryHandler := binaryhandler.NewHandler(binaryManager)
-			adminRouter.HandleFunc("/binary", binaryHandler.HandleListVersions).Methods(http.MethodGet, http.MethodOptions)
-			adminRouter.HandleFunc("/binary", binaryHandler.HandleAddVersion).Methods(http.MethodPost, http.MethodOptions)
-			adminRouter.HandleFunc("/binary/{id}", binaryHandler.HandleGetVersion).Methods(http.MethodGet, http.MethodOptions)
-			adminRouter.HandleFunc("/binary/{id}", binaryHandler.HandleDeleteVersion).Methods(http.MethodDelete, http.MethodOptions)
-			adminRouter.HandleFunc("/binary/{id}/verify", binaryHandler.HandleVerifyVersion).Methods(http.MethodPost, http.MethodOptions)
-			debug.Info("Configured admin binary management routes: /admin/binary/*")
-		}
+	if binaryManager != nil {
+		binaryHandler := binaryhandler.NewHandler(binaryManager)
+		adminRouter.HandleFunc("/binary", binaryHandler.HandleListVersions).Methods(http.MethodGet, http.MethodOptions)
+		adminRouter.HandleFunc("/binary", binaryHandler.HandleAddVersion).Methods(http.MethodPost, http.MethodOptions)
+		adminRouter.HandleFunc("/binary/{id}", binaryHandler.HandleGetVersion).Methods(http.MethodGet, http.MethodOptions)
+		adminRouter.HandleFunc("/binary/{id}", binaryHandler.HandleDeleteVersion).Methods(http.MethodDelete, http.MethodOptions)
+		adminRouter.HandleFunc("/binary/{id}/verify", binaryHandler.HandleVerifyVersion).Methods(http.MethodPost, http.MethodOptions)
+		debug.Info("Configured admin binary management routes: /admin/binary/*")
+	} else {
+		debug.Error("Binary manager not provided to SetupAdminRoutes")
 	}
 
 	// Setup Preset Job and Job Workflow routes using the passed handler

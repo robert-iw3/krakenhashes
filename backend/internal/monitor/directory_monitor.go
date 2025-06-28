@@ -380,10 +380,17 @@ func generateTagsFromPath(relPath string) []string {
 
 // updateExistingWordlist updates an existing wordlist in the database
 func (m *DirectoryMonitor) updateExistingWordlist(ctx context.Context, fullPath, relPath string, wordlistID int, md5Hash string) {
-	// Get file info - used for logging
-	_, err := os.Stat(fullPath)
+	// Get file info
+	fileInfo, err := os.Stat(fullPath)
 	if err != nil {
 		debug.Error("Failed to get file info for %s: %v", fullPath, err)
+		return
+	}
+
+	// Update the MD5 hash and file size in the database
+	debug.Info("Updating MD5 hash for wordlist %d: %s", wordlistID, md5Hash)
+	if err := m.wordlistManager.UpdateWordlistFileInfo(ctx, wordlistID, md5Hash, fileInfo.Size()); err != nil {
+		debug.Error("Failed to update wordlist file info: %v", err)
 		return
 	}
 
@@ -394,7 +401,7 @@ func (m *DirectoryMonitor) updateExistingWordlist(ctx context.Context, fullPath,
 	tags := generateTagsFromPath(relPath)
 	tags = append(tags, "auto-imported", "updated") // Add standard tags
 
-	// Set wordlist to pending status while we verify it
+	// Update metadata
 	updateReq := &models.WordlistUpdateRequest{
 		Name:         strings.TrimSuffix(filepath.Base(relPath), filepath.Ext(relPath)),
 		Description:  "Auto-imported wordlist (updated)",
@@ -442,7 +449,7 @@ func (m *DirectoryMonitor) updateExistingWordlist(ctx context.Context, fullPath,
 		}
 
 		m.fileStatuses.Store(relPath, "completed")
-		debug.Info("Successfully updated wordlist: %s (ID: %d)", relPath, wordlistID)
+		debug.Info("Successfully updated wordlist: %s (ID: %d) with MD5: %s", relPath, wordlistID, md5Hash)
 	}()
 }
 
@@ -662,10 +669,17 @@ func determineRuleType(relPath string) string {
 
 // updateExistingRule updates an existing rule in the database
 func (m *DirectoryMonitor) updateExistingRule(ctx context.Context, fullPath, relPath string, ruleID int, md5Hash string) {
-	// Get file info - used for logging
-	_, err := os.Stat(fullPath)
+	// Get file info
+	fileInfo, err := os.Stat(fullPath)
 	if err != nil {
 		debug.Error("Failed to get file info for %s: %v", fullPath, err)
+		return
+	}
+
+	// Update the MD5 hash and file size in the database
+	debug.Info("Updating MD5 hash for rule %d: %s", ruleID, md5Hash)
+	if err := m.ruleManager.UpdateRuleFileInfo(ctx, ruleID, md5Hash, fileInfo.Size()); err != nil {
+		debug.Error("Failed to update rule file info: %v", err)
 		return
 	}
 
@@ -676,7 +690,7 @@ func (m *DirectoryMonitor) updateExistingRule(ctx context.Context, fullPath, rel
 	tags := generateTagsFromPath(relPath)
 	tags = append(tags, "auto-imported", "updated") // Add standard tags
 
-	// Set rule to pending status while we verify it
+	// Update metadata
 	updateReq := &models.RuleUpdateRequest{
 		Name:        strings.TrimSuffix(filepath.Base(relPath), filepath.Ext(relPath)),
 		Description: "Auto-imported rule (updated)",
@@ -723,7 +737,7 @@ func (m *DirectoryMonitor) updateExistingRule(ctx context.Context, fullPath, rel
 		}
 
 		m.fileStatuses.Store(relPath, "completed")
-		debug.Info("Successfully updated rule: %s (ID: %d)", relPath, ruleID)
+		debug.Info("Successfully updated rule: %s (ID: %d) with MD5: %s", relPath, ruleID, md5Hash)
 	}()
 }
 

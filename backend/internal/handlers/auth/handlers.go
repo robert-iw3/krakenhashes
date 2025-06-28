@@ -40,30 +40,52 @@ func getCookieDomain(host string) string {
 
 // Helper function to set auth cookie
 func setAuthCookie(w http.ResponseWriter, r *http.Request, token string, maxAge int) {
-	debug.Debug("Setting auth cookie - MaxAge: %d", maxAge)
+	debug.Debug("[COOKIE] Setting auth cookie - MaxAge: %d", maxAge)
+
+	// Check if this is a development environment
+	isDevelopment := strings.Contains(r.Host, "localhost") || strings.Contains(r.Host, "127.0.0.1")
+	
+	// For cross-port development (frontend:3000, backend:31337) we need special handling
+	var sameSite http.SameSite
+	var secure bool
+	
+	if isDevelopment {
+		// For localhost development with HTTPS, use Lax for better compatibility
+		sameSite = http.SameSiteLaxMode
+		secure = true  // We're using HTTPS even in development
+		debug.Info("[COOKIE] Development environment: using SameSite=Lax, Secure=true for HTTPS localhost")
+	} else {
+		// Production settings
+		sameSite = http.SameSiteLaxMode
+		secure = true
+		debug.Debug("[COOKIE] Production environment: using SameSite=Lax, Secure=true")
+	}
 
 	cookie := &http.Cookie{
 		Name:     "token",
 		Value:    token,
 		HttpOnly: true,
-		Secure:   true,                 // Require HTTPS
-		SameSite: http.SameSiteLaxMode, // Allow cross-site (needed for different ports)
+		Secure:   secure,
+		SameSite: sameSite,
 		Path:     "/",
 		MaxAge:   maxAge,
 	}
 
-	// Get domain (will be empty for localhost/127.0.0.1)
+	// For development, don't set domain to allow cross-port cookie sharing
 	domain := getCookieDomain(r.Host)
 	if domain != "" {
 		cookie.Domain = domain
-		debug.Debug("Setting cookie domain: %s", domain)
+		debug.Debug("[COOKIE] Setting cookie domain: %s", domain)
 	} else {
-		debug.Debug("No domain set for cookie (development environment)")
+		debug.Info("[COOKIE] No domain set for cookie (allows cross-port sharing in development)")
 	}
 
+	// Log the complete cookie configuration for debugging
+	debug.Info("[COOKIE] Cookie configuration: name=%s, secure=%v, sameSite=%v, httpOnly=%v, path=%s, domain=%s, maxAge=%d",
+		cookie.Name, cookie.Secure, cookie.SameSite, cookie.HttpOnly, cookie.Path, cookie.Domain, cookie.MaxAge)
+
 	http.SetCookie(w, cookie)
-	debug.Debug("Auth cookie set with attributes: domain=%s, secure=true, sameSite=lax, httpOnly=true, path=/",
-		cookie.Domain)
+	debug.Info("[COOKIE] Auth cookie set successfully")
 }
 
 // generateAuthToken creates a new JWT token for the user
@@ -241,6 +263,59 @@ func (h *Handler) LogoutHandler(w http.ResponseWriter, r *http.Request) {
 	debug.Info("User successfully logged out")
 
 	w.WriteHeader(http.StatusOK)
+}
+
+/*
+ * RefreshTokenHandler generates a new JWT token for the authenticated user.
+ * This extends the session without requiring re-login.
+ *
+ * Responses:
+ *   - 200: New token generated and cookie set
+ *   - 401: Authentication required
+ *   - 500: Internal server error
+ */
+func (h *Handler) RefreshTokenHandler(w http.ResponseWriter, r *http.Request) {
+	debug.Debug("Refreshing authentication token")
+
+	// Get user ID from middleware context
+	userID := r.Context().Value("user_id")
+	if userID == nil {
+		debug.Warning("RefreshToken called without user context")
+		http.Error(w, "Authentication required", http.StatusUnauthorized)
+		return
+	}
+
+	// Get user role from middleware context
+	userRole := r.Context().Value("user_role")
+	if userRole == nil {
+		debug.Warning("RefreshToken called without user role context")
+		http.Error(w, "Authentication required", http.StatusUnauthorized)
+		return
+	}
+
+	// Generate new token
+	token, err := jwt.GenerateToken(userID.(string), userRole.(string))
+	if err != nil {
+		debug.Error("Failed to generate refresh token: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Store new token in database
+	if err := h.db.StoreToken(userID.(string), token); err != nil {
+		debug.Error("Failed to store refresh token: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Set new auth cookie
+	setAuthCookie(w, r, token, int(time.Hour*24*7/time.Second)) // 1 week
+	debug.Info("Token refreshed successfully for user: %s", userID)
+
+	json.NewEncoder(w).Encode(models.LoginResponse{
+		Success: true,
+		Token:   token,
+	})
 }
 
 /*

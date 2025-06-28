@@ -87,8 +87,18 @@ func (r *FileRepository) GetWordlists(ctx context.Context, category string) ([]F
 			continue
 		}
 
+		// The fileName from database may already include the category path
+		// Check if fileName already contains the category to avoid duplication
+		var nameForAgent string
+		if strings.HasPrefix(fileName, wordlistType+"/") {
+			// fileName already includes category, use as-is
+			nameForAgent = fileName
+		} else {
+			// fileName doesn't include category, add it
+			nameForAgent = fmt.Sprintf("%s/%s", wordlistType, fileName)
+		}
 		files = append(files, FileInfo{
-			Name:      fileName,
+			Name:      nameForAgent,
 			MD5Hash:   md5Hash,
 			Size:      size,
 			FileType:  "wordlist",
@@ -153,8 +163,18 @@ func (r *FileRepository) GetRules(ctx context.Context, category string) ([]FileI
 			continue
 		}
 
+		// The fileName from database may already include the category path
+		// Check if fileName already contains the category to avoid duplication
+		var nameForAgent string
+		if strings.HasPrefix(fileName, ruleType+"/") {
+			// fileName already includes category, use as-is
+			nameForAgent = fileName
+		} else {
+			// fileName doesn't include category, add it
+			nameForAgent = fmt.Sprintf("%s/%s", ruleType, fileName)
+		}
 		files = append(files, FileInfo{
-			Name:      fileName,
+			Name:      nameForAgent,
 			MD5Hash:   md5Hash,
 			Size:      size,
 			FileType:  "rule",

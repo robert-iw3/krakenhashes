@@ -28,6 +28,7 @@ type Manager interface {
 	UpdateWordlist(ctx context.Context, id int, req *models.WordlistUpdateRequest, userID uuid.UUID) (*models.Wordlist, error)
 	DeleteWordlist(ctx context.Context, id int) error
 	VerifyWordlist(ctx context.Context, id int, req *models.WordlistVerifyRequest) error
+	UpdateWordlistFileInfo(ctx context.Context, id int, md5Hash string, fileSize int64) error
 	AddWordlistTag(ctx context.Context, id int, tag string, userID uuid.UUID) error
 	DeleteWordlistTag(ctx context.Context, id int, tag string) error
 	GetWordlistPath(filename string, wordlistType string) string
@@ -46,6 +47,7 @@ type WordlistStore interface {
 	UpdateWordlist(ctx context.Context, wordlist *models.Wordlist) error
 	DeleteWordlist(ctx context.Context, id int) error
 	UpdateWordlistVerification(ctx context.Context, id int, status string, wordCount *int64) error
+	UpdateWordlistFileInfo(ctx context.Context, id int, md5Hash string, fileSize int64) error
 
 	// Tag operations
 	GetWordlistTags(ctx context.Context, id int) ([]string, error)
@@ -248,6 +250,11 @@ func (m *manager) VerifyWordlist(ctx context.Context, id int, req *models.Wordli
 
 	// Update verification status
 	return m.store.UpdateWordlistVerification(ctx, id, req.Status, req.WordCount)
+}
+
+// UpdateWordlistFileInfo updates a wordlist's file information (MD5 hash and file size)
+func (m *manager) UpdateWordlistFileInfo(ctx context.Context, id int, md5Hash string, fileSize int64) error {
+	return m.store.UpdateWordlistFileInfo(ctx, id, md5Hash, fileSize)
 }
 
 // AddWordlistTag adds a tag to a wordlist

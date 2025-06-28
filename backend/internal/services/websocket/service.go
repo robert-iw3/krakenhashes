@@ -32,6 +32,7 @@ const (
 	TypeHardwareInfo    MessageType = "hardware_info"
 	TypeSyncResponse    MessageType = "file_sync_response"
 	TypeSyncStatus      MessageType = "file_sync_status"
+	TypeHashcatOutput   MessageType = "hashcat_output"
 
 	// Server -> Agent messages
 	TypeTaskAssignment    MessageType = "task_assignment"
@@ -178,11 +179,19 @@ type TaskAssignmentPayload struct {
 
 // BenchmarkResultPayload represents benchmark results from an agent
 type BenchmarkResultPayload struct {
-	AttackMode int   `json:"attack_mode"`
-	HashType   int   `json:"hash_type"`
-	Speed      int64 `json:"speed"` // hashes per second
-	Success    bool  `json:"success"`
-	Error      string `json:"error,omitempty"`
+	AttackMode   int           `json:"attack_mode"`
+	HashType     int           `json:"hash_type"`
+	Speed        int64         `json:"speed"` // Total hashes per second
+	DeviceSpeeds []DeviceSpeed `json:"device_speeds,omitempty"` // Per-device speeds
+	Success      bool          `json:"success"`
+	Error        string        `json:"error,omitempty"`
+}
+
+// DeviceSpeed represents speed for a single device
+type DeviceSpeed struct {
+	DeviceID   int    `json:"device_id"`
+	DeviceName string `json:"device_name"`
+	Speed      int64  `json:"speed"` // H/s for this device
 }
 
 // JobStopPayload represents a job stop command
@@ -194,10 +203,18 @@ type JobStopPayload struct {
 
 // BenchmarkRequestPayload represents a benchmark request sent to an agent
 type BenchmarkRequestPayload struct {
-	RequestID  string `json:"request_id"`
-	AttackMode int    `json:"attack_mode"`
-	HashType   int    `json:"hash_type"`
-	BinaryPath string `json:"binary_path"`
+	RequestID      string   `json:"request_id"`
+	AttackMode     int      `json:"attack_mode"`
+	HashType       int      `json:"hash_type"`
+	BinaryPath     string   `json:"binary_path"`
+	// Additional fields for real-world speed test
+	TaskID         string   `json:"task_id,omitempty"`
+	HashlistID     int64    `json:"hashlist_id,omitempty"`
+	HashlistPath   string   `json:"hashlist_path,omitempty"`
+	WordlistPaths  []string `json:"wordlist_paths,omitempty"`
+	RulePaths      []string `json:"rule_paths,omitempty"`
+	Mask           string   `json:"mask,omitempty"`
+	TestDuration   int      `json:"test_duration,omitempty"` // Duration in seconds for speed test
 }
 
 // Service handles WebSocket business logic
@@ -223,6 +240,13 @@ func (s *Service) SetJobHandler(handler JobHandler) {
 
 // HandleMessage processes incoming WebSocket messages
 func (s *Service) HandleMessage(ctx context.Context, agent *models.Agent, msg *Message) error {
+	// Update heartbeat on ANY message received from the agent
+	// This ensures the agent is considered alive as long as it's communicating
+	if err := s.agentService.UpdateHeartbeat(ctx, agent.ID); err != nil {
+		// Log but don't fail the message processing
+		fmt.Printf("Warning: failed to update heartbeat for agent %d: %v\n", agent.ID, err)
+	}
+
 	switch msg.Type {
 	case TypeHeartbeat:
 		return s.handleHeartbeat(ctx, agent, msg)
@@ -244,6 +268,8 @@ func (s *Service) HandleMessage(ctx context.Context, agent *models.Agent, msg *M
 		return s.handleSyncRequest(ctx, agent, msg)
 	case TypeSyncCommand:
 		return s.handleSyncCommand(ctx, agent, msg)
+	case TypeHashcatOutput:
+		return s.handleHashcatOutput(ctx, agent, msg)
 	default:
 		return fmt.Errorf("unknown message type: %s", msg.Type)
 	}
@@ -276,7 +302,7 @@ func (s *Service) handleHeartbeat(ctx context.Context, agent *models.Agent, msg 
 	}
 
 	// Update agent status in database
-	if err := s.agentService.UpdateAgentStatus(ctx, agent.ID, "online", nil); err != nil {
+	if err := s.agentService.UpdateAgentStatus(ctx, agent.ID, models.AgentStatusActive, nil); err != nil {
 		return fmt.Errorf("failed to update agent status: %w", err)
 	}
 
@@ -457,4 +483,28 @@ func (s *Service) handleBenchmarkResult(ctx context.Context, agent *models.Agent
 	
 	// Forward to job handler
 	return s.jobHandler.ProcessBenchmarkResult(ctx, agent.ID, msg.Payload)
+}
+
+// handleHashcatOutput processes hashcat output messages from agents
+func (s *Service) handleHashcatOutput(ctx context.Context, agent *models.Agent, msg *Message) error {
+	var payload struct {
+		TaskID    string    `json:"task_id"`
+		Output    string    `json:"output"`
+		IsError   bool      `json:"is_error"`
+		Timestamp time.Time `json:"timestamp"`
+	}
+	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+		return fmt.Errorf("failed to unmarshal hashcat output: %w", err)
+	}
+
+	// Log the output for debugging
+	if payload.IsError {
+		fmt.Printf("[Agent %d][Task %s][ERROR] %s\n", agent.ID, payload.TaskID, payload.Output)
+	} else {
+		fmt.Printf("[Agent %d][Task %s] %s\n", agent.ID, payload.TaskID, payload.Output)
+	}
+
+	// TODO: Store output in database or forward to interested parties via SSE
+	
+	return nil
 }

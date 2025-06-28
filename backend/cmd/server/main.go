@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/binary"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/config"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/database"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/db"
@@ -173,6 +174,9 @@ func main() {
 	clientSettingsRepo := repository.NewClientSettingsRepository(dbWrapper)
 	hashlistRepo := repository.NewHashListRepository(dbWrapper)
 	hashRepo := repository.NewHashRepository(dbWrapper)
+	systemSettingsRepo := repository.NewSystemSettingsRepository(dbWrapper)
+	jobExecutionRepo := repository.NewJobExecutionRepository(dbWrapper)
+	jobTaskRepo := repository.NewJobTaskRepository(dbWrapper)
 
 	retentionService := retentionsvc.NewRetentionService(dbWrapper, hashlistRepo, hashRepo, clientRepo, clientSettingsRepo)
 
@@ -195,6 +199,22 @@ func main() {
 		[]string{"text/plain"},                  // Allowed MIME types
 	)
 
+	// Initialize binary manager
+	binaryStore := binary.NewStore(sqlDB)
+	binaryDataDir := filepath.Join(appConfig.DataDir, "binaries")
+	debug.Info("Configuring binary manager with DataDir: %s", binaryDataDir)
+	debug.Info("Current working directory: %s", cwd)
+	debug.Info("AppConfig.DataDir: %s", appConfig.DataDir)
+	
+	binaryConfig := binary.Config{
+		DataDir: binaryDataDir,
+	}
+	binaryManager, err := binary.NewManager(binaryStore, binaryConfig)
+	if err != nil {
+		debug.Error("Failed to create binary manager: %v", err)
+		os.Exit(1)
+	}
+
 	// Run migrations first
 	if err := database.RunMigrations(); err != nil {
 		debug.Error("Database migrations failed: %v", err)
@@ -212,6 +232,46 @@ func main() {
 		os.Exit(1)
 	}
 	debug.Info("System user verified")
+
+	// Initialize agent cleanup service and mark all agents as inactive on startup
+	debug.Info("Creating agent cleanup service...")
+	agentCleanupService := services.NewAgentCleanupService(agentRepo)
+	debug.Info("Agent cleanup service created, marking all agents as inactive...")
+	if err := agentCleanupService.MarkAllAgentsInactive(context.Background()); err != nil {
+		debug.Error("Failed to mark all agents as inactive: %v", err)
+		// Don't exit - this is not fatal, but log the error
+	} else {
+		debug.Info("All agents marked as inactive successfully")
+	}
+	
+	// Start periodic stale agent cleanup
+	go func() {
+		ticker := time.NewTicker(1 * time.Minute) // Check every minute
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				if err := agentCleanupService.CleanupStaleAgents(context.Background(), 90*time.Second); err != nil {
+					debug.Error("Failed to cleanup stale agents: %v", err)
+				}
+			}
+		}
+	}()
+
+	// Initialize job cleanup service and clean up stale tasks
+	debug.Info("Creating job cleanup service...")
+	jobCleanupService := services.NewJobCleanupService(jobExecutionRepo, jobTaskRepo, systemSettingsRepo)
+	debug.Info("Job cleanup service created, starting cleanup of stale tasks from previous runs...")
+	cleanupErr := jobCleanupService.CleanupStaleTasksOnStartup(context.Background())
+	if cleanupErr != nil {
+		debug.Error("Failed to cleanup stale tasks: %v", cleanupErr)
+		// Don't exit - this is not fatal
+	} else {
+		debug.Info("Stale task cleanup completed successfully")
+	}
+	
+	// Start periodic stale task monitor
+	go jobCleanupService.MonitorStaleTasksPeriodically(context.Background(), 5*time.Minute)
 
 	// Use the system user (uuid.Nil) for the monitor service
 	systemUserID := uuid.Nil
@@ -261,7 +321,7 @@ func main() {
 
 	// Setup routes
 	debug.Info("Setting up routes")
-	routes.SetupRoutes(httpsRouter, sqlDB, tlsProvider, agentService)
+	routes.SetupRoutes(httpsRouter, sqlDB, tlsProvider, agentService, wordlistManager, ruleManager, binaryManager)
 
 	// Setup CA certificate route on HTTP router
 	debug.Info("Setting up CA certificate route")
@@ -309,6 +369,17 @@ func main() {
 	debug.Info("Starting directory monitor service")
 	monitorService.Start()
 	defer monitorService.Stop()
+
+	// Start the job scheduler if it was initialized
+	if routes.JobIntegrationManager != nil {
+		debug.Info("Starting job scheduler")
+		jobSchedulerCtx, jobSchedulerCancel := context.WithCancel(context.Background())
+		defer jobSchedulerCancel()
+		routes.JobIntegrationManager.StartScheduler(jobSchedulerCtx)
+		debug.Info("Job scheduler started successfully")
+	} else {
+		debug.Warning("Job integration manager not initialized, job scheduler will not start")
+	}
 
 	// Wait for interrupt signal or server error
 	sigChan := make(chan os.Signal, 1)

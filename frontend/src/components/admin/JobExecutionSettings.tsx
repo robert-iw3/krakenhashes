@@ -268,6 +268,46 @@ const JobExecutionSettingsComponent: React.FC = () => {
                   Send notifications when hashes are cracked
                 </Typography>
               </Grid>
+              <Grid item xs={12} md={4}>
+                <TextField
+                  fullWidth
+                  type="number"
+                  label="Job Refresh Interval"
+                  value={settings.job_refresh_interval_seconds}
+                  onChange={handleChange('job_refresh_interval_seconds')}
+                  helperText="How often to refresh job status in UI"
+                  InputProps={{
+                    inputProps: { min: 1, max: 60 },
+                    endAdornment: <InputAdornment position="end">seconds</InputAdornment>,
+                  }}
+                />
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <TextField
+                  fullWidth
+                  type="number"
+                  label="Max Chunk Retry Attempts"
+                  value={settings.max_chunk_retry_attempts}
+                  onChange={handleChange('max_chunk_retry_attempts')}
+                  helperText="Number of times to retry failed chunks"
+                  InputProps={{
+                    inputProps: { min: 0, max: 10 },
+                  }}
+                />
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <TextField
+                  fullWidth
+                  type="number"
+                  label="Jobs Per Page"
+                  value={settings.jobs_per_page_default}
+                  onChange={handleChange('jobs_per_page_default')}
+                  helperText="Default pagination size for job lists"
+                  InputProps={{
+                    inputProps: { min: 5, max: 100 },
+                  }}
+                />
+              </Grid>
             </Grid>
           </Paper>
         </Grid>

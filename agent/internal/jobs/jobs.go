@@ -5,11 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/ZerkerEOD/krakenhashes/agent/internal/config"
+	filesync "github.com/ZerkerEOD/krakenhashes/agent/internal/sync"
+	"github.com/ZerkerEOD/krakenhashes/agent/pkg/debug"
 )
 
 // JobManager manages job execution on the agent
@@ -17,6 +20,8 @@ type JobManager struct {
 	executor         *HashcatExecutor
 	config           *config.Config
 	progressCallback func(*JobProgress)
+	outputCallback   func(taskID string, output string, isError bool) // Callback for sending output via websocket
+	fileSync         *filesync.FileSync
 	
 	// Job state
 	mutex           sync.RWMutex
@@ -44,9 +49,8 @@ type BenchmarkResult struct {
 // NewJobManager creates a new job manager
 func NewJobManager(cfg *config.Config, progressCallback func(*JobProgress)) *JobManager {
 	dataDir := cfg.DataDirectory
-	workDir := filepath.Join(dataDir, "work")
 	
-	executor := NewHashcatExecutor(dataDir, workDir)
+	executor := NewHashcatExecutor(dataDir)
 	
 	return &JobManager{
 		executor:         executor,
@@ -55,6 +59,27 @@ func NewJobManager(cfg *config.Config, progressCallback func(*JobProgress)) *Job
 		activeJobs:       make(map[string]*JobExecution),
 		benchmarkCache:   make(map[string]*BenchmarkResult),
 	}
+}
+
+// SetFileSync sets the file sync handler for downloading hashlists
+func (jm *JobManager) SetFileSync(fileSync *filesync.FileSync) {
+	jm.mutex.Lock()
+	defer jm.mutex.Unlock()
+	jm.fileSync = fileSync
+}
+
+// SetOutputCallback sets the callback for sending output via websocket
+func (jm *JobManager) SetOutputCallback(callback func(taskID string, output string, isError bool)) {
+	jm.outputCallback = callback
+	// Pass it through to the executor
+	jm.executor.SetOutputCallback(callback)
+}
+
+// SetProgressCallback sets the progress callback function
+func (jm *JobManager) SetProgressCallback(callback func(*JobProgress)) {
+	jm.mutex.Lock()
+	defer jm.mutex.Unlock()
+	jm.progressCallback = callback
 }
 
 // ProcessJobAssignment processes a job assignment from the backend
@@ -66,6 +91,10 @@ func (jm *JobManager) ProcessJobAssignment(ctx context.Context, assignmentData [
 	}
 
 	log.Printf("Processing job assignment: Task ID %s, Job ID %s", assignment.TaskID, assignment.JobExecutionID)
+	debug.Info("Hashlist ID: %d, Hashlist Path: %s", assignment.HashlistID, assignment.HashlistPath)
+	debug.Info("Wordlist paths: %v", assignment.WordlistPaths)
+	debug.Info("Rule paths: %v", assignment.RulePaths)
+	debug.Info("Attack mode: %d, Hash type: %d", assignment.AttackMode, assignment.HashType)
 
 	// Check if task is already running
 	jm.mutex.RLock()
@@ -74,6 +103,12 @@ func (jm *JobManager) ProcessJobAssignment(ctx context.Context, assignmentData [
 		return fmt.Errorf("task %s is already running", assignment.TaskID)
 	}
 	jm.mutex.RUnlock()
+
+	// Ensure hashlist is available before proceeding
+	err = jm.ensureHashlist(ctx, &assignment)
+	if err != nil {
+		return fmt.Errorf("failed to ensure hashlist: %w", err)
+	}
 
 	// Run benchmark if needed
 	err = jm.ensureBenchmark(ctx, &assignment)
@@ -107,45 +142,65 @@ func (jm *JobManager) ProcessJobAssignment(ctx context.Context, assignmentData [
 	return nil
 }
 
+// ensureHashlist ensures the hashlist file is available locally
+func (jm *JobManager) ensureHashlist(ctx context.Context, assignment *JobTaskAssignment) error {
+	if jm.fileSync == nil {
+		debug.Error("File sync is not initialized in job manager")
+		return fmt.Errorf("file sync not initialized")
+	}
+
+	// Build the expected local path
+	hashlistFileName := fmt.Sprintf("%d.hash", assignment.HashlistID)
+	localPath := filepath.Join(jm.config.DataDirectory, "hashlists", hashlistFileName)
+	
+	debug.Info("Ensuring hashlist %d is available", assignment.HashlistID)
+	debug.Info("Expected local path: %s", localPath)
+	debug.Info("Data directory: %s", jm.config.DataDirectory)
+	
+	// Check if the file already exists
+	if fileInfo, err := os.Stat(localPath); err == nil {
+		debug.Info("Hashlist file already exists locally: %s (size: %d bytes)", localPath, fileInfo.Size())
+		return nil
+	} else if !os.IsNotExist(err) {
+		debug.Error("Error checking hashlist file: %v", err)
+		return fmt.Errorf("error checking hashlist file: %w", err)
+	}
+	
+	debug.Info("Hashlist file not found locally, need to download from backend")
+	debug.Info("Creating FileInfo for download - Name: %s, Type: hashlist, ID: %d", hashlistFileName, assignment.HashlistID)
+	
+	// Create FileInfo for download
+	// Note: For hashlists, we don't have the MD5 hash upfront, so we'll download without hash verification
+	fileInfo := &filesync.FileInfo{
+		Name:     hashlistFileName,
+		FileType: "hashlist",
+		ID:       int(assignment.HashlistID),
+		MD5Hash:  "", // Empty hash means skip verification
+	}
+	
+	// Download the hashlist file
+	debug.Info("Starting download of hashlist %d", assignment.HashlistID)
+	if err := jm.fileSync.DownloadFileFromInfo(ctx, fileInfo); err != nil {
+		debug.Error("Failed to download hashlist %d: %v", assignment.HashlistID, err)
+		return fmt.Errorf("failed to download hashlist %d: %w", assignment.HashlistID, err)
+	}
+	
+	// Verify the file was created
+	if fileInfo, err := os.Stat(localPath); err == nil {
+		debug.Info("Successfully downloaded hashlist file: %s (size: %d bytes)", hashlistFileName, fileInfo.Size())
+	} else {
+		debug.Error("Hashlist file not found after download: %s", localPath)
+		return fmt.Errorf("hashlist file not found after download")
+	}
+	
+	return nil
+}
+
 // ensureBenchmark runs a benchmark if needed for the job
 func (jm *JobManager) ensureBenchmark(ctx context.Context, assignment *JobTaskAssignment) error {
-	benchmarkKey := fmt.Sprintf("%d_%d", assignment.HashType, assignment.AttackMode)
-	
-	jm.mutex.RLock()
-	cached, exists := jm.benchmarkCache[benchmarkKey]
-	jm.mutex.RUnlock()
-
-	// Check if we have a recent benchmark (within 24 hours)
-	if exists && time.Since(cached.Timestamp) < 24*time.Hour {
-		log.Printf("Using cached benchmark for hash type %d, attack mode %d: %d H/s", 
-			assignment.HashType, assignment.AttackMode, cached.Speed)
-		return nil
-	}
-
-	// Run benchmark
-	log.Printf("Running benchmark for hash type %d, attack mode %d", assignment.HashType, assignment.AttackMode)
-	
-	benchmarkCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
-	defer cancel()
-
-	speed, err := jm.executor.RunBenchmark(benchmarkCtx, assignment.BinaryPath, assignment.HashType, assignment.AttackMode)
-	if err != nil {
-		return fmt.Errorf("benchmark failed: %w", err)
-	}
-
-	// Store benchmark result
-	result := &BenchmarkResult{
-		HashType:   assignment.HashType,
-		AttackMode: assignment.AttackMode,
-		Speed:      speed,
-		Timestamp:  time.Now(),
-	}
-
-	jm.mutex.Lock()
-	jm.benchmarkCache[benchmarkKey] = result
-	jm.mutex.Unlock()
-
-	log.Printf("Benchmark completed: %d H/s for hash type %d, attack mode %d", speed, assignment.HashType, assignment.AttackMode)
+	// We no longer run benchmarks here - the backend will request speed tests
+	// through the WebSocket benchmark request message when needed
+	log.Printf("Skipping local benchmark - speed tests are now requested by backend")
 	return nil
 }
 
@@ -258,28 +313,14 @@ func (jm *JobManager) GetBenchmarkResults() map[string]*BenchmarkResult {
 
 // RunManualBenchmark runs a benchmark manually for testing purposes
 func (jm *JobManager) RunManualBenchmark(ctx context.Context, binaryPath string, hashType int, attackMode int) (*BenchmarkResult, error) {
-	log.Printf("Running manual benchmark for hash type %d, attack mode %d", hashType, attackMode)
+	// Manual benchmarks are no longer supported - use speed tests through WebSocket
+	// The backend should send a benchmark request with full job configuration
+	return nil, fmt.Errorf("manual benchmarks are deprecated - use speed tests through WebSocket benchmark requests")
+}
 
-	speed, err := jm.executor.RunBenchmark(ctx, binaryPath, hashType, attackMode)
-	if err != nil {
-		return nil, fmt.Errorf("manual benchmark failed: %w", err)
-	}
-
-	result := &BenchmarkResult{
-		HashType:   hashType,
-		AttackMode: attackMode,
-		Speed:      speed,
-		Timestamp:  time.Now(),
-	}
-
-	// Store in cache
-	benchmarkKey := fmt.Sprintf("%d_%d", hashType, attackMode)
-	jm.mutex.Lock()
-	jm.benchmarkCache[benchmarkKey] = result
-	jm.mutex.Unlock()
-
-	log.Printf("Manual benchmark completed: %d H/s", speed)
-	return result, nil
+// GetHashcatExecutor returns the hashcat executor for direct access
+func (jm *JobManager) GetHashcatExecutor() *HashcatExecutor {
+	return jm.executor
 }
 
 // Shutdown gracefully shuts down the job manager

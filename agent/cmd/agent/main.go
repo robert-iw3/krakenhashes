@@ -403,13 +403,10 @@ func main() {
 	debug.Info("Creating job manager...")
 	agentConfig := config.NewConfig()
 	
-	// Progress callback function
-	progressCallback := func(progress *jobs.JobProgress) {
-		debug.Info("Job progress: Task %s, Keyspace %d, Hash rate %d H/s", 
-			progress.TaskID, progress.KeyspaceProcessed, progress.HashRate)
-	}
+	// Progress callback will be set after connection is established
+	var progressCallback func(*jobs.JobProgress)
 	
-	jobManager := jobs.NewJobManager(agentConfig, progressCallback)
+	jobManager := jobs.NewJobManager(agentConfig, nil) // Initially nil, will set later
 	debug.Info("Job manager created successfully")
 
 	// Create connection with retry
@@ -436,6 +433,30 @@ func main() {
 			continue
 		}
 		debug.Info("Connection attempt %d successful", i+1)
+		
+		// Now set up the progress callback with the connection
+		progressCallback = func(progress *jobs.JobProgress) {
+			debug.Info("Job progress: Task %s, Keyspace %d, Hash rate %d H/s", 
+				progress.TaskID, progress.KeyspaceProcessed, progress.HashRate)
+			
+			// Send progress to backend via WebSocket
+			if err := conn.SendJobProgress(progress); err != nil {
+				debug.Error("Failed to send job progress to backend: %v", err)
+			}
+		}
+		jobManager.SetProgressCallback(progressCallback)
+		debug.Info("Progress callback configured to send updates to backend")
+		
+		// Set up output callback to send hashcat output via websocket
+		outputCallback := func(taskID string, output string, isError bool) {
+			// Send output to backend via WebSocket
+			if err := conn.SendHashcatOutput(taskID, output, isError); err != nil {
+				debug.Error("Failed to send hashcat output to backend: %v", err)
+			}
+		}
+		jobManager.SetOutputCallback(outputCallback)
+		debug.Info("Output callback configured to send hashcat output to backend")
+		
 		lastError = nil
 		break
 	}

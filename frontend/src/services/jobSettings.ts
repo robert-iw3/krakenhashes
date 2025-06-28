@@ -12,13 +12,16 @@ export interface JobExecutionSettings {
   metrics_retention_realtime_days: number;
   metrics_retention_daily_days: number;
   metrics_retention_weekly_days: number;
+  job_refresh_interval_seconds: number;
+  max_chunk_retry_attempts: number;
+  jobs_per_page_default: number;
 }
 
 export const getJobExecutionSettings = async (): Promise<JobExecutionSettings> => {
-  const response = await api.get('/admin/settings/job-execution');
-  return response.data.data;
+  const response = await api.get('/api/admin/settings/job-execution');
+  return response.data;
 };
 
 export const updateJobExecutionSettings = async (settings: JobExecutionSettings): Promise<void> => {
-  await api.put('/admin/settings/job-execution', settings);
+  await api.put('/api/admin/settings/job-execution', settings);
 };

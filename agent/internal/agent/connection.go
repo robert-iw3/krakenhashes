@@ -44,6 +44,7 @@ const (
 	WSTypeJobStop          WSMessageType = "job_stop"
 	WSTypeBenchmarkRequest WSMessageType = "benchmark_request"
 	WSTypeBenchmarkResult  WSMessageType = "benchmark_result"
+	WSTypeHashcatOutput    WSMessageType = "hashcat_output"
 )
 
 // WSMessage represents a WebSocket message
@@ -72,6 +73,31 @@ type FileSyncResponsePayload struct {
 // FileSyncCommandPayload represents a command to download specific files
 type FileSyncCommandPayload struct {
 	Files []FileInfo `json:"files"`
+}
+
+// BenchmarkRequest represents a request to test speed for a specific job configuration
+type BenchmarkRequest struct {
+	RequestID      string             `json:"request_id"`
+	TaskID         string             `json:"task_id"`
+	HashlistID     int64              `json:"hashlist_id"`
+	HashlistPath   string             `json:"hashlist_path"`
+	AttackMode     int                `json:"attack_mode"`
+	HashType       int                `json:"hash_type"`
+	WordlistPaths  []string           `json:"wordlist_paths"`
+	RulePaths      []string           `json:"rule_paths"`
+	Mask           string             `json:"mask,omitempty"`
+	BinaryPath     string             `json:"binary_path"`
+	TestDuration   int                `json:"test_duration"` // How long to run test (seconds)
+}
+
+// BenchmarkResult represents the result of a speed test
+type BenchmarkResult struct {
+	RequestID      string              `json:"request_id"`
+	TaskID         string              `json:"task_id"`
+	TotalSpeed     int64               `json:"total_speed"` // Total H/s across all devices
+	DeviceSpeeds   []jobs.DeviceSpeed  `json:"device_speeds"`
+	Success        bool                `json:"success"`
+	ErrorMessage   string              `json:"error_message,omitempty"`
 }
 
 // MetricsData represents the metrics data sent to the server
@@ -722,6 +748,33 @@ func (c *Connection) readPump() {
 				continue
 			}
 
+			// Ensure file sync is initialized before processing job
+			if c.fileSync == nil {
+				dataDirs, err := config.GetDataDirs()
+				if err != nil {
+					debug.Error("Failed to get data directories: %v", err)
+					continue
+				}
+
+				// Get credentials from the same place we use for WebSocket connection
+				apiKey, agentID, err := auth.LoadAgentKey(config.GetConfigDir())
+				if err != nil {
+					debug.Error("Failed to load agent credentials: %v", err)
+					continue
+				}
+
+				c.fileSync, err = filesync.NewFileSync(c.urlConfig, dataDirs, apiKey, agentID)
+				if err != nil {
+					debug.Error("Failed to initialize file sync: %v", err)
+					continue
+				}
+			}
+
+			// Set the file sync in job manager
+			if jobMgr, ok := c.jobManager.(*jobs.JobManager); ok {
+				jobMgr.SetFileSync(c.fileSync)
+			}
+
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 
@@ -756,7 +809,7 @@ func (c *Connection) readPump() {
 			}
 
 		case WSTypeBenchmarkRequest:
-			// Server requested a benchmark
+			// Server requested a benchmark (now with full job configuration for real-world speed test)
 			debug.Info("Received benchmark request")
 
 			if c.jobManager == nil {
@@ -764,12 +817,7 @@ func (c *Connection) readPump() {
 				continue
 			}
 
-			var benchmarkPayload struct {
-				RequestID  string `json:"request_id"`
-				HashType   int    `json:"hash_type"`
-				AttackMode int    `json:"attack_mode"`
-				BinaryPath string `json:"binary_path"`
-			}
+			var benchmarkPayload BenchmarkRequest
 			if err := json.Unmarshal(msg.Payload, &benchmarkPayload); err != nil {
 				debug.Error("Failed to parse benchmark request: %v", err)
 				continue
@@ -777,27 +825,46 @@ func (c *Connection) readPump() {
 
 			// Run benchmark in a goroutine to not block message processing
 			go func() {
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+				debug.Info("Running speed test for task %s, hash type %d, attack mode %d", 
+					benchmarkPayload.TaskID, benchmarkPayload.HashType, benchmarkPayload.AttackMode)
+
+				// Create a JobTaskAssignment from benchmark request
+				assignment := &jobs.JobTaskAssignment{
+					TaskID:        benchmarkPayload.TaskID,
+					HashlistID:    benchmarkPayload.HashlistID,
+					HashlistPath:  benchmarkPayload.HashlistPath,
+					AttackMode:    benchmarkPayload.AttackMode,
+					HashType:      benchmarkPayload.HashType,
+					WordlistPaths: benchmarkPayload.WordlistPaths,
+					RulePaths:     benchmarkPayload.RulePaths,
+					Mask:          benchmarkPayload.Mask,
+					BinaryPath:    benchmarkPayload.BinaryPath,
+					ReportInterval: 5, // Default status interval
+				}
+
+				// Default test duration to 16 seconds if not specified
+				testDuration := benchmarkPayload.TestDuration
+				if testDuration == 0 {
+					testDuration = 16
+				}
+
+				ctx, cancel := context.WithTimeout(context.Background(), time.Duration(testDuration+10)*time.Second)
 				defer cancel()
 
-				result, err := c.jobManager.RunManualBenchmark(ctx, benchmarkPayload.BinaryPath, benchmarkPayload.HashType, benchmarkPayload.AttackMode)
+				// Get the hashcat executor from job manager
+				executor := c.jobManager.(*jobs.JobManager).GetHashcatExecutor()
+				totalSpeed, deviceSpeeds, err := executor.RunSpeedTest(ctx, assignment, testDuration)
+
 				if err != nil {
-					debug.Error("Benchmark failed: %v", err)
-					// Send failure result
-					resultPayload := struct {
-						RequestID  string `json:"request_id"`
-						HashType   int    `json:"hash_type"`
-						AttackMode int    `json:"attack_mode"`
-						Speed      int64  `json:"speed"`
-						Success    bool   `json:"success"`
-						Error      string `json:"error,omitempty"`
-					}{
-						RequestID:  benchmarkPayload.RequestID,
-						HashType:   benchmarkPayload.HashType,
-						AttackMode: benchmarkPayload.AttackMode,
-						Speed:      0,
-						Success:    false,
-						Error:      err.Error(),
+					debug.Error("Speed test failed: %v", err)
+					// Send failure result in the format the backend expects
+					resultPayload := map[string]interface{}{
+						"attack_mode":   benchmarkPayload.AttackMode,
+						"hash_type":     benchmarkPayload.HashType,
+						"speed":         int64(0),
+						"device_speeds": []jobs.DeviceSpeed{},
+						"success":       false,
+						"error":         err.Error(), // Backend expects "error" not "error_message"
 					}
 
 					payloadBytes, _ := json.Marshal(resultPayload)
@@ -812,20 +879,14 @@ func (c *Connection) readPump() {
 					return
 				}
 
-				// Send success result
-				resultPayload := struct {
-					RequestID  string `json:"request_id"`
-					HashType   int    `json:"hash_type"`
-					AttackMode int    `json:"attack_mode"`
-					Speed      int64  `json:"speed"`
-					Success    bool   `json:"success"`
-					Error      string `json:"error,omitempty"`
-				}{
-					RequestID:  benchmarkPayload.RequestID,
-					HashType:   result.HashType,
-					AttackMode: result.AttackMode,
-					Speed:      result.Speed,
-					Success:    true,
+				// Send success result in the format the backend expects
+				// The backend expects BenchmarkResultPayload which has different field names
+				resultPayload := map[string]interface{}{
+					"attack_mode":   benchmarkPayload.AttackMode,
+					"hash_type":     benchmarkPayload.HashType,
+					"speed":         totalSpeed, // Backend expects "speed" not "total_speed"
+					"device_speeds": deviceSpeeds,
+					"success":       true,
 				}
 
 				payloadBytes, _ := json.Marshal(resultPayload)
@@ -837,7 +898,7 @@ func (c *Connection) readPump() {
 				if err := c.ws.WriteJSON(response); err != nil {
 					debug.Error("Failed to send benchmark result: %v", err)
 				} else {
-					debug.Info("Successfully sent benchmark result: %d H/s", result.Speed)
+					debug.Info("Successfully sent benchmark result: %d H/s total", totalSpeed)
 				}
 			}()
 
@@ -916,6 +977,73 @@ func (c *Connection) writePump() {
 			return
 		}
 	}
+}
+
+// SendJobProgress sends job progress update to the server
+func (c *Connection) SendJobProgress(progress *jobs.JobProgress) error {
+	if !c.isConnected.Load() {
+		return fmt.Errorf("not connected")
+	}
+
+	// Marshal progress payload to JSON
+	progressJSON, err := json.Marshal(progress)
+	if err != nil {
+		debug.Error("Failed to marshal job progress: %v", err)
+		return fmt.Errorf("failed to marshal job progress: %w", err)
+	}
+
+	// Create and send progress message
+	msg := WSMessage{
+		Type:      WSTypeJobProgress,
+		Payload:   progressJSON,
+		Timestamp: time.Now(),
+	}
+
+	if err := c.ws.WriteJSON(msg); err != nil {
+		debug.Error("Failed to send job progress update: %v", err)
+		return fmt.Errorf("failed to send job progress update: %w", err)
+	}
+
+	debug.Debug("Sent job progress update for task %s: %d keyspace processed, %d H/s", 
+		progress.TaskID, progress.KeyspaceProcessed, progress.HashRate)
+
+	return nil
+}
+
+// SendHashcatOutput sends hashcat output to the server
+func (c *Connection) SendHashcatOutput(taskID string, output string, isError bool) error {
+	if !c.isConnected.Load() {
+		return fmt.Errorf("not connected")
+	}
+
+	// Create output payload
+	outputPayload := map[string]interface{}{
+		"task_id":  taskID,
+		"output":   output,
+		"is_error": isError,
+		"timestamp": time.Now(),
+	}
+
+	// Marshal payload to JSON
+	payloadJSON, err := json.Marshal(outputPayload)
+	if err != nil {
+		debug.Error("Failed to marshal hashcat output: %v", err)
+		return fmt.Errorf("failed to marshal hashcat output: %w", err)
+	}
+
+	// Create and send message
+	msg := WSMessage{
+		Type:      WSTypeHashcatOutput,
+		Payload:   payloadJSON,
+		Timestamp: time.Now(),
+	}
+
+	if err := c.ws.WriteJSON(msg); err != nil {
+		debug.Error("Failed to send hashcat output: %v", err)
+		return fmt.Errorf("failed to send hashcat output: %w", err)
+	}
+
+	return nil
 }
 
 // sendAgentStatusUpdate sends an agent status update to the server

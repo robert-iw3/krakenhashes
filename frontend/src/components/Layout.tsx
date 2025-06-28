@@ -62,6 +62,7 @@ import {
   Menu as MenuIcon,
   ChevronLeft as ChevronLeftIcon,
   Dashboard as DashboardIcon,
+  Work as WorkIcon,
   Computer as ComputerIcon,
   Logout as LogoutIcon,
   Info as InfoIcon,
@@ -86,6 +87,7 @@ const drawerWidth = 240;
 
 const menuItems: MenuItem[] = [
   { text: 'Dashboard', icon: <DashboardIcon />, path: '/dashboard' },
+  { text: 'Jobs', icon: <WorkIcon />, path: '/jobs' },
   { text: 'Agents', icon: <ComputerIcon />, path: '/agents' },
   { text: 'Hashlists', icon: <ListAltIcon />, path: '/hashlists' },
   { text: 'Wordlists', icon: <DescriptionIcon />, path: '/wordlists' },

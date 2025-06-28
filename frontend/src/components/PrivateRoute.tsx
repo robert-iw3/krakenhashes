@@ -80,7 +80,7 @@
  * </ErrorBoundary>
  */
 
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { CircularProgress, Box } from '@mui/material';
 import { useAuth } from '../contexts/AuthContext';
@@ -91,18 +91,7 @@ interface PrivateRouteProps {
 
 const PrivateRoute: React.FC<PrivateRouteProps> = ({ children }) => {
   const location = useLocation();
-  const { isAuth, checkAuthStatus } = useAuth();
-  const [isLoading, setIsLoading] = useState(true);
-
-  // Check auth on route change
-  useEffect(() => {
-    const checkAuth = async () => {
-      setIsLoading(true);
-      await checkAuthStatus();
-      setIsLoading(false);
-    };
-    checkAuth();
-  }, [checkAuthStatus]);
+  const { isAuth, isLoading } = useAuth();
 
   if (isLoading) {
     return (
