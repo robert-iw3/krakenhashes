@@ -9,6 +9,7 @@ import (
 
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/models"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/services"
+	"github.com/ZerkerEOD/krakenhashes/backend/pkg/debug"
 )
 
 // JobHandler interface for handling job-related WebSocket messages
@@ -33,6 +34,8 @@ const (
 	TypeSyncResponse    MessageType = "file_sync_response"
 	TypeSyncStatus      MessageType = "file_sync_status"
 	TypeHashcatOutput   MessageType = "hashcat_output"
+	TypeDeviceDetection MessageType = "device_detection"
+	TypeDeviceUpdate    MessageType = "device_update"
 
 	// Server -> Agent messages
 	TypeTaskAssignment    MessageType = "task_assignment"
@@ -92,12 +95,13 @@ type TaskStatusPayload struct {
 
 // AgentStatusPayload represents agent status update
 type AgentStatusPayload struct {
-	AgentID     int               `json:"agent_id"`
-	Status      string            `json:"status"`
-	Version     string            `json:"version"`
-	LastError   string            `json:"last_error,omitempty"`
-	UpdatedAt   time.Time         `json:"updated_at"`
-	Environment map[string]string `json:"environment"`
+	AgentID     int                    `json:"agent_id"`
+	Status      string                 `json:"status"`
+	Version     string                 `json:"version"`
+	LastError   string                 `json:"last_error,omitempty"`
+	UpdatedAt   time.Time              `json:"updated_at"`
+	Environment map[string]string      `json:"environment"`
+	OSInfo      map[string]interface{} `json:"os_info,omitempty"`
 }
 
 // ErrorReportPayload represents detailed error report from agent
@@ -175,6 +179,8 @@ type TaskAssignmentPayload struct {
 	ChunkDuration   int      `json:"chunk_duration"`
 	ReportInterval  int      `json:"report_interval"`
 	OutputFormat    string   `json:"output_format"`
+	ExtraParameters string   `json:"extra_parameters,omitempty"`
+	EnabledDevices  []int    `json:"enabled_devices,omitempty"`
 }
 
 // BenchmarkResultPayload represents benchmark results from an agent
@@ -203,18 +209,20 @@ type JobStopPayload struct {
 
 // BenchmarkRequestPayload represents a benchmark request sent to an agent
 type BenchmarkRequestPayload struct {
-	RequestID      string   `json:"request_id"`
-	AttackMode     int      `json:"attack_mode"`
-	HashType       int      `json:"hash_type"`
-	BinaryPath     string   `json:"binary_path"`
+	RequestID       string   `json:"request_id"`
+	AttackMode      int      `json:"attack_mode"`
+	HashType        int      `json:"hash_type"`
+	BinaryPath      string   `json:"binary_path"`
 	// Additional fields for real-world speed test
-	TaskID         string   `json:"task_id,omitempty"`
-	HashlistID     int64    `json:"hashlist_id,omitempty"`
-	HashlistPath   string   `json:"hashlist_path,omitempty"`
-	WordlistPaths  []string `json:"wordlist_paths,omitempty"`
-	RulePaths      []string `json:"rule_paths,omitempty"`
-	Mask           string   `json:"mask,omitempty"`
-	TestDuration   int      `json:"test_duration,omitempty"` // Duration in seconds for speed test
+	TaskID          string   `json:"task_id,omitempty"`
+	HashlistID      int64    `json:"hashlist_id,omitempty"`
+	HashlistPath    string   `json:"hashlist_path,omitempty"`
+	WordlistPaths   []string `json:"wordlist_paths,omitempty"`
+	RulePaths       []string `json:"rule_paths,omitempty"`
+	Mask            string   `json:"mask,omitempty"`
+	TestDuration    int      `json:"test_duration,omitempty"` // Duration in seconds for speed test
+	ExtraParameters string   `json:"extra_parameters,omitempty"` // Agent-specific hashcat parameters
+	EnabledDevices  []int    `json:"enabled_devices,omitempty"` // List of enabled device IDs
 }
 
 // Service handles WebSocket business logic
@@ -370,6 +378,14 @@ func (s *Service) handleAgentStatus(ctx context.Context, agent *models.Agent, ms
 		return fmt.Errorf("failed to update agent status: %w", err)
 	}
 
+	// Update OS info if provided
+	if payload.OSInfo != nil && len(payload.OSInfo) > 0 {
+		if err := s.agentService.UpdateAgentOSInfo(ctx, agent.ID, payload.OSInfo); err != nil {
+			// Log error but don't fail the status update
+			debug.Error("Failed to update agent OS info: %v", err)
+		}
+	}
+
 	return nil
 }
 
@@ -469,8 +485,18 @@ func (s *Service) handleJobProgress(ctx context.Context, agent *models.Agent, ms
 		return nil
 	}
 	
-	// Forward to job handler
-	return s.jobHandler.ProcessJobProgress(ctx, agent.ID, msg.Payload)
+	// Process job progress asynchronously to avoid blocking the read loop
+	go func() {
+		// Create a new context with timeout for the async operation
+		asyncCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		
+		if err := s.jobHandler.ProcessJobProgress(asyncCtx, agent.ID, msg.Payload); err != nil {
+			debug.Error("Failed to process job progress from agent %d: %v", agent.ID, err)
+		}
+	}()
+	
+	return nil
 }
 
 // handleBenchmarkResult processes benchmark result messages from agents
@@ -487,24 +513,28 @@ func (s *Service) handleBenchmarkResult(ctx context.Context, agent *models.Agent
 
 // handleHashcatOutput processes hashcat output messages from agents
 func (s *Service) handleHashcatOutput(ctx context.Context, agent *models.Agent, msg *Message) error {
-	var payload struct {
-		TaskID    string    `json:"task_id"`
-		Output    string    `json:"output"`
-		IsError   bool      `json:"is_error"`
-		Timestamp time.Time `json:"timestamp"`
-	}
-	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
-		return fmt.Errorf("failed to unmarshal hashcat output: %w", err)
-	}
+	// Process hashcat output asynchronously to avoid blocking the read loop
+	go func() {
+		var payload struct {
+			TaskID    string    `json:"task_id"`
+			Output    string    `json:"output"`
+			IsError   bool      `json:"is_error"`
+			Timestamp time.Time `json:"timestamp"`
+		}
+		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+			debug.Error("Failed to unmarshal hashcat output from agent %d: %v", agent.ID, err)
+			return
+		}
 
-	// Log the output for debugging
-	if payload.IsError {
-		fmt.Printf("[Agent %d][Task %s][ERROR] %s\n", agent.ID, payload.TaskID, payload.Output)
-	} else {
-		fmt.Printf("[Agent %d][Task %s] %s\n", agent.ID, payload.TaskID, payload.Output)
-	}
+		// Log the output for debugging
+		if payload.IsError {
+			fmt.Printf("[Agent %d][Task %s][ERROR] %s\n", agent.ID, payload.TaskID, payload.Output)
+		} else {
+			fmt.Printf("[Agent %d][Task %s] %s\n", agent.ID, payload.TaskID, payload.Output)
+		}
 
-	// TODO: Store output in database or forward to interested parties via SSE
+		// TODO: Store output in database or forward to interested parties via SSE
+	}()
 	
 	return nil
 }

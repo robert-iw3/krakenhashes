@@ -147,3 +147,168 @@ func (h *AgentHandler) RegisterAgent(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
 }
+
+// GetAgentDevices retrieves devices for a specific agent
+func (h *AgentHandler) GetAgentDevices(w http.ResponseWriter, r *http.Request) {
+	debug.Info("Getting agent devices")
+	
+	// Parse agent ID from URL
+	vars := mux.Vars(r)
+	agentID, err := strconv.Atoi(vars["id"])
+	if err != nil {
+		http.Error(w, "Invalid agent ID", http.StatusBadRequest)
+		return
+	}
+	
+	// Get devices for agent
+	devices, err := h.service.GetAgentDevices(agentID)
+	if err != nil {
+		debug.Error("Failed to get agent devices: %v", err)
+		http.Error(w, "Failed to get agent devices", http.StatusInternalServerError)
+		return
+	}
+	
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(devices); err != nil {
+		debug.Error("Failed to encode devices: %v", err)
+		http.Error(w, "Failed to encode devices", http.StatusInternalServerError)
+		return
+	}
+}
+
+// UpdateDeviceStatus updates the enabled status of a device
+func (h *AgentHandler) UpdateDeviceStatus(w http.ResponseWriter, r *http.Request) {
+	debug.Info("Updating device status")
+	
+	// Parse agent ID and device ID from URL
+	vars := mux.Vars(r)
+	agentID, err := strconv.Atoi(vars["id"])
+	if err != nil {
+		http.Error(w, "Invalid agent ID", http.StatusBadRequest)
+		return
+	}
+	
+	deviceID, err := strconv.Atoi(vars["deviceId"])
+	if err != nil {
+		http.Error(w, "Invalid device ID", http.StatusBadRequest)
+		return
+	}
+	
+	// Parse request body
+	var req struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	
+	// Update device status in database
+	if err := h.service.UpdateDeviceStatus(agentID, deviceID, req.Enabled); err != nil {
+		debug.Error("Failed to update device status: %v", err)
+		http.Error(w, "Failed to update device status", http.StatusInternalServerError)
+		return
+	}
+	
+	// TODO: Send device update message to agent via WebSocket
+	// The WebSocket service needs to be injected into the handler
+	// to send the device update message to the connected agent
+	
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"device_id": deviceID,
+		"enabled": req.Enabled,
+	})
+}
+
+// GetAgentWithDevices retrieves an agent with its devices
+func (h *AgentHandler) GetAgentWithDevices(w http.ResponseWriter, r *http.Request) {
+	debug.Info("Getting agent with devices")
+	
+	// Parse agent ID from URL
+	vars := mux.Vars(r)
+	agentID, err := strconv.Atoi(vars["id"])
+	if err != nil {
+		http.Error(w, "Invalid agent ID", http.StatusBadRequest)
+		return
+	}
+	
+	// Get agent
+	agent, err := h.service.GetAgent(r.Context(), agentID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			http.Error(w, "Agent not found", http.StatusNotFound)
+			return
+		}
+		debug.Error("Failed to get agent: %v", err)
+		http.Error(w, "Failed to get agent", http.StatusInternalServerError)
+		return
+	}
+	
+	// Get devices
+	devices, err := h.service.GetAgentDevices(agentID)
+	if err != nil {
+		debug.Error("Failed to get agent devices: %v", err)
+		http.Error(w, "Failed to get agent devices", http.StatusInternalServerError)
+		return
+	}
+	
+	// Create response with agent and devices
+	response := map[string]interface{}{
+		"agent": agent,
+		"devices": devices,
+	}
+	
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		debug.Error("Failed to encode response: %v", err)
+		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		return
+	}
+}
+
+// UpdateAgent updates agent settings
+func (h *AgentHandler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse agent ID from URL
+	vars := mux.Vars(r)
+	id, err := strconv.Atoi(vars["id"])
+	if err != nil {
+		http.Error(w, "Invalid agent ID", http.StatusBadRequest)
+		return
+	}
+
+	// Parse request body
+	var req struct {
+		IsEnabled       bool    `json:"isEnabled"`
+		OwnerID         *string `json:"ownerId"`
+		ExtraParameters string  `json:"extraParameters"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Update agent
+	if err := h.service.UpdateAgent(r.Context(), id, req.IsEnabled, req.OwnerID, req.ExtraParameters); err != nil {
+		if err == sql.ErrNoRows {
+			http.Error(w, "Agent not found", http.StatusNotFound)
+			return
+		}
+		debug.Error("Failed to update agent: %v", err)
+		http.Error(w, "Failed to update agent", http.StatusInternalServerError)
+		return
+	}
+
+	// Send success response
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"id":      id,
+	})
+}

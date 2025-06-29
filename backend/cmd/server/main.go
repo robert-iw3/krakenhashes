@@ -168,7 +168,8 @@ func main() {
 	// Initialize repositories and services
 	debug.Debug("Initializing repositories and services")
 	agentRepo := repository.NewAgentRepository(dbWrapper)
-	agentService := services.NewAgentService(agentRepo, repository.NewClaimVoucherRepository(dbWrapper), repository.NewFileRepository(dbWrapper, appConfig.DataDir))
+	deviceRepo := repository.NewAgentDeviceRepository(dbWrapper)
+	agentService := services.NewAgentService(agentRepo, repository.NewClaimVoucherRepository(dbWrapper), repository.NewFileRepository(dbWrapper, appConfig.DataDir), deviceRepo)
 
 	clientRepo := repository.NewClientRepository(dbWrapper)
 	clientSettingsRepo := repository.NewClientSettingsRepository(dbWrapper)

@@ -22,11 +22,18 @@ type JobManager struct {
 	progressCallback func(*JobProgress)
 	outputCallback   func(taskID string, output string, isError bool) // Callback for sending output via websocket
 	fileSync         *filesync.FileSync
+	hwMonitor        HardwareMonitor // Interface for hardware monitor
 	
 	// Job state
 	mutex           sync.RWMutex
 	activeJobs      map[string]*JobExecution
 	benchmarkCache  map[string]*BenchmarkResult
+}
+
+// HardwareMonitor interface for device management
+type HardwareMonitor interface {
+	GetEnabledDeviceFlags() string
+	HasEnabledDevices() bool
 }
 
 // JobExecution represents an active job execution
@@ -47,15 +54,26 @@ type BenchmarkResult struct {
 }
 
 // NewJobManager creates a new job manager
-func NewJobManager(cfg *config.Config, progressCallback func(*JobProgress)) *JobManager {
+func NewJobManager(cfg *config.Config, progressCallback func(*JobProgress), hwMonitor HardwareMonitor) *JobManager {
 	dataDir := cfg.DataDirectory
 	
 	executor := NewHashcatExecutor(dataDir)
+	
+	// Set the agent's hashcat extra parameters
+	executor.SetAgentExtraParams(cfg.HashcatExtraParams)
+	
+	// Set device flags callback if hardware monitor is available
+	if hwMonitor != nil {
+		executor.SetDeviceFlagsCallback(func() string {
+			return hwMonitor.GetEnabledDeviceFlags()
+		})
+	}
 	
 	return &JobManager{
 		executor:         executor,
 		config:           cfg,
 		progressCallback: progressCallback,
+		hwMonitor:        hwMonitor,
 		activeJobs:       make(map[string]*JobExecution),
 		benchmarkCache:   make(map[string]*BenchmarkResult),
 	}

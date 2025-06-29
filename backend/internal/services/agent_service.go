@@ -20,11 +20,12 @@ import (
 
 // AgentService handles agent-related operations
 type AgentService struct {
-	agentRepo   *repository.AgentRepository
-	voucherRepo *repository.ClaimVoucherRepository
-	fileRepo    *repository.FileRepository
-	tokens      map[string]downloadToken
-	tokenMutex  sync.RWMutex
+	agentRepo       *repository.AgentRepository
+	voucherRepo     *repository.ClaimVoucherRepository
+	fileRepo        *repository.FileRepository
+	deviceRepo      *repository.AgentDeviceRepository
+	tokens          map[string]downloadToken
+	tokenMutex      sync.RWMutex
 }
 
 type downloadToken struct {
@@ -33,11 +34,12 @@ type downloadToken struct {
 }
 
 // NewAgentService creates a new instance of AgentService
-func NewAgentService(agentRepo *repository.AgentRepository, voucherRepo *repository.ClaimVoucherRepository, fileRepo *repository.FileRepository) *AgentService {
+func NewAgentService(agentRepo *repository.AgentRepository, voucherRepo *repository.ClaimVoucherRepository, fileRepo *repository.FileRepository, deviceRepo *repository.AgentDeviceRepository) *AgentService {
 	return &AgentService{
 		agentRepo:   agentRepo,
 		voucherRepo: voucherRepo,
 		fileRepo:    fileRepo,
+		deviceRepo:  deviceRepo,
 		tokens:      make(map[string]downloadToken),
 	}
 }
@@ -507,3 +509,54 @@ func (s *AgentService) GetFiles(ctx context.Context, fileTypes []string, categor
 func (s *AgentService) GetDB() *sql.DB {
 	return s.agentRepo.GetDB()
 }
+
+// UpdateAgentDevices updates the devices for an agent
+func (s *AgentService) UpdateAgentDevices(agentID int, devices []models.Device) error {
+	debug.Info("Updating devices for agent %d with %d devices", agentID, len(devices))
+	return s.deviceRepo.UpsertDevices(agentID, devices)
+}
+
+// GetAgentDevices retrieves all devices for an agent
+func (s *AgentService) GetAgentDevices(agentID int) ([]models.AgentDevice, error) {
+	return s.deviceRepo.GetByAgentID(agentID)
+}
+
+// UpdateDeviceStatus updates the enabled status of a device
+func (s *AgentService) UpdateDeviceStatus(agentID int, deviceID int, enabled bool) error {
+	debug.Info("Updating device %d for agent %d to enabled=%v", deviceID, agentID, enabled)
+	return s.deviceRepo.UpdateDeviceStatus(agentID, deviceID, enabled)
+}
+
+// UpdateDeviceDetectionStatus updates the device detection status for an agent
+func (s *AgentService) UpdateDeviceDetectionStatus(agentID int, status string, errorMsg *string) error {
+	debug.Info("Updating device detection status for agent %d to %s", agentID, status)
+	return s.deviceRepo.UpdateAgentDeviceDetectionStatus(agentID, status, errorMsg)
+}
+
+// GetEnabledDevices retrieves only enabled devices for an agent
+func (s *AgentService) GetEnabledDevices(agentID int) ([]models.AgentDevice, error) {
+	return s.deviceRepo.GetEnabledDevicesByAgentID(agentID)
+}
+
+// HasEnabledDevices checks if an agent has at least one enabled device
+func (s *AgentService) HasEnabledDevices(agentID int) (bool, error) {
+	return s.deviceRepo.HasEnabledDevices(agentID)
+}
+
+// UpdateAgent updates agent settings including owner and extra parameters
+func (s *AgentService) UpdateAgent(ctx context.Context, agentID int, isEnabled bool, ownerID *string, extraParameters string) error {
+	// First check if agent exists
+	_, err := s.agentRepo.GetByID(ctx, agentID)
+	if err != nil {
+		return err
+	}
+
+	// Update agent in database
+	return s.agentRepo.UpdateAgentSettings(ctx, agentID, isEnabled, ownerID, extraParameters)
+}
+
+// UpdateAgentOSInfo updates an agent's OS information
+func (s *AgentService) UpdateAgentOSInfo(ctx context.Context, agentID int, osInfo map[string]interface{}) error {
+	return s.agentRepo.UpdateOSInfo(ctx, agentID, osInfo)
+}
+

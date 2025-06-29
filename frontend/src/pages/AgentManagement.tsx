@@ -11,6 +11,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import {
   Box,
   Button,
@@ -34,8 +35,12 @@ import {
   CircularProgress,
   Alert,
 } from '@mui/material';
-import { Delete as DeleteIcon } from '@mui/icons-material';
-import { Agent, ClaimVoucher } from '../types/agent';
+import { 
+  Delete as DeleteIcon,
+  CheckCircle as CheckCircleIcon,
+  Cancel as CancelIcon 
+} from '@mui/icons-material';
+import { Agent, ClaimVoucher, AgentDevice } from '../types/agent';
 import { api } from '../services/api';
 
 /**
@@ -54,6 +59,7 @@ import { api } from '../services/api';
  */
 export default function AgentManagement() {
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [agentDevices, setAgentDevices] = useState<{ [key: string]: AgentDevice[] }>({});
   const [claimVouchers, setClaimVouchers] = useState<ClaimVoucher[]>([]);
   const [openDialog, setOpenDialog] = useState(false);
   const [isContinuous, setIsContinuous] = useState(false);
@@ -78,6 +84,21 @@ export default function AgentManagement() {
       
       setAgents(agentsRes.data || []);
       setClaimVouchers((vouchersRes.data || []).filter(v => v.is_active));
+      
+      // Fetch devices for each agent
+      const devicePromises = (agentsRes.data || []).map(agent => 
+        api.get<AgentDevice[]>(`/api/agents/${agent.id}/devices`)
+          .then(res => ({ agentId: agent.id, devices: res.data || [] }))
+          .catch(() => ({ agentId: agent.id, devices: [] }))
+      );
+      
+      const deviceResults = await Promise.all(devicePromises);
+      const devicesMap: { [key: string]: AgentDevice[] } = {};
+      deviceResults.forEach(result => {
+        devicesMap[result.agentId] = result.devices;
+      });
+      setAgentDevices(devicesMap);
+      
     } catch (error) {
       console.error('Failed to fetch data:', error);
       setError('Failed to load data. Please try again.');
@@ -228,6 +249,7 @@ export default function AgentManagement() {
               <TableRow>
                 <TableCell>Agent ID</TableCell>
                 <TableCell>Name</TableCell>
+                <TableCell>Enabled</TableCell>
                 <TableCell>Owner</TableCell>
                 <TableCell>Version</TableCell>
                 <TableCell>Hardware</TableCell>
@@ -238,7 +260,7 @@ export default function AgentManagement() {
             <TableBody>
               {agents.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} align="center">
+                  <TableCell colSpan={8} align="center">
                     No active agents
                   </TableCell>
                 </TableRow>
@@ -246,20 +268,39 @@ export default function AgentManagement() {
                 agents.map((agent) => (
                   <TableRow key={agent.id}>
                     <TableCell>{agent.id}</TableCell>
-                    <TableCell>{agent.name}</TableCell>
+                    <TableCell>
+                      <Link to={`/agents/${agent.id}`} style={{ textDecoration: 'none', color: 'inherit' }}>
+                        {agent.name}
+                      </Link>
+                    </TableCell>
+                    <TableCell>
+                      <Chip
+                        label={agent.isEnabled !== false ? 'Enabled' : 'Disabled'}
+                        color={agent.isEnabled !== false ? 'success' : 'default'}
+                        size="small"
+                      />
+                    </TableCell>
                     <TableCell>{agent.createdBy?.username || 'Unknown'}</TableCell>
                     <TableCell>{agent.version}</TableCell>
                     <TableCell>
-                      {agent.hardware?.cpus?.length > 0 && (
-                        <Typography variant="body2">
-                          CPUs: {agent.hardware.cpus.length} x {agent.hardware.cpus[0]?.model || 'Unknown'}
+                      {agentDevices[agent.id]?.length > 0 ? (
+                        agentDevices[agent.id].map((device) => (
+                          <Box key={device.id} sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
+                            {device.enabled ? (
+                              <CheckCircleIcon sx={{ fontSize: 18, color: 'success.main' }} />
+                            ) : (
+                              <CancelIcon sx={{ fontSize: 18, color: 'error.main' }} />
+                            )}
+                            <Typography variant="body2">
+                              {device.device_type || 'GPU'} {device.device_id}: {device.device_name}
+                            </Typography>
+                          </Box>
+                        ))
+                      ) : (
+                        <Typography variant="body2" color="text.secondary">
+                          No devices detected
                         </Typography>
                       )}
-                      {agent.hardware?.gpus?.map((gpu, i) => (
-                        <Typography key={i} variant="body2">
-                          GPU {i + 1}: {gpu.model} ({gpu.memory})
-                        </Typography>
-                      ))}
                     </TableCell>
                     <TableCell>
                       <Chip

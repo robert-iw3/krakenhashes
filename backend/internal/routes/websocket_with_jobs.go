@@ -51,6 +51,7 @@ func SetupWebSocketWithJobRoutes(
 	systemSettingsRepo := repository.NewSystemSettingsRepository(database)
 	agentHashlistRepo := repository.NewAgentHashlistRepository(database)
 	fileRepo := repository.NewFileRepository(database, appConfig.DataDir)
+	deviceRepo := repository.NewAgentDeviceRepository(database)
 	
 	// Create services
 	jobExecutionService := services.NewJobExecutionService(
@@ -59,6 +60,7 @@ func SetupWebSocketWithJobRoutes(
 		benchmarkRepo,
 		agentHashlistRepo,
 		agentRepo,
+		deviceRepo,
 		presetJobRepo,
 		hashlistRepo,
 		systemSettingsRepo,
@@ -124,6 +126,7 @@ func SetupWebSocketWithJobRoutes(
 		hashRepo,
 		jobTaskRepo,
 		agentRepo,
+		deviceRepo,
 		sqlDB,
 		wordlistManager,
 		ruleManager,

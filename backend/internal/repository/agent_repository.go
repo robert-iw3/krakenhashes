@@ -10,6 +10,7 @@ import (
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/db"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/db/queries"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/models"
+	"github.com/google/uuid"
 )
 
 // AgentRepository handles database operations for agents
@@ -71,6 +72,7 @@ func (r *AgentRepository) GetByID(ctx context.Context, id int) (*models.Agent, e
 	agent := &models.Agent{}
 	var hardwareJSON, osInfoJSON, metadataJSON []byte
 	var createdByUser models.User
+	var ownerID sql.NullString
 
 	err := r.db.QueryRowContext(ctx, queries.GetAgentByID, id).Scan(
 		&agent.ID,
@@ -88,6 +90,9 @@ func (r *AgentRepository) GetByID(ctx context.Context, id int) (*models.Agent, e
 		&agent.APIKeyCreatedAt,
 		&agent.APIKeyLastUsed,
 		&metadataJSON,
+		&ownerID,
+		&agent.ExtraParameters,
+		&agent.IsEnabled,
 		&createdByUser.ID,
 		&createdByUser.Username,
 		&createdByUser.Email,
@@ -118,6 +123,14 @@ func (r *AgentRepository) GetByID(ctx context.Context, id int) (*models.Agent, e
 	} else {
 		// Initialize empty map for NULL metadata
 		agent.Metadata = make(map[string]string)
+	}
+
+	// Convert ownerID if not null
+	if ownerID.Valid {
+		ownerUUID, err := uuid.Parse(ownerID.String)
+		if err == nil {
+			agent.OwnerID = &ownerUUID
+		}
 	}
 
 	agent.CreatedBy = &createdByUser
@@ -257,6 +270,7 @@ func (r *AgentRepository) List(ctx context.Context, filters map[string]interface
 		var agent models.Agent
 		var hardwareJSON, osInfoJSON, metadataJSON []byte
 		var createdByUser models.User
+		var ownerID sql.NullString
 
 		err := rows.Scan(
 			&agent.ID,
@@ -274,6 +288,9 @@ func (r *AgentRepository) List(ctx context.Context, filters map[string]interface
 			&agent.APIKeyCreatedAt,
 			&agent.APIKeyLastUsed,
 			&metadataJSON,
+			&ownerID,
+			&agent.ExtraParameters,
+			&agent.IsEnabled,
 			&createdByUser.ID,
 			&createdByUser.Username,
 			&createdByUser.Email,
@@ -302,6 +319,14 @@ func (r *AgentRepository) List(ctx context.Context, filters map[string]interface
 		} else {
 			// Initialize empty map for NULL metadata
 			agent.Metadata = make(map[string]string)
+		}
+
+		// Convert ownerID if not null
+		if ownerID.Valid {
+			ownerUUID, err := uuid.Parse(ownerID.String)
+			if err == nil {
+				agent.OwnerID = &ownerUUID
+			}
 		}
 
 		agent.CreatedBy = &createdByUser
@@ -389,6 +414,7 @@ func (r *AgentRepository) GetByAPIKey(ctx context.Context, apiKey string) (*mode
 	agent := &models.Agent{}
 	var hardwareJSON, osInfoJSON, metadataJSON []byte
 	var createdByUser models.User
+	var ownerID sql.NullString
 
 	err := r.db.QueryRowContext(ctx, queries.GetAgentByAPIKey, apiKey).Scan(
 		&agent.ID,
@@ -406,6 +432,9 @@ func (r *AgentRepository) GetByAPIKey(ctx context.Context, apiKey string) (*mode
 		&agent.APIKeyCreatedAt,
 		&agent.APIKeyLastUsed,
 		&metadataJSON,
+		&ownerID,
+		&agent.ExtraParameters,
+		&agent.IsEnabled,
 		&createdByUser.ID,
 		&createdByUser.Username,
 		&createdByUser.Email,
@@ -436,6 +465,14 @@ func (r *AgentRepository) GetByAPIKey(ctx context.Context, apiKey string) (*mode
 	} else {
 		// Initialize empty map for NULL metadata
 		agent.Metadata = make(map[string]string)
+	}
+
+	// Convert ownerID if not null
+	if ownerID.Valid {
+		ownerUUID, err := uuid.Parse(ownerID.String)
+		if err == nil {
+			agent.OwnerID = &ownerUUID
+		}
 	}
 
 	agent.CreatedBy = &createdByUser
@@ -469,4 +506,62 @@ func (r *AgentRepository) UpdateAPIKeyLastUsed(ctx context.Context, apiKey strin
 // GetDB returns the underlying database connection
 func (r *AgentRepository) GetDB() *sql.DB {
 	return r.db.DB
+}
+
+// UpdateAgentSettings updates agent settings including is_enabled, owner and extra parameters
+func (r *AgentRepository) UpdateAgentSettings(ctx context.Context, agentID int, isEnabled bool, ownerID *string, extraParameters string) error {
+	query := `
+		UPDATE agents 
+		SET is_enabled = $2,
+		    owner_id = $3, 
+		    extra_parameters = $4,
+		    updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1`
+	
+	result, err := r.db.ExecContext(ctx, query, agentID, isEnabled, ownerID, extraParameters)
+	if err != nil {
+		return fmt.Errorf("failed to update agent settings: %w", err)
+	}
+	
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	
+	return nil
+}
+
+// UpdateOSInfo updates an agent's OS information
+func (r *AgentRepository) UpdateOSInfo(ctx context.Context, agentID int, osInfo map[string]interface{}) error {
+	// Convert OS info to JSON
+	osInfoJSON, err := json.Marshal(osInfo)
+	if err != nil {
+		return fmt.Errorf("failed to marshal OS info: %w", err)
+	}
+	
+	query := `
+		UPDATE agents 
+		SET os_info = $2,
+		    updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1`
+	
+	result, err := r.db.ExecContext(ctx, query, agentID, osInfoJSON)
+	if err != nil {
+		return fmt.Errorf("failed to update agent OS info: %w", err)
+	}
+	
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	
+	return nil
 }

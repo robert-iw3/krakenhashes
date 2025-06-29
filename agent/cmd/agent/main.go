@@ -22,12 +22,13 @@ import (
 
 // agentConfig holds the agent's runtime configuration
 type agentConfig struct {
-	host              string // Host of the backend server (e.g., localhost:8080)
-	useTLS            bool   // Whether to use TLS (HTTPS/WSS)
-	listenInterface   string // Network interface to bind to
-	heartbeatInterval int    // Interval between heartbeats in seconds
-	claimCode         string // Unique code for agent registration
-	debug             bool   // Enable debug logging
+	host               string // Host of the backend server (e.g., localhost:8080)
+	useTLS             bool   // Whether to use TLS (HTTPS/WSS)
+	listenInterface    string // Network interface to bind to
+	heartbeatInterval  int    // Interval between heartbeats in seconds
+	claimCode          string // Unique code for agent registration
+	debug              bool   // Enable debug logging
+	hashcatExtraParams string // Extra parameters to pass to hashcat (e.g., "-O -w 3")
 }
 
 /*
@@ -55,6 +56,7 @@ func loadConfig() agentConfig {
 	flag.IntVar(&cfg.heartbeatInterval, "heartbeat", 0, "Heartbeat interval in seconds (default: 5)")
 	flag.StringVar(&cfg.claimCode, "claim", "", "Agent claim code (required only for first-time registration)")
 	flag.BoolVar(&cfg.debug, "debug", false, "Enable debug logging (default: false)")
+	flag.StringVar(&cfg.hashcatExtraParams, "hashcat-params", "", "Extra parameters to pass to hashcat (e.g., '-O -w 3')")
 	flag.Parse()
 
 	// Load .env file if it exists
@@ -96,6 +98,9 @@ func loadConfig() agentConfig {
 	if !cfg.debug {
 		cfg.debug = os.Getenv("DEBUG") == "true"
 	}
+	if cfg.hashcatExtraParams == "" {
+		cfg.hashcatExtraParams = os.Getenv("HASHCAT_EXTRA_PARAMS")
+	}
 
 	// Validate required configuration
 	if cfg.host == "" {
@@ -128,10 +133,13 @@ KH_CLAIM_CODE=%s
 KH_MAX_CONCURRENT_DOWNLOADS=3  # Maximum number of concurrent file downloads
 KH_DOWNLOAD_TIMEOUT=1h        # Timeout for large file downloads
 
+# Hashcat Configuration
+HASHCAT_EXTRA_PARAMS=%s  # Extra parameters to pass to hashcat (e.g., "-O -w 3" for optimized kernels and high workload)
+
 # Logging Configuration
 DEBUG=%t
 LOG_LEVEL=%s
-`, time.Now().Format(time.RFC3339), host, port, cfg.useTLS, cfg.listenInterface, cfg.heartbeatInterval, cfg.claimCode, cfg.debug, "DEBUG")
+`, time.Now().Format(time.RFC3339), host, port, cfg.useTLS, cfg.listenInterface, cfg.heartbeatInterval, cfg.claimCode, cfg.hashcatExtraParams, cfg.debug, "DEBUG")
 
 		if err := os.WriteFile(".env", []byte(env), 0644); err != nil {
 			log.Printf("Warning: Could not save configuration to .env file: %v", err)
@@ -406,8 +414,10 @@ func main() {
 	// Progress callback will be set after connection is established
 	var progressCallback func(*jobs.JobProgress)
 	
-	jobManager := jobs.NewJobManager(agentConfig, nil) // Initially nil, will set later
-	debug.Info("Job manager created successfully")
+	// Job manager will be created after connection is established
+	// so we can pass the hardware monitor
+	var jobManager *jobs.JobManager
+	debug.Info("Job manager will be created after connection")
 
 	// Create connection with retry
 	debug.Info("Starting WebSocket connection process")
@@ -423,6 +433,11 @@ func main() {
 			continue
 		}
 		
+		// Create job manager with hardware monitor from connection
+		hwMonitor := conn.GetHardwareMonitor()
+		jobManager = jobs.NewJobManager(agentConfig, nil, hwMonitor)
+		debug.Info("Job manager created successfully with hardware monitor")
+		
 		// Set the job manager in the connection
 		conn.SetJobManager(jobManager)
 		
@@ -433,6 +448,16 @@ func main() {
 			continue
 		}
 		debug.Info("Connection attempt %d successful", i+1)
+		
+		// Detect and send device information at startup
+		// This replaces the legacy hardware info and prevents running hashcat -I during jobs
+		debug.Info("Detecting compute devices at startup...")
+		if err := conn.DetectAndSendDevices(); err != nil {
+			debug.Error("Failed to detect devices at startup: %v", err)
+			// Non-fatal error - continue with agent startup
+		} else {
+			debug.Info("Successfully detected and sent device information to server")
+		}
 		
 		// Now set up the progress callback with the connection
 		progressCallback = func(progress *jobs.JobProgress) {

@@ -47,6 +47,8 @@ type JobTaskAssignment struct {
 	ChunkDuration   int         `json:"chunk_duration"`   // Expected duration in seconds
 	ReportInterval  int         `json:"report_interval"`  // Progress reporting interval
 	OutputFormat    string      `json:"output_format"`    // Hashcat output format
+	ExtraParameters string      `json:"extra_parameters,omitempty"` // Agent-specific hashcat parameters
+	EnabledDevices  []int       `json:"enabled_devices,omitempty"`  // List of enabled device IDs
 }
 
 // JobProgress represents progress updates sent to backend
@@ -90,6 +92,12 @@ type HashcatExecutor struct {
 	
 	// Output callback for sending output via websocket
 	outputCallback  func(taskID string, output string, isError bool)
+	
+	// Device flags callback - returns device flags for hashcat (-d flag)
+	deviceFlagsCallback func() string
+	
+	// Agent's default extra parameters for hashcat
+	agentExtraParams string
 }
 
 // HashcatProcess represents an active hashcat process
@@ -126,6 +134,16 @@ func NewHashcatExecutor(dataDirectory string) *HashcatExecutor {
 // SetOutputCallback sets the callback for sending output via websocket
 func (e *HashcatExecutor) SetOutputCallback(callback func(taskID string, output string, isError bool)) {
 	e.outputCallback = callback
+}
+
+// SetDeviceFlagsCallback sets the callback for getting device flags
+func (e *HashcatExecutor) SetDeviceFlagsCallback(callback func() string) {
+	e.deviceFlagsCallback = callback
+}
+
+// SetAgentExtraParams sets the agent's default extra parameters for hashcat
+func (e *HashcatExecutor) SetAgentExtraParams(params string) {
+	e.agentExtraParams = params
 }
 
 // ExecuteTask starts execution of a hashcat task
@@ -224,8 +242,33 @@ func (e *HashcatExecutor) buildHashcatCommandWithOptions(assignment *JobTaskAssi
 		"--quiet",                                    // Reduce verbose output
 		"--potfile-disable",                          // Disable potfile
 		"--restore-disable",                          // Disable restore files (we handle restore via keyspace)
-		"-O",                                         // Enable optimized kernels
-		"-w", "3",                                    // Workload profile: high
+	}
+	
+	// Add device flags if specified
+	// Only add -d flag if some devices are disabled (i.e., we have a specific list)
+	if len(assignment.EnabledDevices) > 0 {
+		// Convert device IDs to comma-separated string
+		deviceIDs := make([]string, len(assignment.EnabledDevices))
+		for i, id := range assignment.EnabledDevices {
+			deviceIDs[i] = strconv.Itoa(id)
+		}
+		deviceFlags := strings.Join(deviceIDs, ",")
+		debug.Info("Adding device flags to hashcat command: -d %s", deviceFlags)
+		args = append(args, "-d", deviceFlags)
+	}
+	// If no devices specified, hashcat will use all available devices
+	
+	// Add extra parameters - prefer task-specific over agent defaults
+	extraParams := assignment.ExtraParameters
+	if extraParams == "" && e.agentExtraParams != "" {
+		extraParams = e.agentExtraParams
+	}
+	
+	if extraParams != "" {
+		debug.Info("Adding extra parameters: %s", extraParams)
+		// Split the extra parameters by space and append them
+		extraParamsList := strings.Fields(extraParams)
+		args = append(args, extraParamsList...)
 	}
 	
 	// Only add --remove for actual job execution, not benchmarks
@@ -333,6 +376,7 @@ func (e *HashcatExecutor) runHashcatProcess(ctx context.Context, process *Hashca
 	// Read stdout for JSON status and cracked hashes
 	go func() {
 		defer func() {
+			debug.Info("[Hashcat stdout reader] Goroutine exiting for task %s", process.TaskID)
 			// Send completion signal safely
 			select {
 			case outputDone <- true:
@@ -340,9 +384,15 @@ func (e *HashcatExecutor) runHashcatProcess(ctx context.Context, process *Hashca
 			}
 		}()
 		scanner := bufio.NewScanner(stdoutPipe)
+		// Increase buffer size to 1MB to handle large JSON status outputs
+		scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024)
+		
+		debug.Info("[Hashcat stdout reader] Starting for task %s", process.TaskID)
+		lineCount := 0
 		
 		for scanner.Scan() {
 			line := scanner.Text()
+			lineCount++
 			debug.Debug("[Hashcat stdout raw] %s", line)
 			
 			// Send output via websocket if callback is set
@@ -397,6 +447,17 @@ func (e *HashcatExecutor) runHashcatProcess(ctx context.Context, process *Hashca
 				
 				var status map[string]interface{}
 				if err := json.Unmarshal([]byte(fixedLine), &status); err == nil {
+					// Check if this is a final status update
+					if statusCode, ok := status["status"].(float64); ok {
+						debug.Info("[Hashcat status] Status code: %d (3=Running, 5=Exhausted, 6=Cracked)", int(statusCode))
+						
+						// Status codes: 3=Running, 5=Exhausted, 6=Cracked, 7=Aborted, etc.
+						if int(statusCode) != 3 {
+							debug.Info("[Hashcat] Final status detected: %d", int(statusCode))
+							// This is a final status, make sure to process it
+						}
+					}
+					
 					// Extract key metrics from JSON
 					if progressArr, ok := status["progress"].([]interface{}); ok && len(progressArr) >= 2 {
 						// Use restore_point for actual keyspace progress
@@ -445,6 +506,9 @@ func (e *HashcatExecutor) runHashcatProcess(ctx context.Context, process *Hashca
 						}
 						
 						e.sendProgressUpdate(process, progress, "running")
+						// Update last progress and checkpoint on the process
+						process.LastProgress = progress
+						process.LastCheckpoint = time.Now()
 					}
 				} else {
 					debug.Warning("[Hashcat] Failed to parse JSON status: %v", err)
@@ -489,11 +553,20 @@ func (e *HashcatExecutor) runHashcatProcess(ctx context.Context, process *Hashca
 				debug.Debug("[Hashcat stdout] %s", line)
 			}
 		}
+		
+		// Check for scanner errors
+		if err := scanner.Err(); err != nil {
+			debug.Error("[Hashcat stdout reader] Scanner error after %d lines: %v", lineCount, err)
+			e.sendErrorProgress(process, fmt.Sprintf("Output reading failed: %v", err))
+		} else {
+			debug.Info("[Hashcat stdout reader] Finished reading %d lines without error", lineCount)
+		}
 	}()
 	
 	// Read stderr for errors and warnings
 	go func() {
 		defer func() {
+			debug.Info("[Hashcat stderr reader] Goroutine exiting for task %s", process.TaskID)
 			// Send completion signal safely
 			select {
 			case outputDone <- true:
@@ -501,14 +574,28 @@ func (e *HashcatExecutor) runHashcatProcess(ctx context.Context, process *Hashca
 			}
 		}()
 		scanner := bufio.NewScanner(stderrPipe)
+		// Increase buffer size to 1MB
+		scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024)
+		
+		debug.Info("[Hashcat stderr reader] Starting for task %s", process.TaskID)
+		lineCount := 0
+		
 		for scanner.Scan() {
 			line := scanner.Text()
+			lineCount++
 			debug.Debug("[Hashcat stderr] %s", line)
 			
 			// Send error output via websocket if callback is set
 			if e.outputCallback != nil {
 				e.outputCallback(process.TaskID, line, true)
 			}
+		}
+		
+		// Check for scanner errors
+		if err := scanner.Err(); err != nil {
+			debug.Error("[Hashcat stderr reader] Scanner error after %d lines: %v", lineCount, err)
+		} else {
+			debug.Info("[Hashcat stderr reader] Finished reading %d lines without error", lineCount)
 		}
 	}()
 
@@ -533,12 +620,17 @@ func (e *HashcatExecutor) runHashcatProcess(ctx context.Context, process *Hashca
 	// Wait for completion or cancellation
 	done := make(chan error, 1)
 	go func() {
-		done <- process.Cmd.Wait()
+		debug.Info("Starting process wait for task %s", process.TaskID)
+		waitErr := process.Cmd.Wait()
+		debug.Info("Process wait completed for task %s, error: %v", process.TaskID, waitErr)
+		done <- waitErr
 	}()
 
+	debug.Info("Entering main select loop for task %s", process.TaskID)
 	select {
 	case <-ctx.Done():
 		// Context cancelled, kill the process
+		debug.Info("Context cancelled for task %s, killing process", process.TaskID)
 		if process.Cmd.Process != nil {
 			process.Cmd.Process.Kill()
 		}
@@ -548,21 +640,83 @@ func (e *HashcatExecutor) runHashcatProcess(ctx context.Context, process *Hashca
 
 	case err := <-done:
 		// Process completed
+		debug.Info("Process completed for task %s, error: %v", process.TaskID, err)
 		process.IsRunning = false
 		
-		// Wait for output goroutines to complete
+		// Wait for output goroutines to complete with increased timeout
+		debug.Info("Waiting for output goroutines to complete for task %s", process.TaskID)
 		for i := 0; i < 2; i++ {
 			select {
 			case <-outputDone:
-			case <-time.After(5 * time.Second):
-				debug.Warning("Timeout waiting for output goroutine to complete")
+				debug.Info("Output goroutine %d/2 completed for task %s", i+1, process.TaskID)
+			case <-time.After(30 * time.Second):
+				debug.Warning("Timeout waiting for output goroutine %d/2 to complete for task %s (waited 30s)", i+1, process.TaskID)
 			}
 		}
+		debug.Info("All output goroutines finished for task %s", process.TaskID)
 		
 		if err != nil {
-			e.sendErrorProgress(process, fmt.Sprintf("Hashcat process failed: %v", err))
+			// Check if it's just a non-zero exit code (hashcat uses different exit codes)
+			if exitErr, ok := err.(*exec.ExitError); ok {
+				exitCode := exitErr.ExitCode()
+				debug.Info("Hashcat exited with code: %d for task %s", exitCode, process.TaskID)
+				
+				// Hashcat exit codes:
+				// 0 = OK/cracked
+				// 1 = exhausted (normal completion, no more work)
+				// 2 = aborted
+				// 3 = aborted by checkpoint
+				// 4 = aborted by runtime
+				// 5 = aborted by finish
+				// -1 = error
+				// -2 = gpu-watchdog alarm
+				// ... other negative codes are backend errors
+				
+				switch exitCode {
+				case 0:
+					// OK/cracked - normal completion
+					debug.Info("Hashcat completed with OK/cracked status for task %s", process.TaskID)
+					finalProgress := &JobProgress{
+						TaskID:            process.TaskID,
+						KeyspaceProcessed: process.Assignment.KeyspaceEnd - process.Assignment.KeyspaceStart,
+					}
+					e.sendProgressUpdate(process, finalProgress, "completed")
+					
+				case 1:
+					// Exhausted - normal completion, keyspace fully processed
+					debug.Info("Hashcat exhausted keyspace for task %s", process.TaskID)
+					finalProgress := &JobProgress{
+						TaskID:            process.TaskID,
+						KeyspaceProcessed: process.Assignment.KeyspaceEnd - process.Assignment.KeyspaceStart,
+					}
+					e.sendProgressUpdate(process, finalProgress, "completed")
+					
+				case 2, 3, 4, 5:
+					// Various abort conditions
+					debug.Warning("Hashcat was aborted (exit code %d) for task %s", exitCode, process.TaskID)
+					e.sendErrorProgress(process, fmt.Sprintf("Hashcat aborted with exit code %d", exitCode))
+					
+				case -2:
+					// GPU watchdog alarm
+					debug.Error("GPU watchdog alarm triggered for task %s", process.TaskID)
+					e.sendErrorProgress(process, "GPU watchdog alarm - possible GPU hang or temperature issue")
+					
+				default:
+					// Other errors
+					if exitCode < 0 {
+						debug.Error("Hashcat backend error (exit code %d) for task %s", exitCode, process.TaskID)
+						e.sendErrorProgress(process, fmt.Sprintf("Hashcat backend error with exit code %d", exitCode))
+					} else {
+						debug.Warning("Hashcat unexpected exit code %d for task %s", exitCode, process.TaskID)
+						e.sendErrorProgress(process, fmt.Sprintf("Hashcat exited with unexpected code %d", exitCode))
+					}
+				}
+			} else {
+				e.sendErrorProgress(process, fmt.Sprintf("Hashcat process failed: %v", err))
+			}
 		} else {
-			// Process completed successfully, send final progress
+			// Process completed successfully with exit code 0
+			debug.Info("Hashcat completed successfully with exit code 0 (OK/cracked) for task %s", process.TaskID)
 			finalProgress := &JobProgress{
 				TaskID:            process.TaskID,
 				KeyspaceProcessed: process.Assignment.KeyspaceEnd - process.Assignment.KeyspaceStart,

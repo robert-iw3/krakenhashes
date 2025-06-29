@@ -26,6 +26,7 @@ type JobExecutionService struct {
 	benchmarkRepo     *repository.BenchmarkRepository
 	agentHashlistRepo *repository.AgentHashlistRepository
 	agentRepo         *repository.AgentRepository
+	deviceRepo        *repository.AgentDeviceRepository
 	presetJobRepo     repository.PresetJobRepository
 	hashlistRepo      *repository.HashListRepository
 	systemSettingsRepo *repository.SystemSettingsRepository
@@ -44,6 +45,7 @@ func NewJobExecutionService(
 	benchmarkRepo *repository.BenchmarkRepository,
 	agentHashlistRepo *repository.AgentHashlistRepository,
 	agentRepo *repository.AgentRepository,
+	deviceRepo *repository.AgentDeviceRepository,
 	presetJobRepo repository.PresetJobRepository,
 	hashlistRepo *repository.HashListRepository,
 	systemSettingsRepo *repository.SystemSettingsRepository,
@@ -63,6 +65,7 @@ func NewJobExecutionService(
 		benchmarkRepo:      benchmarkRepo,
 		agentHashlistRepo:  agentHashlistRepo,
 		agentRepo:          agentRepo,
+		deviceRepo:         deviceRepo,
 		presetJobRepo:      presetJobRepo,
 		hashlistRepo:       hashlistRepo,
 		systemSettingsRepo: systemSettingsRepo,
@@ -340,7 +343,17 @@ func (s *JobExecutionService) GetAvailableAgents(ctx context.Context) ([]models.
 			"agent_id":   agent.ID,
 			"agent_name": agent.Name,
 			"status":     agent.Status,
+			"is_enabled": agent.IsEnabled,
 		})
+		
+		// Skip disabled agents (maintenance mode)
+		if !agent.IsEnabled {
+			debug.Log("Agent is disabled (maintenance mode), skipping", map[string]interface{}{
+				"agent_id": agent.ID,
+			})
+			continue
+		}
+		
 		// Count active tasks for this agent
 		activeTasks, err := s.jobTaskRepo.GetActiveTasksByAgent(ctx, agent.ID)
 		if err != nil {
@@ -359,7 +372,23 @@ func (s *JobExecutionService) GetAvailableAgents(ctx context.Context) ([]models.
 		})
 
 		if len(activeTasks) < maxConcurrent {
-			availableAgents = append(availableAgents, agent)
+			// Check if agent has enabled devices
+			hasEnabledDevices, err := s.deviceRepo.HasEnabledDevices(agent.ID)
+			if err != nil {
+				debug.Log("Failed to check enabled devices for agent", map[string]interface{}{
+					"agent_id": agent.ID,
+					"error":    err.Error(),
+				})
+				continue
+			}
+			
+			if hasEnabledDevices {
+				availableAgents = append(availableAgents, agent)
+			} else {
+				debug.Log("Agent has no enabled devices, skipping", map[string]interface{}{
+					"agent_id": agent.ID,
+				})
+			}
 		}
 	}
 

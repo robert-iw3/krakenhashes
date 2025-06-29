@@ -19,7 +19,8 @@ const (
 
 // Config represents the agent configuration
 type Config struct {
-	DataDirectory string
+	DataDirectory      string
+	HashcatExtraParams string // Extra parameters to pass to hashcat (e.g., "-O -w 3")
 }
 
 // NewConfig creates a new agent configuration
@@ -27,14 +28,18 @@ func NewConfig() *Config {
 	dataDirs, err := GetDataDirs()
 	if err != nil {
 		debug.Error("Failed to get data directories: %v", err)
-		return &Config{DataDirectory: "data"}
+		return &Config{
+			DataDirectory:      "data",
+			HashcatExtraParams: os.Getenv("HASHCAT_EXTRA_PARAMS"),
+		}
 	}
 	
 	// Use the base data directory
 	baseDataDir := filepath.Dir(dataDirs.Binaries)
 	
 	return &Config{
-		DataDirectory: baseDataDir,
+		DataDirectory:      baseDataDir,
+		HashcatExtraParams: os.Getenv("HASHCAT_EXTRA_PARAMS"),
 	}
 }
 

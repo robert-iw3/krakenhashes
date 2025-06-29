@@ -10,6 +10,7 @@ import (
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/binary"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/db"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/jobs"
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/user"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/repository"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/rule"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/services"
@@ -37,6 +38,9 @@ func CreateJobsHandler(database *db.DB, dataDir string, binaryManager binary.Man
 	// Create client repository
 	clientRepo := repository.NewClientRepository(dbWrapper)
 	
+	// Create device repository
+	deviceRepo := repository.NewAgentDeviceRepository(dbWrapper)
+	
 	// Create additional repositories for job creation
 	workflowRepo := repository.NewJobWorkflowRepository(database.DB)
 	wordlistStore := wordlist.NewStore(database.DB)
@@ -50,6 +54,7 @@ func CreateJobsHandler(database *db.DB, dataDir string, binaryManager binary.Man
 		benchmarkRepo,
 		agentHashlistRepo,
 		agentRepo,
+		deviceRepo,
 		presetJobRepo,
 		hashlistRepo,
 		systemSettingsRepo,
@@ -81,11 +86,16 @@ func SetupUserRoutes(router *mux.Router, database *db.DB, dataDir string, binary
 	debug.Info("Setting up user routes")
 	fmt.Printf("[STARTUP] Debug logging test from SetupUserRoutes\n")
 	
-	// Create jobs handler
+	// Create handlers
 	jobsHandler := CreateJobsHandler(database, dataDir, binaryManager)
+	dbWrapper := &db.DB{DB: database.DB}
+	userHandler := user.NewHandler(dbWrapper)
 	
 	// SSE removed - using polling instead
 	// The frontend now polls /jobs endpoint every 5 seconds for updates
+	
+	// User listing route (for agent owner selection)
+	router.HandleFunc("/users", userHandler.ListUsers).Methods("GET", "OPTIONS")
 	
 	// IMPORTANT: Register specific routes before generic patterns to avoid conflicts
 	

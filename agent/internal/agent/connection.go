@@ -11,6 +11,9 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -45,6 +48,10 @@ const (
 	WSTypeBenchmarkRequest WSMessageType = "benchmark_request"
 	WSTypeBenchmarkResult  WSMessageType = "benchmark_result"
 	WSTypeHashcatOutput    WSMessageType = "hashcat_output"
+	
+	// Device detection message types
+	WSTypeDeviceDetection  WSMessageType = "device_detection"
+	WSTypeDeviceUpdate     WSMessageType = "device_update"
 )
 
 // WSMessage represents a WebSocket message
@@ -77,17 +84,19 @@ type FileSyncCommandPayload struct {
 
 // BenchmarkRequest represents a request to test speed for a specific job configuration
 type BenchmarkRequest struct {
-	RequestID      string             `json:"request_id"`
-	TaskID         string             `json:"task_id"`
-	HashlistID     int64              `json:"hashlist_id"`
-	HashlistPath   string             `json:"hashlist_path"`
-	AttackMode     int                `json:"attack_mode"`
-	HashType       int                `json:"hash_type"`
-	WordlistPaths  []string           `json:"wordlist_paths"`
-	RulePaths      []string           `json:"rule_paths"`
-	Mask           string             `json:"mask,omitempty"`
-	BinaryPath     string             `json:"binary_path"`
-	TestDuration   int                `json:"test_duration"` // How long to run test (seconds)
+	RequestID       string             `json:"request_id"`
+	TaskID          string             `json:"task_id"`
+	HashlistID      int64              `json:"hashlist_id"`
+	HashlistPath    string             `json:"hashlist_path"`
+	AttackMode      int                `json:"attack_mode"`
+	HashType        int                `json:"hash_type"`
+	WordlistPaths   []string           `json:"wordlist_paths"`
+	RulePaths       []string           `json:"rule_paths"`
+	Mask            string             `json:"mask,omitempty"`
+	BinaryPath      string             `json:"binary_path"`
+	TestDuration    int                `json:"test_duration"` // How long to run test (seconds)
+	ExtraParameters string             `json:"extra_parameters,omitempty"` // Agent-specific hashcat parameters
+	EnabledDevices  []int              `json:"enabled_devices,omitempty"`  // List of enabled device IDs
 }
 
 // BenchmarkResult represents the result of a speed test
@@ -297,8 +306,11 @@ func NewConnection(urlConfig *config.URLConfig) (*Connection, error) {
 	// Initialize timing configuration
 	initTimingConfig()
 
+	// Get data directory for hardware monitor
+	cfg := config.NewConfig()
+	
 	// Initialize hardware monitor
-	hwMonitor, err := hardware.NewMonitor()
+	hwMonitor, err := hardware.NewMonitor(cfg.DataDirectory)
 	if err != nil {
 		debug.Error("Failed to create hardware monitor: %v", err)
 		return nil, fmt.Errorf("failed to create hardware monitor: %w", err)
@@ -343,12 +355,6 @@ func NewConnection(urlConfig *config.URLConfig) (*Connection, error) {
 // connect establishes a WebSocket connection to the server
 func (c *Connection) connect() error {
 	debug.Info("Starting WebSocket connection attempt")
-
-	// Get initial hardware information
-	if err := c.hwMonitor.UpdateInfo(); err != nil {
-		debug.Error("Failed to get hardware info: %v", err)
-		return fmt.Errorf("failed to get hardware info: %w", err)
-	}
 
 	// Load API key and agent ID
 	apiKey, agentID, err := auth.LoadAgentKey(config.GetConfigDir())
@@ -421,31 +427,10 @@ func (c *Connection) connect() error {
 	c.ws = ws
 	debug.Info("Successfully established WebSocket connection")
 	c.isConnected.Store(true)
-
-	// Send initial hardware information
-	hwInfo := c.hwMonitor.GetInfo()
-
-	// Marshal hardware info to JSON for the payload
-	hwInfoJSON, err := json.Marshal(hwInfo)
-	if err != nil {
-		debug.Error("Failed to marshal hardware info: %v", err)
-		c.ws.Close()
-		return fmt.Errorf("failed to marshal hardware info: %w", err)
-	}
-
-	msg := WSMessage{
-		Type:      WSTypeHardwareInfo,
-		Payload:   hwInfoJSON,
-		Timestamp: time.Now(),
-	}
-
-	if err := c.ws.WriteJSON(msg); err != nil {
-		debug.Error("Failed to send initial hardware info: %v", err)
-		c.ws.Close()
-		return fmt.Errorf("failed to send hardware info: %w", err)
-	}
-
-	debug.Info("Successfully sent initial hardware information")
+	
+	// Device detection is done at agent startup, not after connection
+	// This prevents running hashcat -I during active jobs after reconnections
+	
 	return nil
 }
 
@@ -722,9 +707,21 @@ func (c *Connection) readPump() {
 				// Continue anyway, this is just a pre-check
 			}
 
-			// Process each file in the command
+			// Check if binaries are being downloaded
+			hasBinaries := false
 			for _, file := range commandPayload.Files {
+				if file.FileType == "binary" {
+					hasBinaries = true
+					break
+				}
+			}
+			
+			// Process each file in the command
+			var wg sync.WaitGroup
+			for _, file := range commandPayload.Files {
+				wg.Add(1)
 				go func(file filesync.FileInfo) {
+					defer wg.Done()
 					ctx, cancel := context.WithTimeout(context.Background(), 1*time.Hour)
 					defer cancel()
 
@@ -738,6 +735,17 @@ func (c *Connection) readPump() {
 			}
 
 			debug.Info("Started downloading %d files", len(commandPayload.Files))
+			
+			// If binaries were downloaded, trigger device detection after downloads complete
+			if hasBinaries {
+				go func() {
+					wg.Wait() // Wait for all downloads to complete
+					debug.Info("Binary downloads complete, triggering device detection")
+					if err := c.DetectAndSendDevices(); err != nil {
+						debug.Error("Failed to detect devices after binary download: %v", err)
+					}
+				}()
+			}
 
 		case WSTypeTaskAssignment:
 			// Server sent a job task assignment
@@ -775,8 +783,9 @@ func (c *Connection) readPump() {
 				jobMgr.SetFileSync(c.fileSync)
 			}
 
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
+			// Use context without timeout for job execution
+			// Jobs should run until completion, not be limited by arbitrary timeouts
+			ctx := context.Background()
 
 			if err := c.jobManager.ProcessJobAssignment(ctx, msg.Payload); err != nil {
 				debug.Error("Failed to process job assignment: %v", err)
@@ -830,16 +839,18 @@ func (c *Connection) readPump() {
 
 				// Create a JobTaskAssignment from benchmark request
 				assignment := &jobs.JobTaskAssignment{
-					TaskID:        benchmarkPayload.TaskID,
-					HashlistID:    benchmarkPayload.HashlistID,
-					HashlistPath:  benchmarkPayload.HashlistPath,
-					AttackMode:    benchmarkPayload.AttackMode,
-					HashType:      benchmarkPayload.HashType,
-					WordlistPaths: benchmarkPayload.WordlistPaths,
-					RulePaths:     benchmarkPayload.RulePaths,
-					Mask:          benchmarkPayload.Mask,
-					BinaryPath:    benchmarkPayload.BinaryPath,
-					ReportInterval: 5, // Default status interval
+					TaskID:          benchmarkPayload.TaskID,
+					HashlistID:      benchmarkPayload.HashlistID,
+					HashlistPath:    benchmarkPayload.HashlistPath,
+					AttackMode:      benchmarkPayload.AttackMode,
+					HashType:        benchmarkPayload.HashType,
+					WordlistPaths:   benchmarkPayload.WordlistPaths,
+					RulePaths:       benchmarkPayload.RulePaths,
+					Mask:            benchmarkPayload.Mask,
+					BinaryPath:      benchmarkPayload.BinaryPath,
+					ReportInterval:  5, // Default status interval
+					ExtraParameters: benchmarkPayload.ExtraParameters, // Agent-specific parameters
+					EnabledDevices:  benchmarkPayload.EnabledDevices,   // Device list
 				}
 
 				// Default test duration to 16 seconds if not specified
@@ -901,6 +912,55 @@ func (c *Connection) readPump() {
 					debug.Info("Successfully sent benchmark result: %d H/s total", totalSpeed)
 				}
 			}()
+			
+		case WSTypeDeviceUpdate:
+			// Server requested device update (enable/disable)
+			debug.Info("Received device update request")
+			
+			var updatePayload types.DeviceUpdate
+			if err := json.Unmarshal(msg.Payload, &updatePayload); err != nil {
+				debug.Error("Failed to parse device update: %v", err)
+				continue
+			}
+			
+			// Update device status
+			if err := c.hwMonitor.UpdateDeviceStatus(updatePayload.DeviceID, updatePayload.Enabled); err != nil {
+				debug.Error("Failed to update device status: %v", err)
+				// Send error response
+				errorPayload := map[string]interface{}{
+					"device_id": updatePayload.DeviceID,
+					"error": err.Error(),
+					"success": false,
+				}
+				errorJSON, _ := json.Marshal(errorPayload)
+				response := WSMessage{
+					Type:      WSTypeDeviceUpdate,
+					Payload:   errorJSON,
+					Timestamp: time.Now(),
+				}
+				if writeErr := c.ws.WriteJSON(response); writeErr != nil {
+					debug.Error("Failed to send device update error: %v", writeErr)
+				}
+				continue
+			}
+			
+			// Send success response
+			successPayload := map[string]interface{}{
+				"device_id": updatePayload.DeviceID,
+				"enabled": updatePayload.Enabled,
+				"success": true,
+			}
+			successJSON, _ := json.Marshal(successPayload)
+			response := WSMessage{
+				Type:      WSTypeDeviceUpdate,
+				Payload:   successJSON,
+				Timestamp: time.Now(),
+			}
+			if err := c.ws.WriteJSON(response); err != nil {
+				debug.Error("Failed to send device update success: %v", err)
+			} else {
+				debug.Info("Successfully updated device %d to enabled=%v", updatePayload.DeviceID, updatePayload.Enabled)
+			}
 
 		default:
 			debug.Warning("Received unknown message type: %s", msg.Type)
@@ -1046,18 +1106,77 @@ func (c *Connection) SendHashcatOutput(taskID string, output string, isError boo
 	return nil
 }
 
+// getDetailedOSInfo returns detailed OS information
+func getDetailedOSInfo() map[string]interface{} {
+	hostname, _ := os.Hostname()
+	osInfo := map[string]interface{}{
+		"platform": runtime.GOOS,
+		"arch":     runtime.GOARCH,
+		"hostname": hostname,
+	}
+
+	// Try to get more detailed info on Linux
+	if runtime.GOOS == "linux" {
+		// Try to read /etc/os-release
+		if data, err := os.ReadFile("/etc/os-release"); err == nil {
+			lines := strings.Split(string(data), "\n")
+			for _, line := range lines {
+				parts := strings.SplitN(line, "=", 2)
+				if len(parts) == 2 {
+					key := strings.TrimSpace(parts[0])
+					value := strings.Trim(strings.TrimSpace(parts[1]), "\"")
+					
+					switch key {
+					case "NAME":
+						osInfo["os_name"] = value
+					case "VERSION":
+						osInfo["os_version"] = value
+					case "ID":
+						osInfo["os_id"] = value
+					case "VERSION_ID":
+						osInfo["os_version_id"] = value
+					case "PRETTY_NAME":
+						osInfo["os_pretty_name"] = value
+					}
+				}
+			}
+		}
+		
+		// Try to get kernel version
+		if data, err := os.ReadFile("/proc/version"); err == nil {
+			osInfo["kernel_version"] = strings.TrimSpace(string(data))
+		}
+	}
+	
+	// Add Go version
+	osInfo["go_version"] = runtime.Version()
+	
+	return osInfo
+}
+
 // sendAgentStatusUpdate sends an agent status update to the server
 func (c *Connection) sendAgentStatusUpdate() error {
 	if !c.isConnected.Load() {
 		return fmt.Errorf("not connected")
 	}
 
+	// Get hostname
+	hostname, _ := os.Hostname()
+	
+	// Get detailed OS information
+	osInfo := getDetailedOSInfo()
+	
 	// Create status payload
 	statusPayload := map[string]interface{}{
 		"status":      "active",
 		"version":     "1.0.0", // Replace with actual version
 		"updated_at":  time.Now(),
-		"environment": map[string]string{},
+		"environment": map[string]string{
+			"os":       runtime.GOOS,
+			"arch":     runtime.GOARCH,
+			"hostname": hostname,
+		},
+		"os_info": osInfo,
 	}
 
 	// Marshal status payload to JSON
@@ -1146,6 +1265,11 @@ func (c *Connection) SetJobManager(jm JobManager) {
 	c.jobManager = jm
 }
 
+// GetHardwareMonitor returns the hardware monitor for device management
+func (c *Connection) GetHardwareMonitor() *hardware.Monitor {
+	return c.hwMonitor
+}
+
 // checkAndExtractBinaryArchives checks all binary directories for .7z files without extracted executables
 func (c *Connection) checkAndExtractBinaryArchives() error {
 	if c.fileSync == nil {
@@ -1211,5 +1335,58 @@ func (c *Connection) checkAndExtractBinaryArchives() error {
 		}
 	}
 
+	return nil
+}
+
+// DetectAndSendDevices detects available compute devices and sends them to the server
+// This is exported so it can be called from main.go at startup
+func (c *Connection) DetectAndSendDevices() error {
+	debug.Info("Starting device detection using hashcat")
+	
+	// Detect devices using hashcat
+	result, err := c.hwMonitor.DetectDevices()
+	if err != nil {
+		debug.Error("Failed to detect devices: %v", err)
+		// Send error status to server
+		errorPayload := map[string]interface{}{
+			"error": err.Error(),
+			"status": "error",
+		}
+		errorJSON, _ := json.Marshal(errorPayload)
+		
+		msg := WSMessage{
+			Type:      WSTypeDeviceDetection,
+			Payload:   errorJSON,
+			Timestamp: time.Now(),
+		}
+		
+		if writeErr := c.ws.WriteJSON(msg); writeErr != nil {
+			debug.Error("Failed to send device detection error: %v", writeErr)
+		}
+		
+		return err
+	}
+	
+	// Marshal device detection result
+	devicesJSON, err := json.Marshal(result)
+	if err != nil {
+		debug.Error("Failed to marshal device detection result: %v", err)
+		return fmt.Errorf("failed to marshal device detection result: %w", err)
+	}
+	
+	// Send device information to server
+	msg := WSMessage{
+		Type:      WSTypeDeviceDetection,
+		Payload:   devicesJSON,
+		Timestamp: time.Now(),
+	}
+	
+	if err := c.ws.WriteJSON(msg); err != nil {
+		debug.Error("Failed to send device detection result: %v", err)
+		return fmt.Errorf("failed to send device detection result: %w", err)
+	}
+	
+	debug.Info("Successfully sent device detection result with %d devices", len(result.Devices))
+	
 	return nil
 }

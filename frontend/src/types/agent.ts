@@ -35,6 +35,9 @@ export interface Agent {
     createdAt: string;
     updatedAt: string;
     metrics?: AgentMetrics;
+    isEnabled?: boolean;
+    ownerId?: string;
+    extraParameters?: string;
 }
 
 /**
@@ -101,6 +104,20 @@ export interface AgentHardware {
         name: string;
         ipAddress: string;
     }[];
+}
+
+/**
+ * Represents a device detected by an agent
+ */
+export interface AgentDevice {
+    id: number;
+    agent_id: number;
+    device_id: number;
+    device_name: string;
+    device_type: string;
+    enabled: boolean;
+    created_at: string;
+    updated_at: string;
 }
 
 /**

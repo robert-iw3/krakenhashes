@@ -329,6 +329,12 @@ func (c *Client) readPump() {
 
 		case wsservice.TypeSyncStatus:
 			c.handler.handleSyncStatus(c, &msg)
+			
+		case wsservice.TypeDeviceDetection:
+			c.handler.handleDeviceDetection(c, &msg)
+			
+		case wsservice.TypeDeviceUpdate:
+			c.handler.handleDeviceUpdate(c, &msg)
 
 		default:
 			// Handle other message types
@@ -619,4 +625,121 @@ func (h *Handler) getBackendFiles(ctx context.Context, fileTypes []string, categ
 
 	debug.Info("Retrieved %d files from repository", len(files))
 	return files, nil
+}
+
+// handleDeviceDetection handles device detection results from agents
+func (h *Handler) handleDeviceDetection(client *Client, msg *wsservice.Message) {
+	debug.Info("Agent %d: Received device detection result", client.agent.ID)
+	
+	// Parse the device detection result
+	var result models.DeviceDetectionResult
+	if err := json.Unmarshal(msg.Payload, &result); err != nil {
+		debug.Error("Agent %d: Failed to parse device detection result: %v", client.agent.ID, err)
+		return
+	}
+	
+	// Check if there was an error in detection
+	if result.Error != "" {
+		debug.Error("Agent %d: Device detection failed: %s", client.agent.ID, result.Error)
+		// Update agent status to error
+		if err := h.agentService.UpdateDeviceDetectionStatus(client.agent.ID, "error", &result.Error); err != nil {
+			debug.Error("Failed to update device detection status: %v", err)
+		}
+		return
+	}
+	
+	// Store devices in database
+	if err := h.agentService.UpdateAgentDevices(client.agent.ID, result.Devices); err != nil {
+		debug.Error("Agent %d: Failed to update devices: %v", client.agent.ID, err)
+		errorMsg := err.Error()
+		if updateErr := h.agentService.UpdateDeviceDetectionStatus(client.agent.ID, "error", &errorMsg); updateErr != nil {
+			debug.Error("Failed to update device detection status: %v", updateErr)
+		}
+		return
+	}
+	
+	// Update agent device detection status to success
+	if err := h.agentService.UpdateDeviceDetectionStatus(client.agent.ID, "success", nil); err != nil {
+		debug.Error("Failed to update device detection status: %v", err)
+	}
+	
+	// Check if agent has enabled devices, disable agent if not
+	hasEnabledDevices := false
+	for _, device := range result.Devices {
+		if device.Enabled {
+			hasEnabledDevices = true
+			break
+		}
+	}
+	
+	if !hasEnabledDevices {
+		debug.Warning("Agent %d: No enabled devices found, disabling agent", client.agent.ID)
+		if err := h.agentService.UpdateAgentStatus(context.Background(), client.agent.ID, "disabled", nil); err != nil {
+			debug.Error("Failed to disable agent: %v", err)
+		}
+	}
+	
+	debug.Info("Agent %d: Successfully updated %d devices", client.agent.ID, len(result.Devices))
+}
+
+// handleDeviceUpdate handles device update responses from agents
+func (h *Handler) handleDeviceUpdate(client *Client, msg *wsservice.Message) {
+	debug.Info("Agent %d: Received device update response", client.agent.ID)
+	
+	// Parse the response
+	var response map[string]interface{}
+	if err := json.Unmarshal(msg.Payload, &response); err != nil {
+		debug.Error("Agent %d: Failed to parse device update response: %v", client.agent.ID, err)
+		return
+	}
+	
+	success, ok := response["success"].(bool)
+	if !ok {
+		debug.Error("Agent %d: Invalid device update response format", client.agent.ID)
+		return
+	}
+	
+	if !success {
+		if errorMsg, ok := response["error"].(string); ok {
+			debug.Error("Agent %d: Device update failed: %s", client.agent.ID, errorMsg)
+		}
+		return
+	}
+	
+	// Device update was successful
+	if deviceID, ok := response["device_id"].(float64); ok {
+		if enabled, ok := response["enabled"].(bool); ok {
+			debug.Info("Agent %d: Successfully updated device %d to enabled=%v", 
+				client.agent.ID, int(deviceID), enabled)
+				
+			// Check if all devices are disabled after update
+			devices, err := h.agentService.GetAgentDevices(client.agent.ID)
+			if err != nil {
+				debug.Error("Failed to get agent devices: %v", err)
+				return
+			}
+			
+			hasEnabledDevice := false
+			for _, device := range devices {
+				if device.Enabled {
+					hasEnabledDevice = true
+					break
+				}
+			}
+			
+			// Update agent status based on device availability
+			if !hasEnabledDevice {
+				debug.Warning("Agent %d: All devices disabled, disabling agent", client.agent.ID)
+				if err := h.agentService.UpdateAgentStatus(context.Background(), client.agent.ID, "disabled", nil); err != nil {
+					debug.Error("Failed to disable agent: %v", err)
+				}
+			} else if client.agent.Status == "disabled" {
+				// Re-enable agent if it was disabled and now has enabled devices
+				debug.Info("Agent %d: Has enabled devices, enabling agent", client.agent.ID)
+				if err := h.agentService.UpdateAgentStatus(context.Background(), client.agent.ID, "active", nil); err != nil {
+					debug.Error("Failed to enable agent: %v", err)
+				}
+			}
+		}
+	}
 }

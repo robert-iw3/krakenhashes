@@ -33,6 +33,7 @@ type JobWebSocketIntegration struct {
 	hashRepo             *repository.HashRepository
 	jobTaskRepo          *repository.JobTaskRepository
 	agentRepo            *repository.AgentRepository
+	deviceRepo           *repository.AgentDeviceRepository
 	db                   *sql.DB
 	wordlistManager      wordlist.Manager
 	ruleManager          rule.Manager
@@ -55,6 +56,7 @@ func NewJobWebSocketIntegration(
 	hashRepo *repository.HashRepository,
 	jobTaskRepo *repository.JobTaskRepository,
 	agentRepo *repository.AgentRepository,
+	deviceRepo *repository.AgentDeviceRepository,
 	db *sql.DB,
 	wordlistManager wordlist.Manager,
 	ruleManager rule.Manager,
@@ -71,6 +73,7 @@ func NewJobWebSocketIntegration(
 		hashRepo:             hashRepo,
 		jobTaskRepo:          jobTaskRepo,
 		agentRepo:            agentRepo,
+		deviceRepo:           deviceRepo,
 		db:                   db,
 		wordlistManager:      wordlistManager,
 		ruleManager:          ruleManager,
@@ -168,6 +171,28 @@ func (s *JobWebSocketIntegration) SendJobAssignment(ctx context.Context, task *m
 		reportInterval = val
 	}
 
+	// Get enabled devices for the agent
+	var enabledDeviceIDs []int
+	devices, err := s.deviceRepo.GetByAgentID(task.AgentID)
+	if err != nil {
+		debug.Error("Failed to get agent devices: %v", err)
+		// Continue without device specification
+	} else {
+		// Only include device IDs if some devices are disabled
+		hasDisabledDevice := false
+		for _, device := range devices {
+			if !device.Enabled {
+				hasDisabledDevice = true
+			} else {
+				enabledDeviceIDs = append(enabledDeviceIDs, device.DeviceID)
+			}
+		}
+		// If all devices are enabled, don't include the device list
+		if !hasDisabledDevice {
+			enabledDeviceIDs = nil
+		}
+	}
+
 	// Create task assignment payload
 	assignment := wsservice.TaskAssignmentPayload{
 		TaskID:          task.ID.String(),
@@ -185,6 +210,8 @@ func (s *JobWebSocketIntegration) SendJobAssignment(ctx context.Context, task *m
 		ChunkDuration:   task.ChunkDuration,
 		ReportInterval:  reportInterval,
 		OutputFormat:    "3", // hash:plain format
+		ExtraParameters: agent.ExtraParameters, // Agent-specific hashcat parameters
+		EnabledDevices:  enabledDeviceIDs,      // Only populated if some devices are disabled
 	}
 
 	// Marshal payload
@@ -397,6 +424,28 @@ func (s *JobWebSocketIntegration) RequestAgentBenchmark(ctx context.Context, age
 	// Use the actual binary path - the ID is used as the directory name
 	binaryPath := fmt.Sprintf("binaries/%d", binaryVersion.ID)
 
+	// Get enabled devices for the agent
+	var enabledDeviceIDs []int
+	devices, err := s.deviceRepo.GetByAgentID(agentID)
+	if err != nil {
+		debug.Error("Failed to get agent devices for benchmark: %v", err)
+		// Continue without device specification
+	} else {
+		// Only include device IDs if some devices are disabled
+		hasDisabledDevice := false
+		for _, device := range devices {
+			if !device.Enabled {
+				hasDisabledDevice = true
+			} else {
+				enabledDeviceIDs = append(enabledDeviceIDs, device.DeviceID)
+			}
+		}
+		// If all devices are enabled, don't include the device list
+		if !hasDisabledDevice {
+			enabledDeviceIDs = nil
+		}
+	}
+
 	requestID := fmt.Sprintf("benchmark-%d-%d-%d-%d", agentID, hashlist.HashTypeID, jobExecution.AttackMode, time.Now().Unix())
 
 	debug.Log("Sending enhanced benchmark request to agent", map[string]interface{}{
@@ -407,21 +456,24 @@ func (s *JobWebSocketIntegration) RequestAgentBenchmark(ctx context.Context, age
 		"wordlist_count":  len(wordlistPaths),
 		"rule_count":      len(rulePaths),
 		"has_mask":        presetJob.Mask != "",
+		"enabled_devices": enabledDeviceIDs,
 	})
 
 	// Create enhanced benchmark request payload with job-specific configuration
 	benchmarkReq := wsservice.BenchmarkRequestPayload{
-		RequestID:      requestID,
-		TaskID:         fmt.Sprintf("benchmark-%s-%d", jobExecution.ID, time.Now().Unix()), // Generate a task ID for the benchmark
-		HashType:       hashlist.HashTypeID,
-		AttackMode:     int(jobExecution.AttackMode),
-		BinaryPath:     binaryPath,
-		HashlistID:     jobExecution.HashlistID,
-		HashlistPath:   fmt.Sprintf("hashlists/%d.hash", jobExecution.HashlistID),
-		WordlistPaths:  wordlistPaths,
-		RulePaths:      rulePaths,
-		Mask:           presetJob.Mask,
-		TestDuration:   30, // 30-second benchmark for accuracy
+		RequestID:       requestID,
+		TaskID:          fmt.Sprintf("benchmark-%s-%d", jobExecution.ID, time.Now().Unix()), // Generate a task ID for the benchmark
+		HashType:        hashlist.HashTypeID,
+		AttackMode:      int(jobExecution.AttackMode),
+		BinaryPath:      binaryPath,
+		HashlistID:      jobExecution.HashlistID,
+		HashlistPath:    fmt.Sprintf("hashlists/%d.hash", jobExecution.HashlistID),
+		WordlistPaths:   wordlistPaths,
+		RulePaths:       rulePaths,
+		Mask:            presetJob.Mask,
+		TestDuration:    30, // 30-second benchmark for accuracy
+		ExtraParameters: agent.ExtraParameters, // Agent-specific hashcat parameters
+		EnabledDevices:  enabledDeviceIDs,      // Only populated if some devices are disabled
 	}
 
 	// Marshal payload

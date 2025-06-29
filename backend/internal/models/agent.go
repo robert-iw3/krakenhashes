@@ -16,6 +16,7 @@ const (
 	AgentStatusActive   = "active"
 	AgentStatusInactive = "inactive"
 	AgentStatusError    = "error"
+	AgentStatusDisabled = "disabled"
 )
 
 // Agent represents a registered agent in the system
@@ -38,6 +39,9 @@ type Agent struct {
 	APIKeyCreatedAt sql.NullTime      `json:"-"`
 	APIKeyLastUsed  sql.NullTime      `json:"-"`
 	Metadata        map[string]string `json:"metadata,omitempty"`
+	OwnerID         *uuid.UUID        `json:"ownerId,omitempty"`
+	ExtraParameters string            `json:"extraParameters"`
+	IsEnabled       bool              `json:"isEnabled"`
 }
 
 // Hardware represents the hardware configuration of an agent
