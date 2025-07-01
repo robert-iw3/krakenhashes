@@ -913,3 +913,175 @@ func formatBinaries(binaries []*binary.BinaryVersion) []map[string]interface{} {
 	}
 	return result
 }
+
+// ListUserJobs handles GET /api/user/jobs with pagination and filtering (filtered by authenticated user)
+func (h *UserJobsHandler) ListUserJobs(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	
+	// Get user ID from context
+	userID, ok := ctx.Value("user_id").(string)
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	
+	// Parse query parameters
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	if page < 1 {
+		page = 1
+	}
+	
+	pageSize, _ := strconv.Atoi(r.URL.Query().Get("page_size"))
+	if pageSize < 1 || pageSize > 200 {
+		pageSize = 25
+	}
+	
+	// Parse filters
+	status := r.URL.Query().Get("status")
+	priorityStr := r.URL.Query().Get("priority")
+	search := r.URL.Query().Get("search")
+	
+	var priority *int
+	if priorityStr != "" {
+		p, err := strconv.Atoi(priorityStr)
+		if err == nil && p >= 1 && p <= 10 {
+			priority = &p
+		}
+	}
+	
+	// Create filter with user ID
+	filter := repository.JobFilter{
+		Status:   &status,
+		Priority: priority,
+		Search:   &search,
+		UserID:   &userID,
+	}
+	
+	// Get jobs with filters
+	jobs, err := h.jobExecRepo.ListWithFilters(ctx, pageSize, (page-1)*pageSize, filter)
+	if err != nil {
+		debug.Error("Failed to list user jobs: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	
+	// Get total count with filters
+	total, err := h.jobExecRepo.GetFilteredCount(ctx, filter)
+	if err != nil {
+		debug.Error("Failed to get user job count: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	
+	// Get status counts for this user
+	statusCounts, err := h.jobExecRepo.GetStatusCountsForUser(ctx, userID)
+	if err != nil {
+		debug.Error("Failed to get user status counts: %v", err)
+		// Don't fail the request, just log the error
+		statusCounts = make(map[string]int)
+	}
+	
+	// Convert to job summaries (reuse the same logic as ListJobs)
+	summaries := make([]JobSummary, 0, len(jobs))
+	for _, job := range jobs {
+		// Get hashlist details including cracked count
+		hashlist, err := h.hashlistRepo.GetByID(ctx, job.HashlistID)
+		if err != nil {
+			debug.Error("Failed to get hashlist %d: %v", job.HashlistID, err)
+			continue
+		}
+		
+		// Get task statistics
+		tasks, err := h.jobTaskRepo.GetTasksByJobExecution(ctx, job.ID)
+		if err != nil {
+			debug.Error("Failed to get tasks for job %s: %v", job.ID, err)
+			tasks = []models.JobTask{}
+		}
+		
+		// Calculate metrics
+		var agentCount int
+		var totalSpeed int64
+		var crackedCount int
+		var keyspaceSearched int64
+		var keyspaceDispatched int64
+		
+		for _, task := range tasks {
+			if task.Status == models.JobTaskStatusRunning {
+				agentCount++
+				if task.BenchmarkSpeed != nil {
+					totalSpeed += *task.BenchmarkSpeed
+				}
+			}
+			crackedCount += task.CrackCount
+			keyspaceSearched += task.KeyspaceProcessed
+			
+			// Calculate dispatched keyspace (assigned to tasks)
+			if task.Status != models.JobTaskStatusPending {
+				// Task has been dispatched if it's not pending
+				taskKeyspace := task.KeyspaceEnd - task.KeyspaceStart
+				keyspaceDispatched += taskKeyspace
+			}
+		}
+		
+		// Calculate percentages
+		dispatchedPercent := 0.0
+		searchedPercent := 0.0
+		if job.TotalKeyspace != nil && *job.TotalKeyspace > 0 {
+			dispatchedPercent = float64(keyspaceDispatched) / float64(*job.TotalKeyspace) * 100
+			searchedPercent = float64(keyspaceSearched) / float64(*job.TotalKeyspace) * 100
+			
+			// Cap percentages at 100%
+			if dispatchedPercent > 100 {
+				dispatchedPercent = 100
+			}
+			if searchedPercent > 100 {
+				searchedPercent = 100
+			}
+		}
+		
+		// Get preset job name
+		presetJobName := "Custom Job"
+		if job.PresetJobID != uuid.Nil {
+			presetJob, err := h.presetJobRepo.GetByID(ctx, job.PresetJobID)
+			if err == nil && presetJob != nil {
+				presetJobName = presetJob.Name
+			}
+		}
+		
+		summary := JobSummary{
+			ID:                job.ID.String(),
+			Name:              presetJobName,
+			HashlistID:        job.HashlistID,
+			HashlistName:      hashlist.Name,
+			Status:            string(job.Status),
+			Priority:          job.Priority,
+			MaxAgents:         job.MaxAgents,
+			DispatchedPercent: dispatchedPercent,
+			SearchedPercent:   searchedPercent,
+			CrackedCount:      crackedCount,
+			AgentCount:        agentCount,
+			TotalSpeed:        totalSpeed,
+			CreatedAt:         job.CreatedAt.Format(time.RFC3339),
+			UpdatedAt:         job.UpdatedAt.Format(time.RFC3339),
+			ErrorMessage:      job.ErrorMessage,
+		}
+		
+		summaries = append(summaries, summary)
+	}
+	
+	// Create response
+	response := map[string]interface{}{
+		"jobs":          summaries,
+		"total":         total,
+		"page":          page,
+		"page_size":     pageSize,
+		"total_pages":   (total + pageSize - 1) / pageSize,
+		"status_counts": statusCounts,
+	}
+	
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		debug.Error("Failed to encode response: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	}
+}

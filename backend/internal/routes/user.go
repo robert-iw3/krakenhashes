@@ -97,6 +97,9 @@ func SetupUserRoutes(router *mux.Router, database *db.DB, dataDir string, binary
 	// User listing route (for agent owner selection)
 	router.HandleFunc("/users", userHandler.ListUsers).Methods("GET", "OPTIONS")
 	
+	// User-specific jobs route
+	router.HandleFunc("/user/jobs", jobsHandler.ListUserJobs).Methods("GET", "OPTIONS")
+	
 	// IMPORTANT: Register specific routes before generic patterns to avoid conflicts
 	
 	// Other specific job routes (before generic {id} pattern)

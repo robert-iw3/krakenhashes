@@ -47,6 +47,7 @@ type JobFilter struct {
 	Status   *string
 	Priority *int
 	Search   *string
+	UserID   *string
 }
 
 // ListWithFilters retrieves job executions with pagination and filters
@@ -84,6 +85,13 @@ func (r *JobExecutionRepository) ListWithFilters(ctx context.Context, limit, off
 		query += fmt.Sprintf(" AND (pj.name ILIKE $%d OR h.name ILIKE $%d)", argCount, argCount)
 		searchPattern := "%" + *filter.Search + "%"
 		args = append(args, searchPattern)
+	}
+
+	// Apply user filter
+	if filter.UserID != nil && *filter.UserID != "" {
+		argCount++
+		query += fmt.Sprintf(" AND h.user_id = $%d", argCount)
+		args = append(args, *filter.UserID)
 	}
 
 	// Add ordering
@@ -166,6 +174,13 @@ func (r *JobExecutionRepository) GetFilteredCount(ctx context.Context, filter Jo
 		args = append(args, searchPattern)
 	}
 
+	// Apply user filter
+	if filter.UserID != nil && *filter.UserID != "" {
+		argCount++
+		query += fmt.Sprintf(" AND h.user_id = $%d", argCount)
+		args = append(args, *filter.UserID)
+	}
+
 	var count int
 	err := r.db.QueryRowContext(ctx, query, args...).Scan(&count)
 	if err != nil {
@@ -184,6 +199,34 @@ func (r *JobExecutionRepository) GetStatusCounts(ctx context.Context) (map[strin
 	rows, err := r.db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get status counts: %w", err)
+	}
+	defer rows.Close()
+
+	counts := make(map[string]int)
+	for rows.Next() {
+		var status string
+		var count int
+		if err := rows.Scan(&status, &count); err != nil {
+			return nil, fmt.Errorf("failed to scan status count: %w", err)
+		}
+		counts[status] = count
+	}
+
+	return counts, nil
+}
+
+// GetStatusCountsForUser returns counts of jobs grouped by status for a specific user
+func (r *JobExecutionRepository) GetStatusCountsForUser(ctx context.Context, userID string) (map[string]int, error) {
+	query := `
+		SELECT je.status, COUNT(*) as count
+		FROM job_executions je
+		JOIN hashlists h ON je.hashlist_id = h.id
+		WHERE h.user_id = $1
+		GROUP BY je.status`
+
+	rows, err := r.db.QueryContext(ctx, query, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get status counts for user: %w", err)
 	}
 	defer rows.Close()
 
