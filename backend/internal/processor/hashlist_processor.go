@@ -304,6 +304,14 @@ func (p *HashlistDBProcessor) processHashlist(hashlistID int64) {
 	}
 
 	debug.Info("Successfully processed hashlist %d. Total: %d, Final Agent File: %s", hashlistID, totalHashes, finalFilePath)
+
+	// Sync the cracked count to reflect actual state (including pre-cracked hashes)
+	if err := p.hashlistRepo.SyncCrackedCount(ctx, hashlistID); err != nil {
+		debug.Error("Failed to sync cracked count for hashlist %d: %v", hashlistID, err)
+		// Don't fail the entire process, just log the error
+	} else {
+		debug.Info("Successfully synced cracked count for hashlist %d", hashlistID)
+	}
 }
 
 // batchProcessHashes handles creating/updating hashes and preparing associations.

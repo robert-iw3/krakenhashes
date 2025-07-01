@@ -535,3 +535,32 @@ func (r *HashListRepository) DeleteTx(tx *sql.Tx, id int64) error {
 
 	return nil
 }
+
+// SyncCrackedCount updates the cracked_hashes count for a hashlist to match the actual count of cracked hashes.
+// This ensures the cached count reflects reality, including pre-cracked hashes from previous uploads.
+func (r *HashListRepository) SyncCrackedCount(ctx context.Context, hashlistID int64) error {
+	query := `
+		UPDATE hashlists 
+		SET cracked_hashes = (
+			SELECT COUNT(*) 
+			FROM hashlist_hashes hh 
+			JOIN hashes h ON hh.hash_id = h.id 
+			WHERE hh.hashlist_id = $1 AND h.is_cracked = true
+		),
+		updated_at = $2
+		WHERE id = $1
+	`
+	result, err := r.db.ExecContext(ctx, query, hashlistID, time.Now())
+	if err != nil {
+		return fmt.Errorf("failed to sync cracked count for hashlist %d: %w", hashlistID, err)
+	}
+	
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		debug.Warning("Could not get rows affected after syncing cracked count for hashlist %d: %v", hashlistID, err)
+	} else if rowsAffected == 0 {
+		return fmt.Errorf("hashlist %d not found for cracked count sync: %w", hashlistID, ErrNotFound)
+	}
+	
+	return nil
+}
