@@ -160,6 +160,127 @@ func (h *AdminJobsHandler) DeletePresetJob(w http.ResponseWriter, r *http.Reques
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (h *AdminJobsHandler) RecalculatePresetJobKeyspace(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	idStr, ok := vars["preset_job_id"]
+	if !ok {
+		httputil.RespondWithError(w, http.StatusBadRequest, "Missing preset job ID")
+		return
+	}
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		httputil.RespondWithError(w, http.StatusBadRequest, "Invalid preset job ID format")
+		return
+	}
+
+	debug.Info("Received request to recalculate keyspace for preset job %s", id)
+	
+	// Get the preset job
+	job, err := h.presetJobService.GetPresetJobByID(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			httputil.RespondWithError(w, http.StatusNotFound, "Preset job not found")
+		} else {
+			debug.Error("Error getting preset job %s: %v", id, err)
+			httputil.RespondWithError(w, http.StatusInternalServerError, "Failed to get preset job")
+		}
+		return
+	}
+
+	// Calculate keyspace
+	keyspace, err := h.presetJobService.CalculateKeyspaceForPresetJob(r.Context(), job)
+	if err != nil {
+		debug.Error("Error calculating keyspace for preset job %s: %v", id, err)
+		httputil.RespondWithError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to calculate keyspace: %v", err))
+		return
+	}
+
+	// Update the job with the new keyspace
+	job.Keyspace = keyspace
+	
+	// Log the keyspace we're about to update
+	debug.Info("Updating preset job %s with calculated keyspace: %v", id, keyspace)
+	
+	updatedJob, err := h.presetJobService.UpdatePresetJob(r.Context(), id, *job)
+	if err != nil {
+		debug.Error("Error updating preset job %s with keyspace: %v", id, err)
+		httputil.RespondWithError(w, http.StatusInternalServerError, "Failed to update preset job with keyspace")
+		return
+	}
+	
+	// Verify the update
+	if updatedJob.Keyspace == nil || (keyspace != nil && *updatedJob.Keyspace != *keyspace) {
+		debug.Error("Keyspace was not properly updated for preset job %s. Expected: %v, Got: %v", id, keyspace, updatedJob.Keyspace)
+	}
+
+	httputil.RespondWithJSON(w, http.StatusOK, updatedJob)
+}
+
+func (h *AdminJobsHandler) RecalculateAllMissingKeyspaces(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	// Get all preset jobs
+	jobs, err := h.presetJobService.ListPresetJobs(ctx)
+	if err != nil {
+		debug.Error("Error listing preset jobs: %v", err)
+		httputil.RespondWithError(w, http.StatusInternalServerError, "Failed to list preset jobs")
+		return
+	}
+
+	var updated, failed, skipped int
+	var errors []string
+	
+	debug.Info("Starting batch keyspace recalculation for %d preset jobs", len(jobs))
+
+	for _, job := range jobs {
+		// Skip if keyspace is already calculated
+		if job.Keyspace != nil && *job.Keyspace > 0 {
+			skipped++
+			debug.Info("Skipping preset job %s (%s) - already has keyspace: %d", job.ID, job.Name, *job.Keyspace)
+			continue
+		}
+		
+		debug.Info("Processing preset job %s (%s) - calculating keyspace", job.ID, job.Name)
+
+		// Calculate keyspace
+		keyspace, err := h.presetJobService.CalculateKeyspaceForPresetJob(ctx, &job)
+		if err != nil {
+			failed++
+			errors = append(errors, fmt.Sprintf("%s: %v", job.Name, err))
+			debug.Warning("Failed to calculate keyspace for preset job %s: %v", job.ID, err)
+			continue
+		}
+
+		// Update the job with the new keyspace
+		job.Keyspace = keyspace
+		updatedJob, err := h.presetJobService.UpdatePresetJob(ctx, job.ID, job)
+		if err != nil {
+			failed++
+			errors = append(errors, fmt.Sprintf("%s: failed to update: %v", job.Name, err))
+			debug.Warning("Failed to update preset job %s with keyspace: %v", job.ID, err)
+			continue
+		}
+
+		updated++
+		debug.Info("Successfully updated preset job %s with keyspace %d", job.ID, *keyspace)
+		
+		// Log the updated job details to ensure it was saved
+		if updatedJob != nil && updatedJob.Keyspace != nil {
+			debug.Info("Verified preset job %s now has keyspace %d in database", updatedJob.ID, *updatedJob.Keyspace)
+		}
+	}
+
+	response := map[string]interface{}{
+		"total":    len(jobs),
+		"updated":  updated,
+		"failed":   failed,
+		"skipped":  skipped,
+		"errors":   errors,
+	}
+
+	httputil.RespondWithJSON(w, http.StatusOK, response)
+}
+
 // --- Job Workflow Handlers ---
 
 // Define request/response structs specific to handlers if needed

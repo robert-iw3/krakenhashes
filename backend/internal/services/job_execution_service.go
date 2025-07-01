@@ -95,11 +95,22 @@ func (s *JobExecutionService) CreateJobExecution(ctx context.Context, presetJobI
 		return nil, fmt.Errorf("failed to get hashlist: %w", err)
 	}
 
-	// Calculate total keyspace
-	totalKeyspace, err := s.calculateKeyspace(ctx, presetJob, hashlist)
-	if err != nil {
-		debug.Error("Failed to calculate keyspace: %v", err)
-		return nil, fmt.Errorf("keyspace calculation is required for job execution: %w", err)
+	// Use pre-calculated keyspace from preset job if available
+	var totalKeyspace *int64
+	if presetJob.Keyspace != nil && *presetJob.Keyspace > 0 {
+		totalKeyspace = presetJob.Keyspace
+		debug.Log("Using pre-calculated keyspace from preset job", map[string]interface{}{
+			"preset_job_id": presetJobID,
+			"keyspace": *totalKeyspace,
+		})
+	} else {
+		// Fallback to calculating keyspace if not pre-calculated
+		debug.Warning("Preset job has no pre-calculated keyspace, calculating now")
+		totalKeyspace, err = s.calculateKeyspace(ctx, presetJob, hashlist)
+		if err != nil {
+			debug.Error("Failed to calculate keyspace: %v", err)
+			return nil, fmt.Errorf("keyspace calculation is required for job execution: %w", err)
+		}
 	}
 
 	// Create job execution
@@ -111,6 +122,7 @@ func (s *JobExecutionService) CreateJobExecution(ctx context.Context, presetJobI
 		TotalKeyspace:     totalKeyspace,
 		ProcessedKeyspace: 0,
 		AttackMode:        presetJob.AttackMode,
+		MaxAgents:         presetJob.MaxAgents,
 	}
 
 	err = s.jobExecRepo.Create(ctx, jobExecution)

@@ -25,7 +25,6 @@ import {
   ListItemIcon,
   Checkbox,
   FormControlLabel,
-  Slider,
   Stack,
   Grid,
   Autocomplete
@@ -146,7 +145,7 @@ export default function CreateJobDialog({
 
   const handleSubmit = async () => {
     setLoading(true);
-    setLoadingMessage('Calculating keyspace...');
+    setLoadingMessage('Creating job...');
     setError(null);
 
     try {
@@ -194,6 +193,9 @@ export default function CreateJobDialog({
           setLoading(false);
           return;
         }
+        
+        // Custom jobs need keyspace calculation
+        setLoadingMessage('Calculating keyspace...');
         
         payload = {
           type: 'custom',
@@ -548,43 +550,34 @@ export default function CreateJobDialog({
                     </Grid>
                   )}
 
-                  <Grid item xs={12}>
-                    <Typography gutterBottom>
-                      Priority: {customJob.priority}
-                    </Typography>
-                    <Slider
+                  <Grid item xs={12} sm={6}>
+                    <TextField
+                      fullWidth
+                      label="Priority"
+                      type="number"
                       value={customJob.priority}
-                      onChange={(e, value) => setCustomJob(prev => ({ ...prev, priority: value as number }))}
-                      min={1}
-                      max={10}
-                      marks
-                      valueLabelDisplay="auto"
+                      onChange={(e) => {
+                        const value = parseInt(e.target.value) || 0;
+                        setCustomJob(prev => ({ ...prev, priority: value }));
+                      }}
+                      inputProps={{ min: 1, max: 1000 }}
+                      helperText="Higher priority jobs are executed first (1-1000)"
                     />
-                    <FormHelperText>
-                      Higher priority jobs are executed first
-                    </FormHelperText>
                   </Grid>
 
-                  <Grid item xs={12}>
-                    <Typography gutterBottom>
-                      Max Agents: {customJob.max_agents === 0 ? 'Unlimited' : customJob.max_agents}
-                    </Typography>
-                    <Slider
+                  <Grid item xs={12} sm={6}>
+                    <TextField
+                      fullWidth
+                      label="Max Agents"
+                      type="number"
                       value={customJob.max_agents}
-                      onChange={(e, value) => setCustomJob(prev => ({ ...prev, max_agents: value as number }))}
-                      min={0}
-                      max={50}
-                      marks={[
-                        { value: 0, label: 'Unlimited' },
-                        { value: 10, label: '10' },
-                        { value: 25, label: '25' },
-                        { value: 50, label: '50' }
-                      ]}
-                      valueLabelDisplay="auto"
+                      onChange={(e) => {
+                        const value = parseInt(e.target.value) || 0;
+                        setCustomJob(prev => ({ ...prev, max_agents: value }));
+                      }}
+                      inputProps={{ min: 0 }}
+                      helperText="Maximum number of agents (0 = unlimited)"
                     />
-                    <FormHelperText>
-                      Maximum number of agents that can work on this job
-                    </FormHelperText>
                   </Grid>
                 </Grid>
               </Box>

@@ -42,6 +42,8 @@ export interface PresetJob {
   updated_at: string; // ISO 8601 date string
   binary_version_name?: string; // Optional, from JOIN
   mask?: string; // Mask pattern for mask-based attack modes
+  keyspace?: number | null; // Pre-calculated keyspace
+  max_agents: number; // Max agents allowed (0 = unlimited)
 }
 
 // Internal form state type for use in the UI - keeps IDs as numbers
@@ -56,6 +58,7 @@ export interface PresetJobFormData {
   binary_version_id: number;
   mask?: string; // Mask pattern for mask-based attack modes
   allow_high_priority_override: boolean;
+  max_agents: number;
 }
 
 // API type for create/update operations - using string UUIDs

@@ -65,6 +65,8 @@ type PresetJob struct {
 	AllowHighPriorityOverride bool       `json:"allow_high_priority_override" db:"allow_high_priority_override"`
 	BinaryVersionID           int        `json:"binary_version_id" db:"binary_version_id"` // References binary_versions.id
 	Mask                      string     `json:"mask,omitempty" db:"mask"`                 // For mask-based attack modes
+	Keyspace                  *int64     `json:"keyspace,omitempty" db:"keyspace"`         // Pre-calculated keyspace for this preset
+	MaxAgents                 int        `json:"max_agents" db:"max_agents"`               // Max agents allowed (0 = unlimited)
 	CreatedAt                 time.Time  `json:"created_at" db:"created_at"`
 	UpdatedAt                 time.Time  `json:"updated_at" db:"updated_at"`
 

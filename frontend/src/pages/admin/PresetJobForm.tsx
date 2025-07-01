@@ -61,7 +61,8 @@ const initialFormState: PresetJobFormData = {
   is_small_job: false,
   binary_version_id: 0,
   allow_high_priority_override: false,
-  mask: ''
+  mask: '',
+  max_agents: 0
 };
 
 // Attack mode descriptions and requirements
@@ -183,7 +184,8 @@ const PresetJobFormPage: React.FC = () => {
               is_small_job: presetJob.is_small_job,
               binary_version_id: presetJob.binary_version_id,
               allow_high_priority_override: presetJob.allow_high_priority_override,
-              mask: presetJob.mask || ''
+              mask: presetJob.mask || '',
+              max_agents: presetJob.max_agents || 0
             });
 
             // Initialize combination wordlists if in combination mode
@@ -233,7 +235,7 @@ const PresetJobFormPage: React.FC = () => {
     let convertedValue: any = type === 'checkbox' ? checked : value;
     
     // Convert numeric fields to numbers, but allow empty values for better UX
-    if (name === 'priority' || name === 'chunk_size_seconds' || name === 'binary_version_id') {
+    if (name === 'priority' || name === 'chunk_size_seconds' || name === 'binary_version_id' || name === 'max_agents') {
       // Allow empty string during editing, convert to number otherwise
       convertedValue = value === '' ? '' : parseInt(value) || 0;
     }
@@ -844,6 +846,20 @@ const PresetJobFormPage: React.FC = () => {
             margin="normal"
             inputProps={{ min: 60 }}
             helperText="Time in seconds for each chunk (min: 60)"
+          />
+        </Grid>
+
+        <Grid item xs={12} sm={6}>
+          <TextField
+            name="max_agents"
+            label="Max Agents"
+            type="number"
+            value={formData.max_agents || 0}
+            onChange={handleChange}
+            fullWidth
+            margin="normal"
+            inputProps={{ min: 0 }}
+            helperText="Maximum number of agents (0 = unlimited)"
           />
         </Grid>
 

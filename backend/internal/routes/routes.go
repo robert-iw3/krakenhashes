@@ -175,10 +175,11 @@ func SetupRoutes(r *mux.Router, sqlDB *sql.DB, tlsProvider tls.Provider, agentSe
 	presetJobRepo := repository.NewPresetJobRepository(sqlDB)
 	systemSettingsRepo := repository.NewSystemSettingsRepository(database)
 	workflowRepo := repository.NewJobWorkflowRepository(sqlDB)
-	debug.Info("Initialized PresetJob, SystemSettings, and JobWorkflow repositories")
+	fileRepository := repository.NewFileRepository(database, appConfig.DataDir)
+	debug.Info("Initialized PresetJob, SystemSettings, JobWorkflow, and File repositories")
 
 	// Initialize Services for preset jobs and workflows
-	presetJobService := services.NewAdminPresetJobService(presetJobRepo, systemSettingsRepo)
+	presetJobService := services.NewAdminPresetJobService(presetJobRepo, systemSettingsRepo, binaryManager, fileRepository, appConfig.DataDir)
 	workflowService := services.NewAdminJobWorkflowService(sqlDB, workflowRepo, presetJobRepo) // Pass db, workflowRepo, presetJobRepo
 	debug.Info("Initialized AdminPresetJobService and AdminJobWorkflowService")
 

@@ -21,6 +21,8 @@ func SetupAdminJobRoutes(adminRouter *mux.Router, jobHandler *AdminJobsHandler) 
 	presetRouter.HandleFunc("/{preset_job_id:[0-9a-fA-F-]+}", jobHandler.GetPresetJob).Methods("GET", "HEAD", "OPTIONS")
 	presetRouter.HandleFunc("/{preset_job_id:[0-9a-fA-F-]+}", jobHandler.UpdatePresetJob).Methods("PUT", "OPTIONS")
 	presetRouter.HandleFunc("/{preset_job_id:[0-9a-fA-F-]+}", jobHandler.DeletePresetJob).Methods("DELETE", "OPTIONS")
+	presetRouter.HandleFunc("/{preset_job_id:[0-9a-fA-F-]+}/recalculate-keyspace", jobHandler.RecalculatePresetJobKeyspace).Methods("POST", "OPTIONS")
+	presetRouter.HandleFunc("/recalculate-all-keyspaces", jobHandler.RecalculateAllMissingKeyspaces).Methods("POST", "OPTIONS")
 
 	// --- Job Workflow Routes --- (/api/admin/job-workflows)
 	workflowRouter := adminRouter.PathPrefix("/job-workflows").Subrouter()

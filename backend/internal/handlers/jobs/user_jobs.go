@@ -391,6 +391,7 @@ func (h *UserJobsHandler) CreateJobFromHashlist(w http.ResponseWriter, r *http.R
 			Name:            req.CustomJob.Name,
 			AttackMode:      models.AttackMode(req.CustomJob.AttackMode),
 			Priority:        req.CustomJob.Priority,
+			MaxAgents:       req.CustomJob.MaxAgents,
 			Mask:            req.CustomJob.Mask,
 			BinaryVersionID: req.CustomJob.BinaryVersionID,
 			CreatedAt:       time.Now(),
@@ -415,14 +416,6 @@ func (h *UserJobsHandler) CreateJobFromHashlist(w http.ResponseWriter, r *http.R
 			debug.Error("Failed to create job execution: %v", err)
 			http.Error(w, "Failed to create job", http.StatusInternalServerError)
 			return
-		}
-		
-		// Update max agents if specified (CreateJobExecution doesn't set this)
-		if req.CustomJob.MaxAgents > 0 {
-			if err := h.jobExecRepo.UpdateMaxAgents(ctx, jobExecution.ID, req.CustomJob.MaxAgents); err != nil {
-				debug.Error("Failed to update max agents for job: %v", err)
-				// Don't fail the request, just log the error
-			}
 		}
 		
 		createdJobs = append(createdJobs, jobExecution.ID.String())
