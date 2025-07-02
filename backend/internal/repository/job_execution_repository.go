@@ -24,8 +24,8 @@ func NewJobExecutionRepository(db *db.DB) *JobExecutionRepository {
 // Create creates a new job execution
 func (r *JobExecutionRepository) Create(ctx context.Context, exec *models.JobExecution) error {
 	query := `
-		INSERT INTO job_executions (preset_job_id, hashlist_id, status, priority, max_agents, attack_mode, total_keyspace)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO job_executions (preset_job_id, hashlist_id, status, priority, max_agents, attack_mode, total_keyspace, created_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		RETURNING id, created_at`
 
 	err := r.db.QueryRowContext(ctx, query,
@@ -36,6 +36,7 @@ func (r *JobExecutionRepository) Create(ctx context.Context, exec *models.JobExe
 		exec.MaxAgents,
 		exec.AttackMode,
 		exec.TotalKeyspace,
+		exec.CreatedBy,
 	).Scan(&exec.ID, &exec.CreatedAt)
 
 	if err != nil {
@@ -50,7 +51,7 @@ func (r *JobExecutionRepository) GetByID(ctx context.Context, id uuid.UUID) (*mo
 	query := `
 		SELECT 
 			je.id, je.preset_job_id, je.hashlist_id, je.status, je.priority, COALESCE(je.max_agents, 0) as max_agents,
-			je.total_keyspace, je.processed_keyspace, je.attack_mode,
+			je.total_keyspace, je.processed_keyspace, je.attack_mode, je.created_by,
 			je.created_at, je.started_at, je.completed_at, je.error_message, je.interrupted_by,
 			pj.name as preset_job_name,
 			h.name as hashlist_name,
@@ -64,7 +65,7 @@ func (r *JobExecutionRepository) GetByID(ctx context.Context, id uuid.UUID) (*mo
 	var exec models.JobExecution
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&exec.ID, &exec.PresetJobID, &exec.HashlistID, &exec.Status, &exec.Priority, &exec.MaxAgents,
-		&exec.TotalKeyspace, &exec.ProcessedKeyspace, &exec.AttackMode,
+		&exec.TotalKeyspace, &exec.ProcessedKeyspace, &exec.AttackMode, &exec.CreatedBy,
 		&exec.CreatedAt, &exec.StartedAt, &exec.CompletedAt, &exec.ErrorMessage, &exec.InterruptedBy,
 		&exec.PresetJobName, &exec.HashlistName, &exec.TotalHashes, &exec.CrackedHashes,
 	)
@@ -84,7 +85,7 @@ func (r *JobExecutionRepository) GetPendingJobs(ctx context.Context) ([]models.J
 	query := `
 		SELECT 
 			je.id, je.preset_job_id, je.hashlist_id, je.status, je.priority,
-			je.total_keyspace, je.processed_keyspace, je.attack_mode,
+			je.total_keyspace, je.processed_keyspace, je.attack_mode, je.created_by,
 			je.created_at, je.started_at, je.completed_at, je.error_message, je.interrupted_by,
 			je.max_agents, je.updated_at,
 			pj.name as preset_job_name,
@@ -108,7 +109,7 @@ func (r *JobExecutionRepository) GetPendingJobs(ctx context.Context) ([]models.J
 		var exec models.JobExecution
 		err := rows.Scan(
 			&exec.ID, &exec.PresetJobID, &exec.HashlistID, &exec.Status, &exec.Priority,
-			&exec.TotalKeyspace, &exec.ProcessedKeyspace, &exec.AttackMode,
+			&exec.TotalKeyspace, &exec.ProcessedKeyspace, &exec.AttackMode, &exec.CreatedBy,
 			&exec.CreatedAt, &exec.StartedAt, &exec.CompletedAt, &exec.ErrorMessage, &exec.InterruptedBy,
 			&exec.MaxAgents, &exec.UpdatedAt,
 			&exec.PresetJobName, &exec.HashlistName, &exec.TotalHashes, &exec.CrackedHashes,

@@ -21,6 +21,8 @@ export interface JobSummary {
   total_speed: number;
   created_at: string;
   updated_at: string;
+  completed_at?: string;
+  created_by_username?: string;
   error_message?: string;
 }
 

@@ -30,9 +30,11 @@ import { formatters } from '../../utils/formatters';
 interface JobRowProps {
   job: JobSummary;
   onJobUpdated?: () => void;
+  isLastActiveJob?: boolean;
+  isCompletedSection?: boolean;
 }
 
-const JobRow: React.FC<JobRowProps> = ({ job, onJobUpdated }) => {
+const JobRow: React.FC<JobRowProps> = ({ job, onJobUpdated, isLastActiveJob, isCompletedSection }) => {
   const navigate = useNavigate();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -112,9 +114,18 @@ const JobRow: React.FC<JobRowProps> = ({ job, onJobUpdated }) => {
   const canRetry = ['failed', 'interrupted', 'cancelled'].includes(job.status.toLowerCase());
   const hasError = job.error_message && (job.status === 'failed' || job.status === 'interrupted');
 
+  // Format completion time if available
+  const completionTime = job.completed_at ? new Date(job.completed_at).toLocaleString() : null;
+
   return (
     <>
-      <TableRow hover>
+      <TableRow 
+        hover
+        sx={{ 
+          bgcolor: isCompletedSection ? 'action.selected' : 'inherit',
+          borderBottom: isLastActiveJob ? '2px solid' : undefined,
+          borderBottomColor: isLastActiveJob ? 'divider' : undefined
+        }}>
         {/* Job Name with expand button for errors */}
         <TableCell>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -147,7 +158,21 @@ const JobRow: React.FC<JobRowProps> = ({ job, onJobUpdated }) => {
 
         {/* Hashlist */}
         <TableCell>
-          <Typography variant="body2">{job.hashlist_name}</Typography>
+          <Box>
+            <Typography variant="body2">{job.hashlist_name}</Typography>
+            {completionTime && (
+              <Typography variant="caption" color="text.secondary">
+                Completed: {completionTime}
+              </Typography>
+            )}
+          </Box>
+        </TableCell>
+
+        {/* Created By */}
+        <TableCell>
+          <Typography variant="body2" color="text.secondary">
+            {job.created_by_username || 'Unknown'}
+          </Typography>
         </TableCell>
 
         {/* Dispatched / Searched */}
@@ -259,7 +284,7 @@ const JobRow: React.FC<JobRowProps> = ({ job, onJobUpdated }) => {
       {/* Error message row */}
       {hasError && (
         <TableRow>
-          <TableCell colSpan={8} sx={{ py: 0 }}>
+          <TableCell colSpan={9} sx={{ py: 0 }}>
             <Collapse in={showError} timeout="auto" unmountOnExit>
               <Alert severity="error" sx={{ m: 2 }}>
                 <Typography variant="body2">

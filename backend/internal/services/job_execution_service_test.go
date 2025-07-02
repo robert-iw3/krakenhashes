@@ -144,7 +144,8 @@ func TestJobExecutionService_CreateJobExecution(t *testing.T) {
 
 	// Execute test
 	ctx := context.Background()
-	jobExecution, err := service.CreateJobExecution(ctx, presetJobID, hashlistID)
+	userID := uuid.New()
+	jobExecution, err := service.CreateJobExecution(ctx, presetJobID, hashlistID, &userID)
 
 	// Assertions
 	assert.NoError(t, err)

@@ -13,10 +13,29 @@ func (r *JobExecutionRepository) ListWithPagination(ctx context.Context, limit, 
 	query := `
 		SELECT 
 			id, preset_job_id, hashlist_id, status, priority, COALESCE(max_agents, 0) as max_agents,
-			total_keyspace, processed_keyspace, attack_mode,
+			total_keyspace, processed_keyspace, attack_mode, created_by,
 			created_at, started_at, completed_at, error_message, interrupted_by, updated_at
 		FROM job_executions
-		ORDER BY priority DESC, created_at ASC
+		ORDER BY 
+			-- Active jobs first (pending, running, paused)
+			CASE 
+				WHEN status IN ('pending', 'running', 'paused') THEN 0
+				ELSE 1
+			END,
+			-- Within active jobs: by priority DESC, created_at ASC
+			CASE 
+				WHEN status IN ('pending', 'running', 'paused') THEN priority
+				ELSE NULL
+			END DESC,
+			CASE 
+				WHEN status IN ('pending', 'running', 'paused') THEN created_at
+				ELSE NULL
+			END ASC,
+			-- Within completed jobs: by completed_at DESC (most recent first)
+			CASE 
+				WHEN status NOT IN ('pending', 'running', 'paused') THEN completed_at
+				ELSE NULL
+			END DESC
 		LIMIT $1 OFFSET $2`
 
 	rows, err := r.db.QueryContext(ctx, query, limit, offset)
@@ -30,7 +49,7 @@ func (r *JobExecutionRepository) ListWithPagination(ctx context.Context, limit, 
 		var exec models.JobExecution
 		err := rows.Scan(
 			&exec.ID, &exec.PresetJobID, &exec.HashlistID, &exec.Status, &exec.Priority, &exec.MaxAgents,
-			&exec.TotalKeyspace, &exec.ProcessedKeyspace, &exec.AttackMode,
+			&exec.TotalKeyspace, &exec.ProcessedKeyspace, &exec.AttackMode, &exec.CreatedBy,
 			&exec.CreatedAt, &exec.StartedAt, &exec.CompletedAt, &exec.ErrorMessage, &exec.InterruptedBy, &exec.UpdatedAt,
 		)
 		if err != nil {
@@ -50,16 +69,23 @@ type JobFilter struct {
 	UserID   *string
 }
 
+// JobExecutionWithUser represents a job execution with user information
+type JobExecutionWithUser struct {
+	models.JobExecution
+	CreatedByUsername *string `db:"created_by_username"`
+}
+
 // ListWithFilters retrieves job executions with pagination and filters
 func (r *JobExecutionRepository) ListWithFilters(ctx context.Context, limit, offset int, filter JobFilter) ([]models.JobExecution, error) {
 	query := `
 		SELECT 
 			je.id, je.preset_job_id, je.hashlist_id, je.status, je.priority, COALESCE(je.max_agents, 0) as max_agents,
-			je.total_keyspace, je.processed_keyspace, je.attack_mode,
+			je.total_keyspace, je.processed_keyspace, je.attack_mode, je.created_by,
 			je.created_at, je.started_at, je.completed_at, je.error_message, je.interrupted_by, je.updated_at
 		FROM job_executions je
 		JOIN preset_jobs pj ON je.preset_job_id = pj.id
 		JOIN hashlists h ON je.hashlist_id = h.id
+		LEFT JOIN users u ON je.created_by = u.id
 		WHERE 1=1`
 
 	args := []interface{}{}
@@ -87,15 +113,34 @@ func (r *JobExecutionRepository) ListWithFilters(ctx context.Context, limit, off
 		args = append(args, searchPattern)
 	}
 
-	// Apply user filter
+	// Apply user filter - filter by job creator, not hashlist owner
 	if filter.UserID != nil && *filter.UserID != "" {
 		argCount++
-		query += fmt.Sprintf(" AND h.user_id = $%d", argCount)
+		query += fmt.Sprintf(" AND je.created_by = $%d", argCount)
 		args = append(args, *filter.UserID)
 	}
 
 	// Add ordering
-	query += " ORDER BY je.priority DESC, je.created_at ASC"
+	query += ` ORDER BY 
+		-- Active jobs first (pending, running, paused)
+		CASE 
+			WHEN je.status IN ('pending', 'running', 'paused') THEN 0
+			ELSE 1
+		END,
+		-- Within active jobs: by priority DESC, created_at ASC
+		CASE 
+			WHEN je.status IN ('pending', 'running', 'paused') THEN je.priority
+			ELSE NULL
+		END DESC,
+		CASE 
+			WHEN je.status IN ('pending', 'running', 'paused') THEN je.created_at
+			ELSE NULL
+		END ASC,
+		-- Within completed jobs: by completed_at DESC (most recent first)
+		CASE 
+			WHEN je.status NOT IN ('pending', 'running', 'paused') THEN je.completed_at
+			ELSE NULL
+		END DESC`
 
 	// Add pagination
 	argCount++
@@ -117,7 +162,7 @@ func (r *JobExecutionRepository) ListWithFilters(ctx context.Context, limit, off
 		var exec models.JobExecution
 		err := rows.Scan(
 			&exec.ID, &exec.PresetJobID, &exec.HashlistID, &exec.Status, &exec.Priority, &exec.MaxAgents,
-			&exec.TotalKeyspace, &exec.ProcessedKeyspace, &exec.AttackMode,
+			&exec.TotalKeyspace, &exec.ProcessedKeyspace, &exec.AttackMode, &exec.CreatedBy,
 			&exec.CreatedAt, &exec.StartedAt, &exec.CompletedAt, &exec.ErrorMessage, &exec.InterruptedBy, &exec.UpdatedAt,
 		)
 		if err != nil {
@@ -174,10 +219,10 @@ func (r *JobExecutionRepository) GetFilteredCount(ctx context.Context, filter Jo
 		args = append(args, searchPattern)
 	}
 
-	// Apply user filter
+	// Apply user filter - filter by job creator, not hashlist owner
 	if filter.UserID != nil && *filter.UserID != "" {
 		argCount++
-		query += fmt.Sprintf(" AND h.user_id = $%d", argCount)
+		query += fmt.Sprintf(" AND je.created_by = $%d", argCount)
 		args = append(args, *filter.UserID)
 	}
 
@@ -220,8 +265,7 @@ func (r *JobExecutionRepository) GetStatusCountsForUser(ctx context.Context, use
 	query := `
 		SELECT je.status, COUNT(*) as count
 		FROM job_executions je
-		JOIN hashlists h ON je.hashlist_id = h.id
-		WHERE h.user_id = $1
+		WHERE je.created_by = $1
 		GROUP BY je.status`
 
 	rows, err := r.db.QueryContext(ctx, query, userID)
@@ -360,4 +404,105 @@ func (r *JobExecutionRepository) DeleteFinished(ctx context.Context) (int, error
 	}
 
 	return int(rowsAffected), nil
+}
+
+// ListWithFiltersAndUser retrieves job executions with user information
+func (r *JobExecutionRepository) ListWithFiltersAndUser(ctx context.Context, limit, offset int, filter JobFilter) ([]JobExecutionWithUser, error) {
+	query := `
+		SELECT 
+			je.id, je.preset_job_id, je.hashlist_id, je.status, je.priority, COALESCE(je.max_agents, 0) as max_agents,
+			je.total_keyspace, je.processed_keyspace, je.attack_mode, je.created_by,
+			je.created_at, je.started_at, je.completed_at, je.error_message, je.interrupted_by, je.updated_at,
+			u.username as created_by_username
+		FROM job_executions je
+		JOIN preset_jobs pj ON je.preset_job_id = pj.id
+		JOIN hashlists h ON je.hashlist_id = h.id
+		LEFT JOIN users u ON je.created_by = u.id
+		WHERE 1=1`
+
+	args := []interface{}{}
+	argCount := 0
+
+	// Apply status filter
+	if filter.Status != nil && *filter.Status != "" {
+		argCount++
+		query += fmt.Sprintf(" AND je.status = $%d", argCount)
+		args = append(args, *filter.Status)
+	}
+
+	// Apply priority filter
+	if filter.Priority != nil {
+		argCount++
+		query += fmt.Sprintf(" AND je.priority = $%d", argCount)
+		args = append(args, *filter.Priority)
+	}
+
+	// Apply search filter (search in preset job name and hashlist name)
+	if filter.Search != nil && *filter.Search != "" {
+		argCount++
+		query += fmt.Sprintf(" AND (pj.name ILIKE $%d OR h.name ILIKE $%d)", argCount, argCount)
+		searchPattern := "%" + *filter.Search + "%"
+		args = append(args, searchPattern)
+	}
+
+	// Apply user filter - filter by job creator, not hashlist owner
+	if filter.UserID != nil && *filter.UserID != "" {
+		argCount++
+		query += fmt.Sprintf(" AND je.created_by = $%d", argCount)
+		args = append(args, *filter.UserID)
+	}
+
+	// Add ordering
+	query += ` ORDER BY 
+		-- Active jobs first (pending, running, paused)
+		CASE 
+			WHEN je.status IN ('pending', 'running', 'paused') THEN 0
+			ELSE 1
+		END,
+		-- Within active jobs: by priority DESC, created_at ASC
+		CASE 
+			WHEN je.status IN ('pending', 'running', 'paused') THEN je.priority
+			ELSE NULL
+		END DESC,
+		CASE 
+			WHEN je.status IN ('pending', 'running', 'paused') THEN je.created_at
+			ELSE NULL
+		END ASC,
+		-- Within completed jobs: by completed_at DESC (most recent first)
+		CASE 
+			WHEN je.status NOT IN ('pending', 'running', 'paused') THEN je.completed_at
+			ELSE NULL
+		END DESC`
+
+	// Add pagination
+	argCount++
+	query += fmt.Sprintf(" LIMIT $%d", argCount)
+	args = append(args, limit)
+
+	argCount++
+	query += fmt.Sprintf(" OFFSET $%d", argCount)
+	args = append(args, offset)
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list job executions with user: %w", err)
+	}
+	defer rows.Close()
+
+	var executions []JobExecutionWithUser
+	for rows.Next() {
+		var exec JobExecutionWithUser
+		err := rows.Scan(
+			&exec.ID, &exec.PresetJobID, &exec.HashlistID, &exec.Status, &exec.Priority, &exec.MaxAgents,
+			&exec.TotalKeyspace, &exec.ProcessedKeyspace, &exec.AttackMode, &exec.CreatedBy,
+			&exec.CreatedAt, &exec.StartedAt, &exec.CompletedAt, &exec.ErrorMessage, &exec.InterruptedBy, &exec.UpdatedAt,
+			&exec.CreatedByUsername,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan job execution with user: %w", err)
+		}
+		executions = append(executions, exec)
+	}
+
+	return executions, nil
 }

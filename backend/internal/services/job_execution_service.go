@@ -77,7 +77,7 @@ func NewJobExecutionService(
 }
 
 // CreateJobExecution creates a new job execution from a preset job and hashlist
-func (s *JobExecutionService) CreateJobExecution(ctx context.Context, presetJobID uuid.UUID, hashlistID int64) (*models.JobExecution, error) {
+func (s *JobExecutionService) CreateJobExecution(ctx context.Context, presetJobID uuid.UUID, hashlistID int64, createdBy *uuid.UUID) (*models.JobExecution, error) {
 	debug.Log("Creating job execution", map[string]interface{}{
 		"preset_job_id": presetJobID,
 		"hashlist_id":   hashlistID,
@@ -123,6 +123,7 @@ func (s *JobExecutionService) CreateJobExecution(ctx context.Context, presetJobI
 		ProcessedKeyspace: 0,
 		AttackMode:        presetJob.AttackMode,
 		MaxAgents:         presetJob.MaxAgents,
+		CreatedBy:         createdBy,
 	}
 
 	err = s.jobExecRepo.Create(ctx, jobExecution)

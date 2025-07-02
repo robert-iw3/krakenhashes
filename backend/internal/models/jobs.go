@@ -135,6 +135,7 @@ type JobExecution struct {
 	TotalKeyspace     *int64             `json:"total_keyspace" db:"total_keyspace"`
 	ProcessedKeyspace int64              `json:"processed_keyspace" db:"processed_keyspace"`
 	AttackMode        AttackMode         `json:"attack_mode" db:"attack_mode"`
+	CreatedBy         *uuid.UUID         `json:"created_by" db:"created_by"`
 	CreatedAt         time.Time          `json:"created_at" db:"created_at"`
 	StartedAt         *time.Time         `json:"started_at" db:"started_at"`
 	CompletedAt       *time.Time         `json:"completed_at" db:"completed_at"`

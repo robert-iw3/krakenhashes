@@ -75,6 +75,8 @@ type JobSummary struct {
 	TotalSpeed        int64   `json:"total_speed"`
 	CreatedAt         string  `json:"created_at"`
 	UpdatedAt         string  `json:"updated_at"`
+	CompletedAt       *string `json:"completed_at,omitempty"`
+	CreatedByUsername *string `json:"created_by_username,omitempty"`
 	ErrorMessage      *string `json:"error_message,omitempty"`
 }
 
@@ -113,8 +115,8 @@ func (h *UserJobsHandler) ListJobs(w http.ResponseWriter, r *http.Request) {
 		Search:   &search,
 	}
 	
-	// Get jobs with filters
-	jobs, err := h.jobExecRepo.ListWithFilters(ctx, pageSize, (page-1)*pageSize, filter)
+	// Get jobs with filters and user information
+	jobsWithUser, err := h.jobExecRepo.ListWithFiltersAndUser(ctx, pageSize, (page-1)*pageSize, filter)
 	if err != nil {
 		debug.Error("Failed to list jobs: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -138,8 +140,9 @@ func (h *UserJobsHandler) ListJobs(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	// Convert to job summaries
-	summaries := make([]JobSummary, 0, len(jobs))
-	for _, job := range jobs {
+	summaries := make([]JobSummary, 0, len(jobsWithUser))
+	for _, jobWithUser := range jobsWithUser {
+		job := jobWithUser.JobExecution
 		// Get hashlist details including cracked count
 		hashlist, err := h.hashlistRepo.GetByID(ctx, job.HashlistID)
 		if err != nil {
@@ -210,6 +213,13 @@ func (h *UserJobsHandler) ListJobs(w http.ResponseWriter, r *http.Request) {
 			TotalSpeed:        totalSpeed,
 			CreatedAt:         job.CreatedAt.Format(time.RFC3339),
 			UpdatedAt:         job.UpdatedAt.Format(time.RFC3339),
+			CreatedByUsername: jobWithUser.CreatedByUsername,
+		}
+		
+		// Add completed time if present
+		if job.CompletedAt != nil {
+			completedAtStr := job.CompletedAt.Format(time.RFC3339)
+			summary.CompletedAt = &completedAtStr
 		}
 		
 		// Add error message if present
@@ -249,6 +259,20 @@ func getJobName(job models.JobExecution, hashlist *models.HashList) string {
 func (h *UserJobsHandler) CreateJobFromHashlist(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	vars := mux.Vars(r)
+	
+	// Get user ID from context
+	userIDStr, ok := ctx.Value("user_id").(string)
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	
+	// Parse user ID to UUID
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		http.Error(w, "Invalid user ID", http.StatusInternalServerError)
+		return
+	}
 	
 	hashlistID, err := strconv.ParseInt(vars["id"], 10, 64)
 	if err != nil {
@@ -310,7 +334,7 @@ func (h *UserJobsHandler) CreateJobFromHashlist(w http.ResponseWriter, r *http.R
 			}
 			
 			// Use CreateJobExecution to create job with keyspace calculation
-			jobExecution, err := h.jobExecutionService.CreateJobExecution(ctx, presetJobID, hashlistID)
+			jobExecution, err := h.jobExecutionService.CreateJobExecution(ctx, presetJobID, hashlistID, &userID)
 			if err != nil {
 				debug.Error("Failed to create job execution for preset %s: %v", presetJobID, err)
 				continue
@@ -355,7 +379,7 @@ func (h *UserJobsHandler) CreateJobFromHashlist(w http.ResponseWriter, r *http.R
 				}
 				
 				// Use CreateJobExecution to create job with keyspace calculation
-				jobExecution, err := h.jobExecutionService.CreateJobExecution(ctx, step.PresetJobID, hashlistID)
+				jobExecution, err := h.jobExecutionService.CreateJobExecution(ctx, step.PresetJobID, hashlistID, &userID)
 				if err != nil {
 					debug.Error("Failed to create job execution for workflow step: %v", err)
 					continue
@@ -411,7 +435,7 @@ func (h *UserJobsHandler) CreateJobFromHashlist(w http.ResponseWriter, r *http.R
 		}
 		
 		// Use CreateJobExecution to create job with keyspace calculation
-		jobExecution, err := h.jobExecutionService.CreateJobExecution(ctx, customPresetJob.ID, hashlistID)
+		jobExecution, err := h.jobExecutionService.CreateJobExecution(ctx, customPresetJob.ID, hashlistID, &userID)
 		if err != nil {
 			debug.Error("Failed to create job execution: %v", err)
 			http.Error(w, "Failed to create job", http.StatusInternalServerError)
@@ -950,8 +974,8 @@ func (h *UserJobsHandler) ListUserJobs(w http.ResponseWriter, r *http.Request) {
 		UserID:   &userID,
 	}
 	
-	// Get jobs with filters
-	jobs, err := h.jobExecRepo.ListWithFilters(ctx, pageSize, (page-1)*pageSize, filter)
+	// Get jobs with filters and user information
+	jobsWithUser, err := h.jobExecRepo.ListWithFiltersAndUser(ctx, pageSize, (page-1)*pageSize, filter)
 	if err != nil {
 		debug.Error("Failed to list user jobs: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -975,8 +999,9 @@ func (h *UserJobsHandler) ListUserJobs(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	// Convert to job summaries (reuse the same logic as ListJobs)
-	summaries := make([]JobSummary, 0, len(jobs))
-	for _, job := range jobs {
+	summaries := make([]JobSummary, 0, len(jobsWithUser))
+	for _, jobWithUser := range jobsWithUser {
+		job := jobWithUser.JobExecution
 		// Get hashlist details including cracked count
 		hashlist, err := h.hashlistRepo.GetByID(ctx, job.HashlistID)
 		if err != nil {
@@ -1057,6 +1082,13 @@ func (h *UserJobsHandler) ListUserJobs(w http.ResponseWriter, r *http.Request) {
 			CreatedAt:         job.CreatedAt.Format(time.RFC3339),
 			UpdatedAt:         job.UpdatedAt.Format(time.RFC3339),
 			ErrorMessage:      job.ErrorMessage,
+			CreatedByUsername: jobWithUser.CreatedByUsername,
+		}
+		
+		// Add completed time if present
+		if job.CompletedAt != nil {
+			completedAtStr := job.CompletedAt.Format(time.RFC3339)
+			summary.CompletedAt = &completedAtStr
 		}
 		
 		summaries = append(summaries, summary)

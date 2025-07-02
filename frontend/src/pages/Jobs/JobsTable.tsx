@@ -54,6 +54,14 @@ const JobsTable: React.FC<JobsTableProps> = ({
     );
   }
 
+  // Separate active and completed jobs
+  const activeJobs = jobs.filter(job => 
+    ['pending', 'running', 'paused'].includes(job.status.toLowerCase())
+  );
+  const completedJobs = jobs.filter(job => 
+    !['pending', 'running', 'paused'].includes(job.status.toLowerCase())
+  );
+
   return (
     <>
       <TableContainer>
@@ -62,6 +70,7 @@ const JobsTable: React.FC<JobsTableProps> = ({
             <TableRow>
               <TableCell>Job Name</TableCell>
               <TableCell>Hashlist</TableCell>
+              <TableCell>Created By</TableCell>
               <TableCell align="center">Dispatched / Searched</TableCell>
               <TableCell align="center">Cracked</TableCell>
               <TableCell align="center">Agents</TableCell>
@@ -71,8 +80,35 @@ const JobsTable: React.FC<JobsTableProps> = ({
             </TableRow>
           </TableHead>
           <TableBody>
-            {jobs.map((job) => (
-              <JobRow key={job.id} job={job} onJobUpdated={onJobUpdated} />
+            {/* Active Jobs */}
+            {activeJobs.map((job, index) => (
+              <JobRow 
+                key={job.id} 
+                job={job} 
+                onJobUpdated={onJobUpdated}
+                isLastActiveJob={index === activeJobs.length - 1 && completedJobs.length > 0}
+              />
+            ))}
+            
+            {/* Visual separator between active and completed jobs */}
+            {activeJobs.length > 0 && completedJobs.length > 0 && (
+              <TableRow>
+                <TableCell colSpan={9} sx={{ py: 1, bgcolor: 'action.hover' }}>
+                  <Typography variant="body2" sx={{ fontWeight: 'medium', color: 'text.secondary', textAlign: 'center' }}>
+                    Completed Jobs
+                  </Typography>
+                </TableCell>
+              </TableRow>
+            )}
+            
+            {/* Completed Jobs */}
+            {completedJobs.map((job) => (
+              <JobRow 
+                key={job.id} 
+                job={job} 
+                onJobUpdated={onJobUpdated} 
+                isCompletedSection={true}
+              />
             ))}
           </TableBody>
         </Table>
