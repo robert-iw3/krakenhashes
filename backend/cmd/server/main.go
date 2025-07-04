@@ -328,6 +328,9 @@ func main() {
 	debug.Info("Setting up CA certificate route")
 	tlsHandler := tls.NewHandler(tlsProvider)
 	httpRouter.HandleFunc("/ca.crt", tlsHandler.ServeCACertificate).Methods("GET", "HEAD", "OPTIONS")
+	
+	// Also add CA certificate route to HTTPS router for secure access
+	httpsRouter.HandleFunc("/ca.crt", tlsHandler.ServeCACertificate).Methods("GET", "HEAD", "OPTIONS")
 
 	// Create HTTPS server
 	debug.Info("Creating HTTPS server")

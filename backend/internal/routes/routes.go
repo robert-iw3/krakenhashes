@@ -165,8 +165,8 @@ func SetupRoutes(r *mux.Router, sqlDB *sql.DB, tlsProvider tls.Provider, agentSe
 	apiRouter.Use(loggingMiddleware)
 	debug.Info("Created API router with logging middleware")
 
-	// Setup TLS routes
-	SetupTLSRoutes(r, tlsProvider)
+	// Setup TLS routes - Disabled to prevent duplicate HTTP server on port 1337
+	// SetupTLSRoutes(r, tlsProvider)
 
 	// Create MFA handler
 	mfaHandler := auth.NewMFAHandler(database, emailService)
