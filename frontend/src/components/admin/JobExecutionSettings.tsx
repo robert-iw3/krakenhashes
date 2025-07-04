@@ -312,6 +312,96 @@ const JobExecutionSettingsComponent: React.FC = () => {
           </Paper>
         </Grid>
 
+        {/* Rule Splitting Settings */}
+        <Grid item xs={12}>
+          <Paper sx={{ p: 3 }}>
+            <Typography variant="subtitle1" gutterBottom fontWeight="bold">
+              Rule Splitting
+            </Typography>
+            <Divider sx={{ mb: 2 }} />
+            <Grid container spacing={2}>
+              <Grid item xs={12} md={6}>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={settings.rule_split_enabled}
+                      onChange={handleChange('rule_split_enabled')}
+                    />
+                  }
+                  label="Enable Rule Splitting"
+                />
+                <Typography variant="caption" color="textSecondary" display="block">
+                  Automatically split large rule files for distributed processing
+                </Typography>
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  type="number"
+                  label="Rule Split Threshold"
+                  value={settings.rule_split_threshold}
+                  onChange={(e) => {
+                    const value = parseFloat(e.target.value);
+                    setSettings({
+                      ...settings,
+                      rule_split_threshold: value,
+                    });
+                  }}
+                  disabled={!settings.rule_split_enabled}
+                  helperText="Split when job time exceeds chunk time by this factor"
+                  InputProps={{
+                    inputProps: { min: 1.1, max: 10, step: 0.1 },
+                    endAdornment: <InputAdornment position="end">×</InputAdornment>,
+                  }}
+                />
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <TextField
+                  fullWidth
+                  type="number"
+                  label="Minimum Rules to Split"
+                  value={settings.rule_split_min_rules}
+                  onChange={handleChange('rule_split_min_rules')}
+                  disabled={!settings.rule_split_enabled}
+                  helperText="Don't split files with fewer rules"
+                  InputProps={{
+                    inputProps: { min: 10 },
+                  }}
+                />
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <TextField
+                  fullWidth
+                  type="number"
+                  label="Maximum Rule Chunks"
+                  value={settings.rule_split_max_chunks}
+                  onChange={handleChange('rule_split_max_chunks')}
+                  disabled={!settings.rule_split_enabled}
+                  helperText="Maximum chunks to create per file"
+                  InputProps={{
+                    inputProps: { min: 2, max: 10000 },
+                  }}
+                />
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <TextField
+                  fullWidth
+                  label="Rule Chunk Directory"
+                  value={settings.rule_chunk_temp_dir}
+                  onChange={(e) => {
+                    setSettings({
+                      ...settings,
+                      rule_chunk_temp_dir: e.target.value,
+                    });
+                  }}
+                  disabled={!settings.rule_split_enabled}
+                  helperText="Directory for temporary rule chunks"
+                />
+              </Grid>
+            </Grid>
+          </Paper>
+        </Grid>
+
         {/* Metrics Retention Settings */}
         <Grid item xs={12}>
           <Paper sx={{ p: 3 }}>

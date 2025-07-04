@@ -358,6 +358,39 @@ func (h *Handler) HandleAddRule(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Save the file to the rules directory
+	destPath := h.manager.GetRulePath(fileName, ruleType)
+	debug.Info("HandleAddRule: Saving rule file to: %s", destPath)
+	
+	// Create directory if it doesn't exist
+	destDir := filepath.Dir(destPath)
+	if err := os.MkdirAll(destDir, 0755); err != nil {
+		debug.Error("Failed to create rules directory: %v", err)
+		httputil.RespondWithError(w, http.StatusInternalServerError, "Failed to save rule file")
+		return
+	}
+	
+	// Open the temp file for reading
+	tempFile.Seek(0, 0)
+	
+	// Create the destination file
+	destFile, err := os.Create(destPath)
+	if err != nil {
+		debug.Error("Failed to create destination file: %v", err)
+		httputil.RespondWithError(w, http.StatusInternalServerError, "Failed to save rule file")
+		return
+	}
+	defer destFile.Close()
+	
+	// Copy the file
+	if _, err := io.Copy(destFile, tempFile); err != nil {
+		debug.Error("Failed to copy rule file: %v", err)
+		httputil.RespondWithError(w, http.StatusInternalServerError, "Failed to save rule file")
+		return
+	}
+	
+	debug.Info("HandleAddRule: Successfully saved rule file to: %s", destPath)
+
 	// For large files (over 10MB), perform verification asynchronously
 	if fileSize > 10*1024*1024 {
 		debug.Info("HandleAddRule: Large file detected (%d bytes), starting async verification", fileSize)
@@ -725,6 +758,39 @@ func (h *Handler) HandleUploadRule(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+
+	// Save the file to the rules directory
+	destPath := h.manager.GetRulePath(fileName, ruleType)
+	debug.Info("HandleAddRule: Saving rule file to: %s", destPath)
+	
+	// Create directory if it doesn't exist
+	destDir := filepath.Dir(destPath)
+	if err := os.MkdirAll(destDir, 0755); err != nil {
+		debug.Error("Failed to create rules directory: %v", err)
+		httputil.RespondWithError(w, http.StatusInternalServerError, "Failed to save rule file")
+		return
+	}
+	
+	// Open the temp file for reading
+	tempFile.Seek(0, 0)
+	
+	// Create the destination file
+	destFile, err := os.Create(destPath)
+	if err != nil {
+		debug.Error("Failed to create destination file: %v", err)
+		httputil.RespondWithError(w, http.StatusInternalServerError, "Failed to save rule file")
+		return
+	}
+	defer destFile.Close()
+	
+	// Copy the file
+	if _, err := io.Copy(destFile, tempFile); err != nil {
+		debug.Error("Failed to copy rule file: %v", err)
+		httputil.RespondWithError(w, http.StatusInternalServerError, "Failed to save rule file")
+		return
+	}
+	
+	debug.Info("HandleAddRule: Successfully saved rule file to: %s", destPath)
 
 	// For large files (over 10MB), perform verification asynchronously
 	if fileSize > 10*1024*1024 {

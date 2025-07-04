@@ -53,6 +53,10 @@ func (r *JobExecutionRepository) GetByID(ctx context.Context, id uuid.UUID) (*mo
 			je.id, je.preset_job_id, je.hashlist_id, je.status, je.priority, COALESCE(je.max_agents, 0) as max_agents,
 			je.total_keyspace, je.processed_keyspace, je.attack_mode, je.created_by,
 			je.created_at, je.started_at, je.completed_at, je.error_message, je.interrupted_by,
+			je.consecutive_failures,
+			je.base_keyspace, je.effective_keyspace, je.multiplication_factor,
+			je.uses_rule_splitting, je.rule_split_count,
+			je.overall_progress_percent, je.last_progress_update,
 			pj.name as preset_job_name,
 			h.name as hashlist_name,
 			h.total_hashes as total_hashes,
@@ -67,6 +71,10 @@ func (r *JobExecutionRepository) GetByID(ctx context.Context, id uuid.UUID) (*mo
 		&exec.ID, &exec.PresetJobID, &exec.HashlistID, &exec.Status, &exec.Priority, &exec.MaxAgents,
 		&exec.TotalKeyspace, &exec.ProcessedKeyspace, &exec.AttackMode, &exec.CreatedBy,
 		&exec.CreatedAt, &exec.StartedAt, &exec.CompletedAt, &exec.ErrorMessage, &exec.InterruptedBy,
+		&exec.ConsecutiveFailures,
+		&exec.BaseKeyspace, &exec.EffectiveKeyspace, &exec.MultiplicationFactor,
+		&exec.UsesRuleSplitting, &exec.RuleSplitCount,
+		&exec.OverallProgressPercent, &exec.LastProgressUpdate,
 		&exec.PresetJobName, &exec.HashlistName, &exec.TotalHashes, &exec.CrackedHashes,
 	)
 
@@ -87,7 +95,11 @@ func (r *JobExecutionRepository) GetPendingJobs(ctx context.Context) ([]models.J
 			je.id, je.preset_job_id, je.hashlist_id, je.status, je.priority,
 			je.total_keyspace, je.processed_keyspace, je.attack_mode, je.created_by,
 			je.created_at, je.started_at, je.completed_at, je.error_message, je.interrupted_by,
+			je.consecutive_failures,
 			je.max_agents, je.updated_at,
+			je.base_keyspace, je.effective_keyspace, je.multiplication_factor,
+			je.uses_rule_splitting, je.rule_split_count,
+			je.overall_progress_percent, je.last_progress_update,
 			pj.name as preset_job_name,
 			h.name as hashlist_name,
 			h.total_hashes as total_hashes,
@@ -111,7 +123,11 @@ func (r *JobExecutionRepository) GetPendingJobs(ctx context.Context) ([]models.J
 			&exec.ID, &exec.PresetJobID, &exec.HashlistID, &exec.Status, &exec.Priority,
 			&exec.TotalKeyspace, &exec.ProcessedKeyspace, &exec.AttackMode, &exec.CreatedBy,
 			&exec.CreatedAt, &exec.StartedAt, &exec.CompletedAt, &exec.ErrorMessage, &exec.InterruptedBy,
+			&exec.ConsecutiveFailures,
 			&exec.MaxAgents, &exec.UpdatedAt,
+			&exec.BaseKeyspace, &exec.EffectiveKeyspace, &exec.MultiplicationFactor,
+			&exec.UsesRuleSplitting, &exec.RuleSplitCount,
+			&exec.OverallProgressPercent, &exec.LastProgressUpdate,
 			&exec.PresetJobName, &exec.HashlistName, &exec.TotalHashes, &exec.CrackedHashes,
 		)
 		if err != nil {
@@ -236,6 +252,27 @@ func (r *JobExecutionRepository) UpdateProgress(ctx context.Context, id uuid.UUI
 	result, err := r.db.ExecContext(ctx, query, processedKeyspace, id)
 	if err != nil {
 		return fmt.Errorf("failed to update job execution progress: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return ErrNotFound
+	}
+
+	return nil
+}
+
+// UpdateProgressPercent updates the overall progress percentage for a job execution
+func (r *JobExecutionRepository) UpdateProgressPercent(ctx context.Context, id uuid.UUID, progressPercent float64) error {
+	now := time.Now()
+	query := `UPDATE job_executions SET overall_progress_percent = $1, last_progress_update = $2 WHERE id = $3`
+	result, err := r.db.ExecContext(ctx, query, progressPercent, now, id)
+	if err != nil {
+		return fmt.Errorf("failed to update job execution progress percent: %w", err)
 	}
 
 	rowsAffected, err := result.RowsAffected()
@@ -397,3 +434,133 @@ func (r *JobExecutionRepository) ClearError(ctx context.Context, id uuid.UUID) e
 
 	return nil
 }
+// UpdateKeyspaceInfo updates the enhanced keyspace information for a job execution
+func (r *JobExecutionRepository) UpdateKeyspaceInfo(ctx context.Context, job *models.JobExecution) error {
+	query := `
+		UPDATE job_executions 
+		SET base_keyspace = $1, 
+		    effective_keyspace = $2, 
+		    multiplication_factor = $3,
+		    uses_rule_splitting = $4,
+		    rule_split_count = $5,
+		    updated_at = CURRENT_TIMESTAMP
+		WHERE id = $6`
+		
+	result, err := r.db.ExecContext(ctx, query,
+		job.BaseKeyspace,
+		job.EffectiveKeyspace,
+		job.MultiplicationFactor,
+		job.UsesRuleSplitting,
+		job.RuleSplitCount,
+		job.ID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update job execution keyspace info: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return ErrNotFound
+	}
+
+	return nil
+}
+
+// UpdateConsecutiveFailures updates the consecutive failures count for a job execution
+func (r *JobExecutionRepository) UpdateConsecutiveFailures(ctx context.Context, id uuid.UUID, count int) error {
+	query := `UPDATE job_executions SET consecutive_failures = $1 WHERE id = $2`
+	result, err := r.db.ExecContext(ctx, query, count, id)
+	if err != nil {
+		return fmt.Errorf("failed to update job execution consecutive failures: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return ErrNotFound
+	}
+
+	return nil
+}
+
+// GetJobsWithPendingWork returns jobs that have work available and are not at max agent capacity
+func (r *JobExecutionRepository) GetJobsWithPendingWork(ctx context.Context) ([]models.JobExecutionWithWork, error) {
+	query := `
+		WITH job_stats AS (
+			SELECT 
+				je.id,
+				COUNT(DISTINCT CASE WHEN jt.status IN ('running', 'assigned') THEN jt.agent_id END) as active_agents,
+				COUNT(CASE WHEN jt.status IN ('pending') THEN 1 END) as pending_tasks,
+				COUNT(CASE WHEN jt.status = 'failed' AND jt.retry_count < 3 THEN 1 END) as retryable_tasks
+			FROM job_executions je
+			LEFT JOIN job_tasks jt ON je.id = jt.job_execution_id
+			WHERE je.status IN ('pending', 'running')
+			GROUP BY je.id
+		)
+		SELECT 
+			je.id, je.preset_job_id, je.hashlist_id, je.status, je.priority,
+			je.total_keyspace, je.processed_keyspace, je.attack_mode, je.created_by,
+			je.created_at, je.started_at, je.completed_at, je.error_message, je.interrupted_by,
+			je.consecutive_failures,
+			COALESCE(je.max_agents, 999) as max_agents, je.updated_at,
+			je.base_keyspace, je.effective_keyspace, je.multiplication_factor,
+			je.uses_rule_splitting, je.rule_split_count,
+			je.overall_progress_percent, je.last_progress_update,
+			pj.name as preset_job_name,
+			h.name as hashlist_name,
+			h.total_hashes as total_hashes,
+			h.cracked_hashes as cracked_hashes,
+			COALESCE(js.active_agents, 0) as active_agents,
+			COALESCE(js.pending_tasks, 0) + COALESCE(js.retryable_tasks, 0) as pending_work
+		FROM job_executions je
+		JOIN preset_jobs pj ON je.preset_job_id = pj.id
+		JOIN hashlists h ON je.hashlist_id = h.id
+		LEFT JOIN job_stats js ON je.id = js.id
+		WHERE je.status IN ('pending', 'running')
+			AND (
+				-- Job has no tasks yet (new job)
+				(NOT EXISTS (SELECT 1 FROM job_tasks WHERE job_execution_id = je.id))
+				OR
+				-- Job has pending work and is not at max capacity
+				(COALESCE(js.pending_tasks, 0) + COALESCE(js.retryable_tasks, 0) > 0 
+				 AND COALESCE(js.active_agents, 0) < COALESCE(je.max_agents, 999))
+			)
+		ORDER BY je.priority DESC, je.created_at ASC`
+
+	rows, err := r.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get jobs with pending work: %w", err)
+	}
+	defer rows.Close()
+
+	var executions []models.JobExecutionWithWork
+	for rows.Next() {
+		var exec models.JobExecutionWithWork
+		err := rows.Scan(
+			&exec.ID, &exec.PresetJobID, &exec.HashlistID, &exec.Status, &exec.Priority,
+			&exec.TotalKeyspace, &exec.ProcessedKeyspace, &exec.AttackMode, &exec.CreatedBy,
+			&exec.CreatedAt, &exec.StartedAt, &exec.CompletedAt, &exec.ErrorMessage, &exec.InterruptedBy,
+			&exec.ConsecutiveFailures,
+			&exec.MaxAgents, &exec.UpdatedAt,
+			&exec.BaseKeyspace, &exec.EffectiveKeyspace, &exec.MultiplicationFactor,
+			&exec.UsesRuleSplitting, &exec.RuleSplitCount,
+			&exec.OverallProgressPercent, &exec.LastProgressUpdate,
+			&exec.PresetJobName, &exec.HashlistName, &exec.TotalHashes, &exec.CrackedHashes,
+			&exec.ActiveAgents, &exec.PendingWork,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan job execution with work: %w", err)
+		}
+		executions = append(executions, exec)
+	}
+
+	return executions, nil
+}
+

@@ -221,7 +221,6 @@ const Jobs: React.FC = () => {
       case 'running': return 'primary';
       case 'completed': return 'success';
       case 'failed': return 'error';
-      case 'interrupted': return 'warning';
       default: return 'default';
     }
   };
@@ -353,11 +352,6 @@ const Jobs: React.FC = () => {
               <ToggleButton value="failed">
                 <Badge badgeContent={statusCounts.failed || 0} color="error">
                   Failed
-                </Badge>
-              </ToggleButton>
-              <ToggleButton value="interrupted">
-                <Badge badgeContent={statusCounts.interrupted || 0} color="warning">
-                  Interrupted
                 </Badge>
               </ToggleButton>
             </ToggleButtonGroup>

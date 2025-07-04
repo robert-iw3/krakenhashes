@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/ZerkerEOD/krakenhashes/backend/pkg/debug"
 	"github.com/google/uuid"
 	"strconv"
+	"strings"
 )
 
 // JobWebSocketIntegration handles the integration between job scheduling and WebSocket communication
@@ -103,7 +105,10 @@ func (s *JobWebSocketIntegration) SendJobAssignment(ctx context.Context, task *m
 	}
 
 	// Get agent details to find agent int ID
-	agent, err := s.agentRepo.GetByID(ctx, task.AgentID)
+	if task.AgentID == nil {
+		return fmt.Errorf("task has no agent assigned")
+	}
+	agent, err := s.agentRepo.GetByID(ctx, *task.AgentID)
 	if err != nil {
 		return fmt.Errorf("failed to get agent: %w", err)
 	}
@@ -132,25 +137,59 @@ func (s *JobWebSocketIntegration) SendJobAssignment(ctx context.Context, task *m
 	}
 
 	var rulePaths []string
-	for _, ruleIDStr := range presetJob.RuleIDs {
-		// Convert string ID to int
-		ruleID, err := strconv.Atoi(ruleIDStr)
-		if err != nil {
-			return fmt.Errorf("invalid rule ID %s: %w", ruleIDStr, err)
+	// Check if this is a rule split task with a chunk file
+	if task.IsRuleSplitTask && task.RuleChunkPath != nil && *task.RuleChunkPath != "" {
+		// Extract job directory from the chunk path
+		pathParts := strings.Split(*task.RuleChunkPath, string(filepath.Separator))
+		var jobDirName string
+		chunkFilename := filepath.Base(*task.RuleChunkPath)
+		
+		// Find the job directory name
+		for i, part := range pathParts {
+			if strings.HasPrefix(part, "job_") && i < len(pathParts)-1 {
+				jobDirName = part
+				break
+			}
 		}
 		
-		// Look up the actual rule file path
-		rule, err := s.ruleManager.GetRule(ctx, ruleID)
-		if err != nil {
-			return fmt.Errorf("failed to get rule %d: %w", ruleID, err)
+		// Create the rule path with job directory
+		var rulePath string
+		if jobDirName != "" {
+			rulePath = fmt.Sprintf("rules/chunks/%s/%s", jobDirName, chunkFilename)
+		} else {
+			// Fallback to just chunk filename
+			rulePath = fmt.Sprintf("rules/chunks/%s", chunkFilename)
 		}
-		if rule == nil {
-			return fmt.Errorf("rule %d not found", ruleID)
-		}
-		
-		// Use the actual file path from the database
-		rulePath := fmt.Sprintf("rules/%s", rule.FileName)
 		rulePaths = append(rulePaths, rulePath)
+		
+		debug.Log("Using rule chunk for task", map[string]interface{}{
+			"task_id":        task.ID,
+			"chunk_path":     *task.RuleChunkPath,
+			"agent_path":     rulePath,
+			"job_dir":        jobDirName,
+		})
+	} else {
+		// Standard rule processing
+		for _, ruleIDStr := range presetJob.RuleIDs {
+			// Convert string ID to int
+			ruleID, err := strconv.Atoi(ruleIDStr)
+			if err != nil {
+				return fmt.Errorf("invalid rule ID %s: %w", ruleIDStr, err)
+			}
+			
+			// Look up the actual rule file path
+			rule, err := s.ruleManager.GetRule(ctx, ruleID)
+			if err != nil {
+				return fmt.Errorf("failed to get rule %d: %w", ruleID, err)
+			}
+			if rule == nil {
+				return fmt.Errorf("rule %d not found", ruleID)
+			}
+			
+			// Use the actual file path from the database
+			rulePath := fmt.Sprintf("rules/%s", rule.FileName)
+			rulePaths = append(rulePaths, rulePath)
+		}
 	}
 
 	// Get binary path from binary version
@@ -173,23 +212,25 @@ func (s *JobWebSocketIntegration) SendJobAssignment(ctx context.Context, task *m
 
 	// Get enabled devices for the agent
 	var enabledDeviceIDs []int
-	devices, err := s.deviceRepo.GetByAgentID(task.AgentID)
-	if err != nil {
-		debug.Error("Failed to get agent devices: %v", err)
-		// Continue without device specification
-	} else {
-		// Only include device IDs if some devices are disabled
-		hasDisabledDevice := false
-		for _, device := range devices {
-			if !device.Enabled {
-				hasDisabledDevice = true
-			} else {
-				enabledDeviceIDs = append(enabledDeviceIDs, device.DeviceID)
+	if task.AgentID != nil {
+		devices, err := s.deviceRepo.GetByAgentID(*task.AgentID)
+		if err != nil {
+			debug.Error("Failed to get agent devices: %v", err)
+			// Continue without device specification
+		} else {
+			// Only include device IDs if some devices are disabled
+			hasDisabledDevice := false
+			for _, device := range devices {
+				if !device.Enabled {
+					hasDisabledDevice = true
+				} else {
+					enabledDeviceIDs = append(enabledDeviceIDs, device.DeviceID)
+				}
 			}
-		}
-		// If all devices are enabled, don't include the device list
-		if !hasDisabledDevice {
-			enabledDeviceIDs = nil
+			// If all devices are enabled, don't include the device list
+			if !hasDisabledDevice {
+				enabledDeviceIDs = nil
+			}
 		}
 	}
 
@@ -226,19 +267,22 @@ func (s *JobWebSocketIntegration) SendJobAssignment(ctx context.Context, task *m
 		Payload: payloadBytes,
 	}
 
+	// Update task status to assigned BEFORE sending via WebSocket
+	// This ensures the task is marked as assigned even if WebSocket fails
+	err = s.jobTaskRepo.UpdateStatus(ctx, task.ID, models.JobTaskStatusAssigned)
+	if err != nil {
+		return fmt.Errorf("failed to update task status to assigned: %w", err)
+	}
+
 	// Send via WebSocket
 	err = s.wsHandler.SendMessage(agent.ID, msg)
 	if err != nil {
+		// Revert task status back to pending since we couldn't send it
+		revertErr := s.jobTaskRepo.UpdateStatus(ctx, task.ID, models.JobTaskStatusPending)
+		if revertErr != nil {
+			debug.Error("Failed to revert task status after WebSocket error: %v", revertErr)
+		}
 		return fmt.Errorf("failed to send task assignment via WebSocket: %w", err)
-	}
-
-	// Update task status to assigned
-	err = s.jobTaskRepo.UpdateStatus(ctx, task.ID, models.JobTaskStatusAssigned)
-	if err != nil {
-		debug.Log("Failed to update task status to assigned", map[string]interface{}{
-			"task_id": task.ID,
-			"error":   err.Error(),
-		})
 	}
 
 	debug.Log("Job assignment sent successfully", map[string]interface{}{
@@ -258,7 +302,10 @@ func (s *JobWebSocketIntegration) SendJobStop(ctx context.Context, taskID uuid.U
 	}
 
 	// Get agent details
-	agent, err := s.agentRepo.GetByID(ctx, task.AgentID)
+	if task.AgentID == nil {
+		return fmt.Errorf("task has no agent assigned")
+	}
+	agent, err := s.agentRepo.GetByID(ctx, *task.AgentID)
 	if err != nil {
 		return fmt.Errorf("failed to get agent: %w", err)
 	}
@@ -302,6 +349,31 @@ func (s *JobWebSocketIntegration) SendJobStop(ctx context.Context, taskID uuid.U
 }
 
 // SendBenchmarkRequest sends a benchmark request to an agent
+// SendForceCleanup sends a force cleanup command to an agent
+func (s *JobWebSocketIntegration) SendForceCleanup(ctx context.Context, agentID int) error {
+	debug.Log("Sending force cleanup command to agent", map[string]interface{}{
+		"agent_id": agentID,
+	})
+
+	// Create the force cleanup message
+	msg := &wsservice.Message{
+		Type: wsservice.TypeForceCleanup,
+		// No payload needed for force cleanup
+		Payload: json.RawMessage("{}"),
+	}
+
+	// Send the message to the agent
+	if err := s.wsHandler.SendMessage(agentID, msg); err != nil {
+		return fmt.Errorf("failed to send force cleanup: %w", err)
+	}
+
+	debug.Log("Force cleanup command sent successfully", map[string]interface{}{
+		"agent_id": agentID,
+	})
+
+	return nil
+}
+
 func (s *JobWebSocketIntegration) SendBenchmarkRequest(ctx context.Context, agentID int, hashType int, attackMode models.AttackMode, binaryVersionID int) error {
 	// Get agent details
 	agent, err := s.agentRepo.GetByID(ctx, agentID)
@@ -508,8 +580,56 @@ func (s *JobWebSocketIntegration) HandleJobProgress(ctx context.Context, agentID
 		"agent_id":           agentID,
 		"task_id":            progress.TaskID,
 		"keyspace_processed": progress.KeyspaceProcessed,
+		"progress_percent":   progress.ProgressPercent,
 		"hash_rate":          progress.HashRate,
 	})
+
+	// Validate task exists before processing
+	task, err := s.jobTaskRepo.GetByID(ctx, progress.TaskID)
+	if err != nil {
+		// Log and ignore progress updates for non-existent tasks (could be orphaned)
+		debug.Warning("Received progress for non-existent task (ignoring)", map[string]interface{}{
+			"task_id": progress.TaskID,
+			"agent_id": agentID,
+			"error": err.Error(),
+		})
+		// Don't return error - just ignore the update
+		return nil
+	}
+
+	// Verify the task is assigned to this agent
+	if task.AgentID == nil || *task.AgentID != agentID {
+		debug.Error("Progress from wrong agent", map[string]interface{}{
+			"task_id": progress.TaskID,
+			"expected_agent": task.AgentID,
+			"actual_agent": agentID,
+		})
+		return fmt.Errorf("task not assigned to this agent")
+	}
+
+	// Update task status to running if it's still assigned
+	if task.Status == models.JobTaskStatusAssigned {
+		// Use StartTask to update both status and started_at timestamp
+		err = s.jobTaskRepo.StartTask(ctx, progress.TaskID)
+		if err != nil {
+			debug.Log("Failed to start task", map[string]interface{}{
+				"task_id": progress.TaskID,
+				"error":   err.Error(),
+			})
+			// Fallback to just updating status
+			err = s.jobTaskRepo.UpdateStatus(ctx, progress.TaskID, models.JobTaskStatusRunning)
+			if err != nil {
+				debug.Log("Failed to update task status to running", map[string]interface{}{
+					"task_id": progress.TaskID,
+					"error":   err.Error(),
+				})
+			}
+		} else {
+			debug.Log("Started task", map[string]interface{}{
+				"task_id": progress.TaskID,
+			})
+		}
+	}
 
 	// Store progress in memory
 	s.progressMutex.Lock()
@@ -530,24 +650,82 @@ func (s *JobWebSocketIntegration) HandleJobProgress(ctx context.Context, agentID
 		}
 		
 		// Update job execution status to failed
-		task, err := s.jobTaskRepo.GetByID(ctx, progress.TaskID)
-		if err == nil {
-			// Wrap sql.DB in custom DB type
-			database := &db.DB{DB: s.db}
-			jobExecRepo := repository.NewJobExecutionRepository(database)
-			if err := jobExecRepo.UpdateStatus(ctx, task.JobExecutionID, models.JobExecutionStatusFailed); err != nil {
-				debug.Error("Failed to update job execution status: %v", err)
-			}
-			if err := jobExecRepo.UpdateErrorMessage(ctx, task.JobExecutionID, progress.ErrorMessage); err != nil {
-				debug.Error("Failed to update job execution error message: %v", err)
-			}
+		// Wrap sql.DB in custom DB type
+		database := &db.DB{DB: s.db}
+		jobExecRepo := repository.NewJobExecutionRepository(database)
+		if err := jobExecRepo.UpdateStatus(ctx, task.JobExecutionID, models.JobExecutionStatusFailed); err != nil {
+			debug.Error("Failed to update job execution status: %v", err)
+		}
+		if err := jobExecRepo.UpdateErrorMessage(ctx, task.JobExecutionID, progress.ErrorMessage); err != nil {
+			debug.Error("Failed to update job execution error message: %v", err)
+		}
+		
+		// Handle task failure cleanup
+		err = s.jobExecutionService.HandleTaskCompletion(ctx, progress.TaskID)
+		if err != nil {
+			debug.Log("Failed to handle failed task cleanup", map[string]interface{}{
+				"task_id": progress.TaskID,
+				"error":   err.Error(),
+			})
+		}
+		
+		return nil
+	}
+	
+	// Check if this is a completion update
+	if progress.Status == "completed" {
+		debug.Log("Task completed", map[string]interface{}{
+			"task_id": progress.TaskID,
+			"progress_percent": progress.ProgressPercent,
+		})
+		
+		// Update the final progress first
+		err := s.jobSchedulingService.ProcessTaskProgress(ctx, progress.TaskID, progress)
+		if err != nil {
+			debug.Error("Failed to process final task progress: %v", err)
+		}
+		
+		// Then mark task as complete
+		err = s.jobTaskRepo.CompleteTask(ctx, progress.TaskID)
+		if err != nil {
+			debug.Log("Failed to mark task as complete", map[string]interface{}{
+				"task_id": progress.TaskID,
+				"error":   err.Error(),
+			})
+		}
+		
+		// Reset consecutive failure counters on success
+		err = s.jobSchedulingService.HandleTaskSuccess(ctx, progress.TaskID)
+		if err != nil {
+			debug.Log("Failed to handle task success", map[string]interface{}{
+				"task_id": progress.TaskID,
+				"error":   err.Error(),
+			})
+		}
+		
+		// Handle task completion cleanup
+		err = s.jobExecutionService.HandleTaskCompletion(ctx, progress.TaskID)
+		if err != nil {
+			debug.Log("Failed to handle task completion", map[string]interface{}{
+				"task_id": progress.TaskID,
+				"error":   err.Error(),
+			})
+		}
+
+		// Check if job is complete
+		err = s.jobSchedulingService.ProcessJobCompletion(ctx, task.JobExecutionID)
+		if err != nil {
+			debug.Log("Failed to process job completion", map[string]interface{}{
+				"job_execution_id": task.JobExecutionID,
+				"error":            err.Error(),
+			})
 		}
 		
 		return nil
 	}
 
 	// Forward to job scheduling service for normal progress updates
-	err := s.jobSchedulingService.ProcessTaskProgress(ctx, progress.TaskID, progress)
+	err = s.jobSchedulingService.ProcessTaskProgress(ctx, progress.TaskID, progress)
 	if err != nil {
 		return fmt.Errorf("failed to process task progress: %w", err)
 	}
@@ -563,27 +741,33 @@ func (s *JobWebSocketIntegration) HandleJobProgress(ctx context.Context, agentID
 		}
 	}
 
-	// Check if task is complete
-	task, err := s.jobTaskRepo.GetByID(ctx, progress.TaskID)
-	if err == nil {
-		if progress.KeyspaceProcessed >= (task.KeyspaceEnd - task.KeyspaceStart) {
-			// Task is complete
-			err = s.jobTaskRepo.CompleteTask(ctx, progress.TaskID)
-			if err != nil {
-				debug.Log("Failed to mark task as complete", map[string]interface{}{
-					"task_id": progress.TaskID,
-					"error":   err.Error(),
-				})
-			}
+	// Check if task is complete based on keyspace
+	if progress.KeyspaceProcessed >= (task.KeyspaceEnd - task.KeyspaceStart) {
+		// Task is complete
+		err = s.jobTaskRepo.CompleteTask(ctx, progress.TaskID)
+		if err != nil {
+			debug.Log("Failed to mark task as complete", map[string]interface{}{
+				"task_id": progress.TaskID,
+				"error":   err.Error(),
+			})
+		}
 
-			// Check if job is complete
-			err = s.jobSchedulingService.ProcessJobCompletion(ctx, task.JobExecutionID)
-			if err != nil {
-				debug.Log("Failed to process job completion", map[string]interface{}{
-					"job_execution_id": task.JobExecutionID,
-					"error":            err.Error(),
-				})
-			}
+		// Handle task completion cleanup
+		err = s.jobExecutionService.HandleTaskCompletion(ctx, progress.TaskID)
+		if err != nil {
+			debug.Log("Failed to handle task completion", map[string]interface{}{
+				"task_id": progress.TaskID,
+				"error":   err.Error(),
+			})
+		}
+
+		// Check if job is complete
+		err = s.jobSchedulingService.ProcessJobCompletion(ctx, task.JobExecutionID)
+		if err != nil {
+			debug.Log("Failed to process job completion", map[string]interface{}{
+				"job_execution_id": task.JobExecutionID,
+				"error":            err.Error(),
+			})
 		}
 	}
 

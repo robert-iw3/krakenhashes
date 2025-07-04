@@ -50,7 +50,27 @@ func SetupFileDownloadRoutes(r *mux.Router, sqlDB *sql.DB, cfg *config.Config, a
 		case "wordlist":
 			filePath = filepath.Join(cfg.DataDir, "wordlists", category, filename)
 		case "rule":
-			filePath = filepath.Join(cfg.DataDir, "rules", category, filename)
+			// Check if this is a rule chunk file
+			if category == "chunks" {
+				// Rule chunks are stored in temp/rule_chunks/job_<ID>/<filename>
+				// Extract job ID from filename if it contains it
+				if strings.Contains(filename, "/") {
+					parts := strings.Split(filename, "/")
+					if len(parts) == 2 {
+						jobID := parts[0]
+						chunkFile := parts[1]
+						filePath = filepath.Join(cfg.DataDir, "temp", "rule_chunks", jobID, chunkFile)
+					} else {
+						// Fallback to old format
+						filePath = filepath.Join(cfg.DataDir, "temp", "rule_chunks", filename)
+					}
+				} else {
+					// Direct chunk file without job ID
+					filePath = filepath.Join(cfg.DataDir, "temp", "rule_chunks", filename)
+				}
+			} else {
+				filePath = filepath.Join(cfg.DataDir, "rules", category, filename)
+			}
 		case "binary":
 			// Binary files are stored in directories named by their ID in the database
 			// First try the provided category (might be an ID)
@@ -113,8 +133,13 @@ func SetupFileDownloadRoutes(r *mux.Router, sqlDB *sql.DB, cfg *config.Config, a
 		// Open file
 		file, err := os.Open(filePath)
 		if err != nil {
-			debug.Error("Failed to open file: %s - %v", filePath, err)
-			http.Error(w, "Failed to open file", http.StatusInternalServerError)
+			if os.IsNotExist(err) {
+				debug.Error("File not found: %s (requested: %s)", filePath, filename)
+				http.Error(w, fmt.Sprintf("File not found: %s", filename), http.StatusNotFound)
+			} else {
+				debug.Error("Failed to open file: %s - %v", filePath, err)
+				http.Error(w, fmt.Sprintf("Failed to open file: %s - %v", filename, err), http.StatusInternalServerError)
+			}
 			return
 		}
 		defer file.Close()
@@ -166,8 +191,21 @@ func SetupFileDownloadRoutes(r *mux.Router, sqlDB *sql.DB, cfg *config.Config, a
 				return
 			}
 			category := parts[0]
-			baseName := parts[len(parts)-1]
-			filePath = filepath.Join(cfg.DataDir, "rules", category, baseName)
+			// Check if this is a rule chunk file
+			if category == "chunks" {
+				// Handle chunks/job_<ID>/chunk_<N>.rule format
+				if len(parts) >= 3 {
+					jobID := parts[1]
+					chunkFile := parts[2]
+					filePath = filepath.Join(cfg.DataDir, "temp", "rule_chunks", jobID, chunkFile)
+				} else {
+					baseName := parts[len(parts)-1]
+					filePath = filepath.Join(cfg.DataDir, "temp", "rule_chunks", baseName)
+				}
+			} else {
+				baseName := parts[len(parts)-1]
+				filePath = filepath.Join(cfg.DataDir, "rules", category, baseName)
+			}
 		case "binary":
 			// For binary files without a category, query the database
 			if !strings.Contains(filename, "/") {
@@ -230,8 +268,13 @@ func SetupFileDownloadRoutes(r *mux.Router, sqlDB *sql.DB, cfg *config.Config, a
 		// Open file
 		file, err := os.Open(filePath)
 		if err != nil {
-			debug.Error("Failed to open file: %s - %v", filePath, err)
-			http.Error(w, "Failed to open file", http.StatusInternalServerError)
+			if os.IsNotExist(err) {
+				debug.Error("File not found: %s (requested: %s)", filePath, filename)
+				http.Error(w, fmt.Sprintf("File not found: %s", filename), http.StatusNotFound)
+			} else {
+				debug.Error("Failed to open file: %s - %v", filePath, err)
+				http.Error(w, fmt.Sprintf("Failed to open file: %s - %v", filename, err), http.StatusInternalServerError)
+			}
 			return
 		}
 		defer file.Close()

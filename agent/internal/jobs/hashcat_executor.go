@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 	
 	"github.com/ZerkerEOD/krakenhashes/agent/pkg/debug"
@@ -28,6 +30,9 @@ const (
 	AttackModeBruteForce         AttackMode = 3 // Brute-force attack
 	AttackModeHybridWordlistMask AttackMode = 6 // Hybrid Wordlist + Mask
 	AttackModeHybridMaskWordlist AttackMode = 7 // Hybrid Mask + Wordlist
+	
+	// PID file for tracking hashcat processes
+	hashcatPIDFile = "/tmp/krakenhashes-hashcat.pid"
 )
 
 // JobTaskAssignment represents a task assignment from the backend
@@ -54,7 +59,8 @@ type JobTaskAssignment struct {
 // JobProgress represents progress updates sent to backend
 type JobProgress struct {
 	TaskID            string         `json:"task_id"`
-	KeyspaceProcessed int64          `json:"keyspace_processed"`
+	KeyspaceProcessed int64          `json:"keyspace_processed"` // Restore point (position in wordlist)
+	ProgressPercent   float64        `json:"progress_percent"`   // Actual progress percentage (0-100)
 	HashRate          int64          `json:"hash_rate"`         // Current hashes per second
 	Temperature       *float64       `json:"temperature"`       // GPU temperature
 	Utilization       *float64       `json:"utilization"`       // GPU utilization percentage
@@ -117,6 +123,10 @@ type HashcatProcess struct {
 	StartTime       time.Time
 	LastProgress    *JobProgress
 	LastCheckpoint  time.Time
+	
+	// Error tracking
+	AlreadyRunningError bool
+	mutex              sync.Mutex
 }
 
 
@@ -125,10 +135,105 @@ func NewHashcatExecutor(dataDirectory string) *HashcatExecutor {
 	// We don't use a work directory since we're capturing output from stdout
 	// with --potfile-disable and no output files
 	
-	return &HashcatExecutor{
+	executor := &HashcatExecutor{
 		dataDirectory:   dataDirectory,
 		activeProcesses: make(map[string]*HashcatProcess),
 	}
+	
+	// Clean up any orphaned processes on startup
+	if err := executor.cleanOrphanedProcesses(); err != nil {
+		debug.Warning("Failed to clean orphaned processes on startup: %v", err)
+	}
+	
+	return executor
+}
+
+// checkAndKillExistingHashcat checks if a hashcat process is already running and kills it
+func (e *HashcatExecutor) checkAndKillExistingHashcat() error {
+	// First check our PID file
+	if pid, err := e.readPIDFile(); err == nil && pid > 0 {
+		if e.isProcessRunning(pid) {
+			debug.Warning("Found existing hashcat process with PID %d, attempting to kill", pid)
+			if err := e.killProcess(pid); err != nil {
+				return fmt.Errorf("failed to kill existing hashcat process (PID %d): %w", pid, err)
+			}
+			debug.Info("Successfully killed existing hashcat process (PID %d)", pid)
+		}
+		// Clean up the PID file
+		os.Remove(hashcatPIDFile)
+	}
+	
+	// Also check using pgrep for any hashcat processes
+	cmd := exec.Command("pgrep", "-f", "hashcat")
+	output, _ := cmd.Output()
+	if len(output) > 0 {
+		pids := strings.Fields(string(output))
+		for _, pidStr := range pids {
+			if pid, err := strconv.Atoi(pidStr); err == nil {
+				// Skip our own process
+				if pid == os.Getpid() {
+					continue
+				}
+				debug.Warning("Found hashcat process with PID %d via pgrep, attempting to kill", pid)
+				e.killProcess(pid)
+			}
+		}
+	}
+	
+	return nil
+}
+
+// cleanOrphanedProcesses cleans up any orphaned hashcat processes
+func (e *HashcatExecutor) cleanOrphanedProcesses() error {
+	return e.checkAndKillExistingHashcat()
+}
+
+// writePIDFile writes the PID to the PID file
+func (e *HashcatExecutor) writePIDFile(pid int) error {
+	return ioutil.WriteFile(hashcatPIDFile, []byte(strconv.Itoa(pid)), 0644)
+}
+
+// readPIDFile reads the PID from the PID file
+func (e *HashcatExecutor) readPIDFile() (int, error) {
+	data, err := ioutil.ReadFile(hashcatPIDFile)
+	if err != nil {
+		return 0, err
+	}
+	return strconv.Atoi(strings.TrimSpace(string(data)))
+}
+
+// isProcessRunning checks if a process with the given PID is running
+func (e *HashcatExecutor) isProcessRunning(pid int) bool {
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		return false
+	}
+	
+	// On Unix, FindProcess always succeeds, so we need to send signal 0 to check
+	err = process.Signal(syscall.Signal(0))
+	return err == nil
+}
+
+// killProcess kills a process with the given PID
+func (e *HashcatExecutor) killProcess(pid int) error {
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		return err
+	}
+	
+	// Try graceful termination first
+	if err := process.Signal(syscall.SIGTERM); err == nil {
+		// Wait a bit for graceful shutdown
+		time.Sleep(2 * time.Second)
+		
+		// Check if still running
+		if !e.isProcessRunning(pid) {
+			return nil
+		}
+	}
+	
+	// Force kill if still running
+	return process.Kill()
 }
 
 // SetOutputCallback sets the callback for sending output via websocket
@@ -154,6 +259,12 @@ func (e *HashcatExecutor) ExecuteTask(ctx context.Context, assignment *JobTaskAs
 	// Check if task is already running
 	if _, exists := e.activeProcesses[assignment.TaskID]; exists {
 		return nil, fmt.Errorf("task %s is already running", assignment.TaskID)
+	}
+	
+	// Check for and clean up any existing hashcat processes
+	if err := e.checkAndKillExistingHashcat(); err != nil {
+		debug.Warning("Error checking for existing hashcat processes: %v", err)
+		// Continue anyway, as the new process might still work
 	}
 
 	// Create process context with cancellation
@@ -277,13 +388,24 @@ func (e *HashcatExecutor) buildHashcatCommandWithOptions(assignment *JobTaskAssi
 	}
 
 	// Add skip and limit for keyspace distribution
-	if assignment.KeyspaceStart > 0 {
-		args = append(args, "--skip", strconv.FormatInt(assignment.KeyspaceStart, 10))
+	// Skip this for rule-split tasks (detected by rule chunk paths)
+	isRuleSplitTask := false
+	for _, rulePath := range assignment.RulePaths {
+		if strings.Contains(rulePath, "chunks/job_") {
+			isRuleSplitTask = true
+			break
+		}
 	}
 	
-	if assignment.KeyspaceEnd > assignment.KeyspaceStart {
-		keyspaceRange := assignment.KeyspaceEnd - assignment.KeyspaceStart
-		args = append(args, "--limit", strconv.FormatInt(keyspaceRange, 10))
+	if !isRuleSplitTask {
+		if assignment.KeyspaceStart > 0 {
+			args = append(args, "--skip", strconv.FormatInt(assignment.KeyspaceStart, 10))
+		}
+		
+		if assignment.KeyspaceEnd > assignment.KeyspaceStart {
+			keyspaceRange := assignment.KeyspaceEnd - assignment.KeyspaceStart
+			args = append(args, "--limit", strconv.FormatInt(keyspaceRange, 10))
+		}
 	}
 
 	// Add hashlist file
@@ -367,6 +489,19 @@ func (e *HashcatExecutor) runHashcatProcess(ctx context.Context, process *Hashca
 		close(process.ProgressChannel)
 		if process.StdinPipe != nil {
 			process.StdinPipe.Close()
+		}
+		
+		// Clean up PID file
+		os.Remove(hashcatPIDFile)
+		
+		// Ensure the process is killed if still running
+		if process.Cmd != nil && process.Cmd.Process != nil {
+			// Send SIGTERM first
+			process.Cmd.Process.Signal(syscall.SIGTERM)
+			// Give it a moment to exit gracefully
+			time.Sleep(100 * time.Millisecond)
+			// Force kill if needed
+			process.Cmd.Process.Kill()
 		}
 	}()
 
@@ -460,18 +595,31 @@ func (e *HashcatExecutor) runHashcatProcess(ctx context.Context, process *Hashca
 					
 					// Extract key metrics from JSON
 					if progressArr, ok := status["progress"].([]interface{}); ok && len(progressArr) >= 2 {
-						// Use restore_point for actual keyspace progress
+						// Extract restore point for resume capability (position in wordlist)
 						var keyspaceProcessed int64
 						if restorePoint, ok := status["restore_point"].(float64); ok {
 							keyspaceProcessed = int64(restorePoint)
-						} else if current, ok := progressArr[0].(float64); ok {
-							// Fallback to progress[0] if restore_point not available
-							keyspaceProcessed = int64(current)
+						}
+						
+						// Extract progress values for percentage calculation
+						var currentProgress, totalProgress int64
+						if current, ok := progressArr[0].(float64); ok {
+							currentProgress = int64(current)  // Current position (words * rules processed)
+						}
+						if total, ok := progressArr[1].(float64); ok {
+							totalProgress = int64(total)  // Total to process (total words * total rules)
+						}
+						
+						// Calculate progress percentage
+						var progressPercent float64
+						if totalProgress > 0 {
+							progressPercent = (float64(currentProgress) / float64(totalProgress)) * 100
 						}
 						
 						progress := &JobProgress{
 							TaskID:            process.TaskID,
-							KeyspaceProcessed: keyspaceProcessed,
+							KeyspaceProcessed: keyspaceProcessed,  // Restore point (word position)
+							ProgressPercent:   progressPercent,     // Actual progress percentage
 						}
 						
 						// Extract speed from devices array - sum all device speeds
@@ -496,9 +644,9 @@ func (e *HashcatExecutor) runHashcatProcess(ctx context.Context, process *Hashca
 						}
 						progress.HashRate = totalSpeed
 						
-						// Calculate time remaining
-						if total, ok := progressArr[1].(float64); ok && progress.HashRate > 0 {
-							remaining := int64(total) - progress.KeyspaceProcessed
+						// Calculate time remaining based on actual progress
+						if totalProgress > 0 && currentProgress < totalProgress && progress.HashRate > 0 {
+							remaining := totalProgress - currentProgress
 							if remaining > 0 {
 								timeRemaining := int(remaining / progress.HashRate)
 								progress.TimeRemaining = &timeRemaining
@@ -580,15 +728,29 @@ func (e *HashcatExecutor) runHashcatProcess(ctx context.Context, process *Hashca
 		debug.Info("[Hashcat stderr reader] Starting for task %s", process.TaskID)
 		lineCount := 0
 		
+		alreadyRunningDetected := false
 		for scanner.Scan() {
 			line := scanner.Text()
 			lineCount++
 			debug.Debug("[Hashcat stderr] %s", line)
 			
+			// Check for "Already an instance" error
+			if strings.Contains(line, "Already an instance") && strings.Contains(line, "running on pid") {
+				alreadyRunningDetected = true
+				debug.Error("Detected 'Already an instance' error for task %s", process.TaskID)
+			}
+			
 			// Send error output via websocket if callback is set
 			if e.outputCallback != nil {
 				e.outputCallback(process.TaskID, line, true)
 			}
+		}
+		
+		// If we detected the "already running" error, store it
+		if alreadyRunningDetected {
+			process.mutex.Lock()
+			process.AlreadyRunningError = true
+			process.mutex.Unlock()
 		}
 		
 		// Check for scanner errors
@@ -616,6 +778,11 @@ func (e *HashcatExecutor) runHashcatProcess(ctx context.Context, process *Hashca
 	}
 	
 	debug.Info("Hashcat process started successfully with PID: %d", process.Cmd.Process.Pid)
+	
+	// Write PID to file for tracking
+	if err := e.writePIDFile(process.Cmd.Process.Pid); err != nil {
+		debug.Warning("Failed to write PID file: %v", err)
+	}
 
 	// Wait for completion or cancellation
 	done := make(chan error, 1)
@@ -676,18 +843,26 @@ func (e *HashcatExecutor) runHashcatProcess(ctx context.Context, process *Hashca
 				case 0:
 					// OK/cracked - normal completion
 					debug.Info("Hashcat completed with OK/cracked status for task %s", process.TaskID)
+					// Use the last progress percentage if available, otherwise 100%
+					progressPercent := 100.0
+					if process.LastProgress != nil && process.LastProgress.ProgressPercent > 0 {
+						progressPercent = process.LastProgress.ProgressPercent
+					}
 					finalProgress := &JobProgress{
 						TaskID:            process.TaskID,
 						KeyspaceProcessed: process.Assignment.KeyspaceEnd - process.Assignment.KeyspaceStart,
+						ProgressPercent:   progressPercent,
 					}
 					e.sendProgressUpdate(process, finalProgress, "completed")
 					
 				case 1:
 					// Exhausted - normal completion, keyspace fully processed
 					debug.Info("Hashcat exhausted keyspace for task %s", process.TaskID)
+					// Exhausted means 100% complete
 					finalProgress := &JobProgress{
 						TaskID:            process.TaskID,
 						KeyspaceProcessed: process.Assignment.KeyspaceEnd - process.Assignment.KeyspaceStart,
+						ProgressPercent:   100.0, // Keyspace exhausted = 100% complete
 					}
 					e.sendProgressUpdate(process, finalProgress, "completed")
 					
@@ -700,6 +875,20 @@ func (e *HashcatExecutor) runHashcatProcess(ctx context.Context, process *Hashca
 					// GPU watchdog alarm
 					debug.Error("GPU watchdog alarm triggered for task %s", process.TaskID)
 					e.sendErrorProgress(process, "GPU watchdog alarm - possible GPU hang or temperature issue")
+					
+				case 255:
+					// Exit code 255 often means another instance is running
+					process.mutex.Lock()
+					alreadyRunning := process.AlreadyRunningError
+					process.mutex.Unlock()
+					
+					if alreadyRunning {
+						debug.Error("Hashcat exit code 255 for task %s - confirmed another instance is running", process.TaskID)
+						e.sendErrorProgress(process, "Hashcat failed to start - another instance is already running")
+					} else {
+						debug.Error("Hashcat exit code 255 for task %s - unknown error", process.TaskID)
+						e.sendErrorProgress(process, "Hashcat failed with exit code 255")
+					}
 					
 				default:
 					// Other errors
@@ -717,9 +906,15 @@ func (e *HashcatExecutor) runHashcatProcess(ctx context.Context, process *Hashca
 		} else {
 			// Process completed successfully with exit code 0
 			debug.Info("Hashcat completed successfully with exit code 0 (OK/cracked) for task %s", process.TaskID)
+			// Use the last progress percentage if available, otherwise 100%
+			progressPercent := 100.0
+			if process.LastProgress != nil && process.LastProgress.ProgressPercent > 0 {
+				progressPercent = process.LastProgress.ProgressPercent
+			}
 			finalProgress := &JobProgress{
 				TaskID:            process.TaskID,
 				KeyspaceProcessed: process.Assignment.KeyspaceEnd - process.Assignment.KeyspaceStart,
+				ProgressPercent:   progressPercent,
 			}
 			e.sendProgressUpdate(process, finalProgress, "completed")
 		}
@@ -790,6 +985,33 @@ func (e *HashcatExecutor) GetActiveTaskIDs() []string {
 	}
 
 	return taskIDs
+}
+
+// ForceCleanup forces cleanup of all hashcat processes
+func (e *HashcatExecutor) ForceCleanup() error {
+	debug.Info("Forcing cleanup of all hashcat processes")
+	
+	// First, stop all tracked processes
+	e.mutex.Lock()
+	for taskID, process := range e.activeProcesses {
+		debug.Info("Cancelling task %s", taskID)
+		process.Cancel()
+	}
+	// Clear the map
+	e.activeProcesses = make(map[string]*HashcatProcess)
+	e.mutex.Unlock()
+	
+	// Then kill any remaining hashcat processes
+	if err := e.checkAndKillExistingHashcat(); err != nil {
+		debug.Warning("Error during force cleanup: %v", err)
+		return err
+	}
+	
+	// Clean up PID file
+	os.Remove(hashcatPIDFile)
+	
+	debug.Info("Force cleanup completed")
+	return nil
 }
 
 // RunSpeedTest runs a real-world speed test with actual job configuration

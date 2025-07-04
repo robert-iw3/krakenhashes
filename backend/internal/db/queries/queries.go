@@ -17,6 +17,7 @@ const (
 			a.version, a.hardware, a.os_info, a.created_by_id, a.created_at,
 			a.updated_at, a.api_key, a.api_key_created_at,
 			a.api_key_last_used, a.metadata, a.owner_id, a.extra_parameters, a.is_enabled,
+			a.consecutive_failures,
 			u.id, u.username, u.email, u.role
 		FROM agents a
 		LEFT JOIN users u ON a.created_by_id = u.id
@@ -28,6 +29,7 @@ const (
 			a.version, a.hardware, a.os_info, a.created_by_id, a.created_at,
 			a.updated_at, a.api_key, a.api_key_created_at,
 			a.api_key_last_used, a.metadata, a.owner_id, a.extra_parameters, a.is_enabled,
+			a.consecutive_failures,
 			u.id, u.username, u.email, u.role
 		FROM agents a
 		LEFT JOIN users u ON a.created_by_id = u.id
@@ -69,6 +71,7 @@ const (
 			a.version, a.hardware, a.os_info, a.created_by_id, a.created_at,
 			a.updated_at, a.api_key, a.api_key_created_at,
 			a.api_key_last_used, a.metadata, a.owner_id, a.extra_parameters, a.is_enabled,
+			a.consecutive_failures,
 			u.id, u.username, u.email, u.role
 		FROM agents a
 		LEFT JOIN users u ON a.created_by_id = u.id

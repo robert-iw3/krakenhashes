@@ -3,7 +3,7 @@
  */
 
 // Job status enum
-export type JobStatus = 'pending' | 'running' | 'completed' | 'failed' | 'interrupted' | 'cancelled';
+export type JobStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
 
 // Job summary for list views
 export interface JobSummary {
@@ -24,6 +24,14 @@ export interface JobSummary {
   completed_at?: string;
   created_by_username?: string;
   error_message?: string;
+  // Enhanced chunking fields
+  effective_keyspace?: number;
+  multiplication_factor?: number;
+  uses_rule_splitting?: boolean;
+  base_keyspace?: number;
+  total_keyspace?: number;
+  processed_keyspace?: number;
+  overall_progress_percent: number;
 }
 
 // Pagination information

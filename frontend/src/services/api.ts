@@ -4,6 +4,8 @@
 import axios from 'axios';
 import type { AxiosError } from 'axios';
 import { Client } from '../types/client'; // Moved import to top
+import { User, UserUpdateRequest, DisableUserRequest, ResetPasswordRequest, UserListResponse, UserDetailResponse } from '../types/user';
+import { transformUserResponse, transformUserListResponse } from '../utils/userTransform';
 import {
   PresetJob,
   JobWorkflow,
@@ -282,6 +284,54 @@ export const updateAdminClient = (id: string, clientData: Partial<Omit<Client, '
 
 // Delete a client
 export const deleteAdminClient = (id: string) => api.delete<any>(`/api/admin/clients/${id}`); 
+
+// --- User Management (Admin) ---
+
+// List all users
+export const listAdminUsers = async () => {
+  const response = await api.get('/api/admin/users');
+  return {
+    ...response,
+    data: {
+      data: transformUserListResponse(response.data)
+    }
+  };
+};
+
+// Get a single user by ID
+export const getAdminUser = async (id: string) => {
+  const response = await api.get(`/api/admin/users/${id}`);
+  return {
+    ...response,
+    data: {
+      data: transformUserResponse(response.data.data)
+    }
+  };
+};
+
+// Update user details (username/email)
+export const updateAdminUser = (id: string, data: UserUpdateRequest) => 
+  api.put<{data: {message: string}}>(`/api/admin/users/${id}`, data);
+
+// Disable a user account
+export const disableAdminUser = (id: string, data: DisableUserRequest) => 
+  api.post<{data: {message: string}}>(`/api/admin/users/${id}/disable`, data);
+
+// Enable a user account
+export const enableAdminUser = (id: string) => 
+  api.post<{data: {message: string}}>(`/api/admin/users/${id}/enable`);
+
+// Reset user password
+export const resetAdminUserPassword = (id: string, data: ResetPasswordRequest) => 
+  api.post<{data: {message: string; temporary_password?: string}}>(`/api/admin/users/${id}/reset-password`, data);
+
+// Disable user MFA
+export const disableAdminUserMFA = (id: string) => 
+  api.post<{data: {message: string}}>(`/api/admin/users/${id}/disable-mfa`);
+
+// Unlock user account
+export const unlockAdminUser = (id: string) => 
+  api.post<{data: {message: string}}>(`/api/admin/users/${id}/unlock`);
 
 // --- Admin: Preset Jobs ---
 

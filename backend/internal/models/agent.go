@@ -39,9 +39,10 @@ type Agent struct {
 	APIKeyCreatedAt sql.NullTime      `json:"-"`
 	APIKeyLastUsed  sql.NullTime      `json:"-"`
 	Metadata        map[string]string `json:"metadata,omitempty"`
-	OwnerID         *uuid.UUID        `json:"ownerId,omitempty"`
-	ExtraParameters string            `json:"extraParameters"`
-	IsEnabled       bool              `json:"isEnabled"`
+	OwnerID             *uuid.UUID        `json:"ownerId,omitempty"`
+	ExtraParameters     string            `json:"extraParameters"`
+	IsEnabled           bool              `json:"isEnabled"`
+	ConsecutiveFailures int               `json:"consecutiveFailures"` // Track consecutive task failures
 }
 
 // Hardware represents the hardware configuration of an agent

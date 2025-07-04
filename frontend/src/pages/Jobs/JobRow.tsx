@@ -19,6 +19,7 @@ import {
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
   Error as ErrorIcon,
+  Info as InfoIcon,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import EditableCell from './EditableCell';
@@ -26,6 +27,8 @@ import DeleteConfirm from './DeleteConfirm';
 import { JobSummary } from '../../types/jobs';
 import { api } from '../../services/api';
 import { formatters } from '../../utils/formatters';
+import { calculateJobProgress, formatKeyspace, getKeyspaceTooltip } from '../../utils/jobProgress';
+import LinearProgress from '@mui/material/LinearProgress';
 
 interface JobRowProps {
   job: JobSummary;
@@ -104,15 +107,13 @@ const JobRow: React.FC<JobRowProps> = ({ job, onJobUpdated, isLastActiveJob, isC
         return 'default';
       case 'cancelled':
         return 'default';
-      case 'interrupted':
-        return 'warning';
       default:
         return 'default';
     }
   };
 
-  const canRetry = ['failed', 'interrupted', 'cancelled'].includes(job.status.toLowerCase());
-  const hasError = job.error_message && (job.status === 'failed' || job.status === 'interrupted');
+  const canRetry = ['failed', 'cancelled'].includes(job.status.toLowerCase());
+  const hasError = job.error_message && job.status === 'failed';
 
   // Format completion time if available
   const completionTime = job.completed_at ? new Date(job.completed_at).toLocaleString() : null;
@@ -175,11 +176,94 @@ const JobRow: React.FC<JobRowProps> = ({ job, onJobUpdated, isLastActiveJob, isC
           </Typography>
         </TableCell>
 
-        {/* Dispatched / Searched */}
+        {/* Progress */}
         <TableCell align="center">
-          <Typography variant="body2">
-            {job.dispatched_percent.toFixed(1)}% / {job.searched_percent.toFixed(1)}%
-          </Typography>
+          <Box sx={{ width: '100%', minWidth: 120 }}>
+            {(() => {
+              // Use consistent progress display logic
+              const dispatchedPercent = job.dispatched_percent || 0;
+              const searchedPercent = job.searched_percent || 0;
+              const overallProgress = job.overall_progress_percent || searchedPercent;
+              
+              // For keyspace/rule-based jobs with multiplication factor
+              if (job.total_keyspace || job.effective_keyspace) {
+                const progress = calculateJobProgress(job);
+                return (
+                  <>
+                    <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
+                      <Box sx={{ width: '100%', mr: 1 }}>
+                        <LinearProgress 
+                          variant="determinate" 
+                          value={overallProgress} 
+                          sx={{ height: 6 }}
+                        />
+                      </Box>
+                      <Box sx={{ minWidth: 45 }}>
+                        <Typography variant="body2" color="text.secondary">
+                          {overallProgress.toFixed(1)}%
+                        </Typography>
+                      </Box>
+                    </Box>
+                    <Typography variant="caption" color="text.secondary" display="block">
+                      {dispatchedPercent.toFixed(3)}% / {searchedPercent.toFixed(3)}%
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {progress.displayText}
+                    </Typography>
+                  </>
+                );
+              } else {
+                // Fallback for jobs without keyspace info
+                return (
+                  <>
+                    <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
+                      <Box sx={{ width: '100%', mr: 1 }}>
+                        <LinearProgress 
+                          variant="determinate" 
+                          value={overallProgress} 
+                          sx={{ height: 6 }}
+                        />
+                      </Box>
+                      <Box sx={{ minWidth: 45 }}>
+                        <Typography variant="body2" color="text.secondary">
+                          {overallProgress.toFixed(1)}%
+                        </Typography>
+                      </Box>
+                    </Box>
+                    <Typography variant="caption" color="text.secondary">
+                      {dispatchedPercent.toFixed(3)}% / {searchedPercent.toFixed(3)}%
+                    </Typography>
+                  </>
+                );
+              }
+            })()}
+          </Box>
+        </TableCell>
+
+        {/* Keyspace */}
+        <TableCell align="center">
+          {job.effective_keyspace && job.effective_keyspace !== job.total_keyspace ? (
+            <Tooltip title={getKeyspaceTooltip(job) || ''} arrow>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5 }}>
+                <Typography variant="body2">
+                  {formatKeyspace(job.effective_keyspace)}
+                </Typography>
+                {job.multiplication_factor && job.multiplication_factor > 1 && (
+                  <Chip 
+                    label={`×${job.multiplication_factor}`} 
+                    size="small" 
+                    color="primary" 
+                    variant="outlined"
+                    icon={<InfoIcon fontSize="small" />}
+                  />
+                )}
+              </Box>
+            </Tooltip>
+          ) : (
+            <Typography variant="body2">
+              {job.total_keyspace ? formatKeyspace(job.total_keyspace) : '-'}
+            </Typography>
+          )}
         </TableCell>
 
         {/* Cracked Count */}
@@ -284,18 +368,12 @@ const JobRow: React.FC<JobRowProps> = ({ job, onJobUpdated, isLastActiveJob, isC
       {/* Error message row */}
       {hasError && (
         <TableRow>
-          <TableCell colSpan={9} sx={{ py: 0 }}>
+          <TableCell colSpan={10} sx={{ py: 0 }}>
             <Collapse in={showError} timeout="auto" unmountOnExit>
               <Alert severity="error" sx={{ m: 2 }}>
                 <Typography variant="body2">
                   <strong>Error:</strong> {job.error_message}
                 </Typography>
-                {job.status === 'interrupted' && (
-                  <Typography variant="caption" display="block" sx={{ mt: 1 }}>
-                    This job was interrupted (likely due to server restart or agent disconnection).
-                    You can retry it to resume from where it left off.
-                  </Typography>
-                )}
               </Alert>
             </Collapse>
           </TableCell>

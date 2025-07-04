@@ -426,15 +426,15 @@ func (fs *FileSync) DownloadFileWithInfoRetry(ctx context.Context, fileInfo *Fil
 		// We need to preserve this structure for proper organization
 		targetDir = fs.dataDirs.Rules
 		
-		// Check if the name includes a category path
-		if strings.Contains(fileInfo.Name, "/") {
-			// Name includes category, use it as-is
-			finalPath = filepath.Join(targetDir, fileInfo.Name)
-			debug.Info("Rule download - Name includes category: %s -> %s", fileInfo.Name, finalPath)
-		} else if fileInfo.Category != "" {
-			// Use category field if available
+		// If we have an explicit category field, it takes precedence
+		if fileInfo.Category != "" {
+			// Use category field and append the name (which may include subdirectories)
 			finalPath = filepath.Join(targetDir, fileInfo.Category, fileInfo.Name)
 			debug.Info("Rule download - Using category field: %s/%s -> %s", fileInfo.Category, fileInfo.Name, finalPath)
+		} else if strings.Contains(fileInfo.Name, "/") {
+			// Name includes category path, use it as-is
+			finalPath = filepath.Join(targetDir, fileInfo.Name)
+			debug.Info("Rule download - Name includes category: %s -> %s", fileInfo.Name, finalPath)
 		} else {
 			// No category, save to root rules directory
 			finalPath = filepath.Join(targetDir, fileInfo.Name)
@@ -506,7 +506,14 @@ func (fs *FileSync) DownloadFileWithInfoRetry(ctx context.Context, fileInfo *Fil
 		url = fmt.Sprintf("%s/api/agent/hashlists/%d/download", fs.urlConfig.BaseURL, fileInfo.ID)
 	} else {
 		// Other file types use the generic file endpoint
-		url = fmt.Sprintf("%s/api/files/%s/%s", fs.urlConfig.BaseURL, fileInfo.FileType, fileInfo.Name)
+		// If we have a category, include it in the URL path
+		if fileInfo.Category != "" {
+			// Include category in the path
+			url = fmt.Sprintf("%s/api/files/%s/%s/%s", fs.urlConfig.BaseURL, fileInfo.FileType, fileInfo.Category, fileInfo.Name)
+		} else {
+			// No category, use direct path
+			url = fmt.Sprintf("%s/api/files/%s/%s", fs.urlConfig.BaseURL, fileInfo.FileType, fileInfo.Name)
+		}
 	}
 	debug.Info("Downloading file from %s", url)
 

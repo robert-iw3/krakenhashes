@@ -58,6 +58,7 @@ type PresetJob struct {
 	WordlistIDs               IDArray    `json:"wordlist_ids" db:"wordlist_ids"` // Stores numeric IDs as strings in JSONB
 	RuleIDs                   IDArray    `json:"rule_ids" db:"rule_ids"`         // Stores numeric IDs as strings in JSONB
 	AttackMode                AttackMode `json:"attack_mode" db:"attack_mode"`
+	HashType                  int        `json:"hash_type" db:"hash_type"`                 // Hashcat hash type number
 	Priority                  int        `json:"priority" db:"priority"`
 	ChunkSizeSeconds          int        `json:"chunk_size_seconds" db:"chunk_size_seconds"`
 	StatusUpdatesEnabled      bool       `json:"status_updates_enabled" db:"status_updates_enabled"`
@@ -65,6 +66,7 @@ type PresetJob struct {
 	AllowHighPriorityOverride bool       `json:"allow_high_priority_override" db:"allow_high_priority_override"`
 	BinaryVersionID           int        `json:"binary_version_id" db:"binary_version_id"` // References binary_versions.id
 	Mask                      string     `json:"mask,omitempty" db:"mask"`                 // For mask-based attack modes
+	AdditionalArgs            *string    `json:"additional_args,omitempty" db:"additional_args"` // Additional hashcat arguments
 	Keyspace                  *int64     `json:"keyspace,omitempty" db:"keyspace"`         // Pre-calculated keyspace for this preset
 	MaxAgents                 int        `json:"max_agents" db:"max_agents"`               // Max agents allowed (0 = unlimited)
 	CreatedAt                 time.Time  `json:"created_at" db:"created_at"`
@@ -115,13 +117,12 @@ type PresetJobBasic struct {
 type JobExecutionStatus string
 
 const (
-	JobExecutionStatusPending     JobExecutionStatus = "pending"
-	JobExecutionStatusRunning     JobExecutionStatus = "running"
-	JobExecutionStatusPaused      JobExecutionStatus = "paused"
-	JobExecutionStatusCompleted   JobExecutionStatus = "completed"
-	JobExecutionStatusFailed      JobExecutionStatus = "failed"
-	JobExecutionStatusCancelled   JobExecutionStatus = "cancelled"
-	JobExecutionStatusInterrupted JobExecutionStatus = "interrupted"
+	JobExecutionStatusPending   JobExecutionStatus = "pending"
+	JobExecutionStatusRunning   JobExecutionStatus = "running"
+	JobExecutionStatusPaused    JobExecutionStatus = "paused"
+	JobExecutionStatusCompleted JobExecutionStatus = "completed"
+	JobExecutionStatusFailed    JobExecutionStatus = "failed"
+	JobExecutionStatusCancelled JobExecutionStatus = "cancelled"
 )
 
 // JobExecution represents an actual running instance of a preset job
@@ -141,7 +142,19 @@ type JobExecution struct {
 	CompletedAt       *time.Time         `json:"completed_at" db:"completed_at"`
 	UpdatedAt         time.Time          `json:"updated_at" db:"updated_at"`
 	ErrorMessage      *string            `json:"error_message" db:"error_message"`
-	InterruptedBy     *uuid.UUID         `json:"interrupted_by" db:"interrupted_by"`
+	InterruptedBy       *uuid.UUID         `json:"interrupted_by" db:"interrupted_by"`
+	ConsecutiveFailures int                `json:"consecutive_failures" db:"consecutive_failures"` // Track consecutive task failures
+
+	// Enhanced chunking fields
+	BaseKeyspace         *int64 `json:"base_keyspace" db:"base_keyspace"`                     // Wordlist-only keyspace
+	EffectiveKeyspace    *int64 `json:"effective_keyspace" db:"effective_keyspace"`           // Base × multiplication factor
+	MultiplicationFactor int    `json:"multiplication_factor" db:"multiplication_factor"`     // Rules count or second wordlist size
+	UsesRuleSplitting    bool   `json:"uses_rule_splitting" db:"uses_rule_splitting"`         // Whether this job uses rule splitting
+	RuleSplitCount       int    `json:"rule_split_count" db:"rule_split_count"`               // Number of rule chunks created
+	
+	// Progress tracking
+	OverallProgressPercent float64    `json:"overall_progress_percent" db:"overall_progress_percent"` // Overall job progress (0-100)
+	LastProgressUpdate     *time.Time `json:"last_progress_update" db:"last_progress_update"`         // Last time progress was updated
 
 	// Populated fields from JOINs
 	PresetJobName  string `json:"preset_job_name,omitempty" db:"preset_job_name"`
@@ -166,11 +179,14 @@ const (
 type JobTask struct {
 	ID               uuid.UUID     `json:"id" db:"id"`
 	JobExecutionID   uuid.UUID     `json:"job_execution_id" db:"job_execution_id"`
-	AgentID          int           `json:"agent_id" db:"agent_id"`
+	AgentID          *int          `json:"agent_id" db:"agent_id"`
 	Status           JobTaskStatus `json:"status" db:"status"`
+	Priority         int           `json:"priority" db:"priority"`                  // Task priority (inherited from job)
+	AttackCmd        string        `json:"attack_cmd" db:"attack_cmd"`              // Full hashcat command for this task
 	KeyspaceStart    int64         `json:"keyspace_start" db:"keyspace_start"`
 	KeyspaceEnd      int64         `json:"keyspace_end" db:"keyspace_end"`
 	KeyspaceProcessed int64         `json:"keyspace_processed" db:"keyspace_processed"`
+	ProgressPercent  float64       `json:"progress_percent" db:"progress_percent"` // Task progress percentage (0-100)
 	BenchmarkSpeed   *int64        `json:"benchmark_speed" db:"benchmark_speed"` // hashes per second
 	ChunkDuration    int           `json:"chunk_duration" db:"chunk_duration"`    // seconds
 	CreatedAt        time.Time     `json:"created_at" db:"created_at"`
@@ -186,8 +202,14 @@ type JobTask struct {
 	DetailedStatus  string `json:"detailed_status" db:"detailed_status"`
 	RetryCount      int    `json:"retry_count" db:"retry_count"`
 
+	// Rule splitting fields
+	RuleStartIndex  *int    `json:"rule_start_index" db:"rule_start_index"`   // Starting rule index for this chunk
+	RuleEndIndex    *int    `json:"rule_end_index" db:"rule_end_index"`       // Ending rule index for this chunk
+	RuleChunkPath   *string `json:"rule_chunk_path" db:"rule_chunk_path"`     // Path to temporary rule chunk file
+	IsRuleSplitTask bool    `json:"is_rule_split_task" db:"is_rule_split_task"` // Whether this is a rule-split task
+
 	// Populated fields from JOINs
-	AgentName string `json:"agent_name,omitempty" db:"agent_name"`
+	AgentName *string `json:"agent_name,omitempty" db:"agent_name"`
 }
 
 // AgentBenchmark stores benchmark results for an agent
@@ -286,7 +308,8 @@ type JobTaskAssignment struct {
 // JobProgress represents a progress update from an agent
 type JobProgress struct {
 	TaskID            uuid.UUID      `json:"task_id"`
-	KeyspaceProcessed int64          `json:"keyspace_processed"`
+	KeyspaceProcessed int64          `json:"keyspace_processed"` // Restore point (position in wordlist)
+	ProgressPercent   float64        `json:"progress_percent"`   // Actual progress percentage (0-100)
 	HashRate          int64          `json:"hash_rate"`         // Current hashes per second
 	Temperature       *float64       `json:"temperature"`       // GPU temperature
 	Utilization       *float64       `json:"utilization"`       // GPU utilization percentage
@@ -338,4 +361,11 @@ type DeviceSpeed struct {
 	DeviceID   int    `json:"device_id"`
 	DeviceName string `json:"device_name"`
 	Speed      int64  `json:"speed"` // H/s for this device
+}
+
+// JobExecutionWithWork extends JobExecution with work status information
+type JobExecutionWithWork struct {
+	JobExecution
+	ActiveAgents int `db:"active_agents" json:"active_agents"`
+	PendingWork  int `db:"pending_work" json:"pending_work"`
 }

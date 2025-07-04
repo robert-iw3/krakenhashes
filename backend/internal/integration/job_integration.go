@@ -98,6 +98,11 @@ func (m *JobIntegrationManager) ProcessBenchmarkResult(ctx context.Context, agen
 	return m.wsIntegration.HandleBenchmarkResult(ctx, agentID, &result)
 }
 
+// GetWebSocketIntegration returns the WebSocket integration instance
+func (m *JobIntegrationManager) GetWebSocketIntegration() *JobWebSocketIntegration {
+	return m.wsIntegration
+}
+
 // StartScheduler starts the job scheduling service
 func (m *JobIntegrationManager) StartScheduler(ctx context.Context) {
 	debug.Log("Starting job scheduler", nil)
@@ -127,8 +132,13 @@ func (m *JobIntegrationManager) StopJob(ctx context.Context, jobExecutionID uuid
 	// Send stop commands to all agents running tasks for this job
 	for _, task := range tasks {
 		if task.Status == models.JobTaskStatusRunning {
+			// Skip if no agent assigned
+			if task.AgentID == nil {
+				continue
+			}
+			
 			// Get agent details
-			agent, err := m.wsIntegration.agentRepo.GetByID(ctx, task.AgentID)
+			agent, err := m.wsIntegration.agentRepo.GetByID(ctx, *task.AgentID)
 			if err != nil {
 				debug.Log("Failed to get agent for task stop", map[string]interface{}{
 					"task_id":  task.ID,

@@ -73,6 +73,8 @@ const JobWorkflowListPage = lazy(() => import('./pages/admin/JobWorkflowList'));
 const JobWorkflowFormPage = lazy(() => import('./pages/admin/JobWorkflowForm'));
 const AdminAuthSettingsPage = lazy(() => import('./pages/admin/AuthSettings'));
 const AdminClientsPage = lazy(() => import('./pages/AdminClients').then(module => ({ default: module.AdminClients })));
+const AdminUserListPage = lazy(() => import('./pages/admin/UserList'));
+const AdminUserDetailPage = lazy(() => import('./pages/admin/UserDetail'));
 const AdminSettingsIndexPage = lazy(() => import('./pages/AdminSettings').then(module => ({ default: module.AdminSettings })));
 const AdminEmailSettingsIndexPage = lazy(() => import('./pages/AdminSettings/EmailSettings').then(module => ({ default: module.EmailSettings })));
 const AdminEmailProviderConfigPage = lazy(() => import('./pages/AdminSettings/EmailSettings/ProviderConfig').then(module => ({ default: module.ProviderConfig })));
@@ -139,6 +141,8 @@ const App: React.FC = () => {
                       <Route path="job-workflows/:jobWorkflowId/edit" element={<JobWorkflowFormPage />} />
                       <Route path="auth-settings" element={<AdminAuthSettingsPage />} />
                       <Route path="clients" element={<AdminClientsPage />} />
+                      <Route path="users" element={<AdminUserListPage />} />
+                      <Route path="users/:id" element={<AdminUserDetailPage />} />
                       <Route path="settings" element={<AdminSettingsIndexPage />} />
                       <Route path="settings/email" element={<AdminEmailSettingsIndexPage />} />
                 <Route 

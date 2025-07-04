@@ -15,6 +15,12 @@ export interface JobExecutionSettings {
   job_refresh_interval_seconds: number;
   max_chunk_retry_attempts: number;
   jobs_per_page_default: number;
+  // Rule splitting settings
+  rule_split_enabled: boolean;
+  rule_split_threshold: number;
+  rule_split_min_rules: number;
+  rule_split_max_chunks: number;
+  rule_chunk_temp_dir: string;
 }
 
 export const getJobExecutionSettings = async (): Promise<JobExecutionSettings> => {

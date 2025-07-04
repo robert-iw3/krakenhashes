@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -127,6 +128,12 @@ func (jm *JobManager) ProcessJobAssignment(ctx context.Context, assignmentData [
 	if err != nil {
 		return fmt.Errorf("failed to ensure hashlist: %w", err)
 	}
+	
+	// Ensure rule chunks are available if this job uses rule chunks
+	err = jm.ensureRuleChunks(ctx, &assignment)
+	if err != nil {
+		return fmt.Errorf("failed to ensure rule chunks: %w", err)
+	}
 
 	// Run benchmark if needed
 	err = jm.ensureBenchmark(ctx, &assignment)
@@ -209,6 +216,105 @@ func (jm *JobManager) ensureHashlist(ctx context.Context, assignment *JobTaskAss
 	} else {
 		debug.Error("Hashlist file not found after download: %s", localPath)
 		return fmt.Errorf("hashlist file not found after download")
+	}
+	
+	return nil
+}
+
+// ensureRuleChunks downloads rule chunk files if the job uses rule splitting
+func (jm *JobManager) ensureRuleChunks(ctx context.Context, assignment *JobTaskAssignment) error {
+	if jm.fileSync == nil {
+		debug.Warning("File sync not initialized, skipping rule chunk download")
+		return nil
+	}
+	
+	// Check if this job has rule chunks (rule paths that contain "chunks/")
+	hasRuleChunks := false
+	for _, rulePath := range assignment.RulePaths {
+		if strings.Contains(rulePath, "rules/chunks/") {
+			hasRuleChunks = true
+			break
+		}
+	}
+	
+	if !hasRuleChunks {
+		// No rule chunks to download
+		return nil
+	}
+	
+	debug.Info("Job uses rule chunks, ensuring they are downloaded")
+	
+	// Process each rule chunk
+	for _, rulePath := range assignment.RulePaths {
+		if !strings.HasPrefix(rulePath, "rules/chunks/") {
+			continue // Skip non-chunk rules
+		}
+		
+		// Extract the chunk filename and job directory
+		// Format: rules/chunks/job_<ID>/chunk_<N>.rule
+		parts := strings.Split(rulePath, "/")
+		if len(parts) < 3 {
+			debug.Error("Invalid rule chunk path format: %s", rulePath)
+			continue
+		}
+		
+		var jobDir string
+		var chunkFile string
+		
+		// Check if path includes job directory
+		if len(parts) == 4 && strings.HasPrefix(parts[2], "job_") {
+			// Format: rules/chunks/job_<ID>/chunk_<N>.rule
+			jobDir = parts[2]
+			chunkFile = parts[3]
+		} else if len(parts) == 3 {
+			// Format: rules/chunks/chunk_<N>.rule (legacy)
+			chunkFile = parts[2]
+		}
+		
+		// Check if chunk already exists locally
+		localPath := filepath.Join(jm.config.DataDirectory, rulePath)
+		if _, err := os.Stat(localPath); err == nil {
+			debug.Info("Rule chunk already exists locally: %s", localPath)
+			continue
+		}
+		
+		// Create directory structure if needed
+		localDir := filepath.Dir(localPath)
+		if err := os.MkdirAll(localDir, 0755); err != nil {
+			debug.Error("Failed to create rule chunk directory %s: %v", localDir, err)
+			return fmt.Errorf("failed to create rule chunk directory: %w", err)
+		}
+		
+		// Prepare file info for download
+		// The backend serves chunks at /api/files/rule/chunks/<filename> or /api/files/rule/chunks/<jobDir>/<filename>
+		var fileInfo *filesync.FileInfo
+		if jobDir != "" {
+			fileInfo = &filesync.FileInfo{
+				Name:     fmt.Sprintf("%s/%s", jobDir, chunkFile),
+				FileType: "rule",
+				Category: "chunks",
+			}
+		} else {
+			fileInfo = &filesync.FileInfo{
+				Name:     chunkFile,
+				FileType: "rule",
+				Category: "chunks",
+			}
+		}
+		
+		debug.Info("Downloading rule chunk: %s", fileInfo.Name)
+		if err := jm.fileSync.DownloadFileFromInfo(ctx, fileInfo); err != nil {
+			debug.Error("Failed to download rule chunk %s: %v", fileInfo.Name, err)
+			return fmt.Errorf("failed to download rule chunk %s: %w", fileInfo.Name, err)
+		}
+		
+		// Verify the file was created
+		if fileInfo, err := os.Stat(localPath); err == nil {
+			debug.Info("Successfully downloaded rule chunk: %s (size: %d bytes)", chunkFile, fileInfo.Size())
+		} else {
+			debug.Error("Rule chunk file not found after download: %s", localPath)
+			return fmt.Errorf("rule chunk file not found after download")
+		}
 	}
 	
 	return nil
@@ -313,6 +419,23 @@ func (jm *JobManager) GetActiveJobs() map[string]*JobExecution {
 	}
 
 	return activeJobs
+}
+
+// ForceCleanup forces cleanup of all active jobs and hashcat processes
+func (jm *JobManager) ForceCleanup() error {
+	log.Printf("Forcing cleanup of all active jobs")
+	
+	// Stop all active jobs
+	jm.mutex.Lock()
+	for taskID := range jm.activeJobs {
+		log.Printf("Stopping active job: %s", taskID)
+	}
+	// Clear the active jobs map
+	jm.activeJobs = make(map[string]*JobExecution)
+	jm.mutex.Unlock()
+	
+	// Force cleanup in the executor
+	return jm.executor.ForceCleanup()
 }
 
 // GetBenchmarkResults returns cached benchmark results

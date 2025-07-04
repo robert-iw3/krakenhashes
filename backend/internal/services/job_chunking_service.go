@@ -335,3 +335,70 @@ func parseIntValue(value string) (int, error) {
 	}
 	return result, nil
 }
+
+// CreateInitialChunks creates the initial set of chunks for a job execution
+// This method handles rule splitting integration when needed
+func (s *JobChunkingService) CreateInitialChunks(ctx context.Context, job *models.JobExecution, presetJob *models.PresetJob, jobExecService *JobExecutionService) error {
+	debug.Log("Creating initial chunks for job", map[string]interface{}{
+		"job_execution_id": job.ID,
+		"uses_rule_splitting": job.UsesRuleSplitting,
+	})
+	
+	// Get available agents
+	availableAgents, err := jobExecService.GetAvailableAgents(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get available agents: %w", err)
+	}
+	
+	if len(availableAgents) == 0 {
+		debug.Log("No available agents for job", map[string]interface{}{
+			"job_execution_id": job.ID,
+		})
+		return nil
+	}
+	
+	// Get benchmark speed estimate for the first available agent
+	// In production, we might want to get speeds for all agents
+	agent := availableAgents[0]
+	hashType := 0 // This should come from the preset job
+	if presetJob != nil {
+		hashType = presetJob.HashType
+	}
+	
+	benchmarkSpeed, err := s.getOrEstimateBenchmark(ctx, agent.ID, job.AttackMode, hashType)
+	if err != nil {
+		debug.Log("Failed to get benchmark, using default", map[string]interface{}{
+			"error": err.Error(),
+		})
+		benchmarkSpeed = 1000000 // 1M H/s default
+	}
+	
+	// Check if we should use rule splitting
+	decision, err := jobExecService.analyzeForRuleSplitting(ctx, job, presetJob, float64(benchmarkSpeed))
+	if err != nil {
+		return fmt.Errorf("failed to analyze for rule splitting: %w", err)
+	}
+	
+	if decision.ShouldSplit {
+		debug.Log("Using rule splitting for job", map[string]interface{}{
+			"job_execution_id": job.ID,
+			"num_splits": decision.NumSplits,
+			"total_rules": decision.TotalRules,
+		})
+		
+		// Create tasks with rule splitting
+		err = jobExecService.createJobTasksWithRuleSplitting(ctx, job, presetJob, decision)
+		if err != nil {
+			return fmt.Errorf("failed to create tasks with rule splitting: %w", err)
+		}
+	} else {
+		debug.Log("Using standard chunking for job", map[string]interface{}{
+			"job_execution_id": job.ID,
+		})
+		
+		// Standard chunking - this will be handled by the existing chunking logic
+		// The job scheduling service will create chunks as agents become available
+	}
+	
+	return nil
+}

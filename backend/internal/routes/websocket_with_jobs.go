@@ -80,6 +80,7 @@ func SetupWebSocketWithJobRoutes(
 		agentHashlistRepo,
 		hashlistRepo,
 		systemSettingsRepo,
+		jobExecutionRepo,
 		appConfig.DataDir,
 	)
 	

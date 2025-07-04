@@ -118,7 +118,10 @@ export default function RulesManagement() {
       if (!formData.has('name')) {
         const file = formData.get('file') as File;
         if (file) {
-          formData.append('name', file.name.split('.')[0]);
+          // Extract name without extension (everything before the last dot)
+          const lastDotIndex = file.name.lastIndexOf('.');
+          const nameWithoutExt = lastDotIndex > 0 ? file.name.substring(0, lastDotIndex) : file.name;
+          formData.append('name', nameWithoutExt);
         }
       }
       

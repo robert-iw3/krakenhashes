@@ -1,7 +1,13 @@
 import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { List, ListItemButton, ListItemIcon, ListItemText } from '@mui/material';
-import { Settings as SettingsIcon, People as PeopleIcon, PlaylistAddCheck as PlaylistAddCheckIcon, AccountTree as AccountTreeIcon } from '@mui/icons-material';
+import { 
+  Settings as SettingsIcon, 
+  People as PeopleIcon, 
+  PlaylistAddCheck as PlaylistAddCheckIcon, 
+  AccountTree as AccountTreeIcon,
+  SupervisorAccount as SupervisorAccountIcon 
+} from '@mui/icons-material';
 
 const AdminMenu: React.FC = () => {
   const navigate = useNavigate();
@@ -47,6 +53,26 @@ const AdminMenu: React.FC = () => {
           <PeopleIcon />
         </ListItemIcon>
         <ListItemText primary="Client Management" />
+      </ListItemButton>
+
+      <ListItemButton
+        onClick={() => navigate('/admin/users')}
+        selected={location.pathname.startsWith('/admin/users')}
+        sx={{
+          minHeight: 48,
+          px: 2.5,
+        }}
+      >
+        <ListItemIcon
+          sx={{
+            minWidth: 0,
+            mr: 3,
+            justifyContent: 'center',
+          }}
+        >
+          <SupervisorAccountIcon />
+        </ListItemIcon>
+        <ListItemText primary="User Management" />
       </ListItemButton>
 
       <ListItemButton

@@ -658,18 +658,17 @@ func (s *adminPresetJobService) resolveRulePath(ctx context.Context, ruleIDStr s
 	
 	for _, rule := range rules {
 		if rule.ID == int(ruleID) {
-			// The Name field now contains category/filename (e.g., "hashcat/wordlist_2f26acbe.txt")
-			// We need to use just the filename without duplicating the category
+			// Get the filename from the Name field
 			filename := rule.Name
-			
-			// If the Name already contains the category path, extract just the filename
-			if strings.Contains(rule.Name, "/") {
-				filename = filepath.Base(rule.Name)
-			}
 			
 			// Build absolute path using the data directory
 			var path string
-			if rule.Category != "" {
+			
+			// If name already contains path separators, use it as-is
+			if strings.Contains(filename, "/") {
+				path = filepath.Join(s.dataDirectory, "rules", filename)
+			} else if rule.Category != "" {
+				// Otherwise use category + filename
 				path = filepath.Join(s.dataDirectory, "rules", rule.Category, filename)
 			} else {
 				path = filepath.Join(s.dataDirectory, "rules", filename)

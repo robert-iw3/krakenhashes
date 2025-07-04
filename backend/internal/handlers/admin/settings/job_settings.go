@@ -24,20 +24,26 @@ func NewJobSettingsHandler(systemSettingsRepo *repository.SystemSettingsReposito
 
 // JobExecutionSettings represents all job execution related settings
 type JobExecutionSettings struct {
-	DefaultChunkDuration         int  `json:"default_chunk_duration"`
-	ChunkFluctuationPercentage   int  `json:"chunk_fluctuation_percentage"`
-	AgentHashlistRetentionHours  int  `json:"agent_hashlist_retention_hours"`
-	ProgressReportingInterval    int  `json:"progress_reporting_interval"`
-	MaxConcurrentJobsPerAgent    int  `json:"max_concurrent_jobs_per_agent"`
-	JobInterruptionEnabled       bool `json:"job_interruption_enabled"`
-	BenchmarkCacheDurationHours  int  `json:"benchmark_cache_duration_hours"`
+	DefaultChunkDuration         int     `json:"default_chunk_duration"`
+	ChunkFluctuationPercentage   int     `json:"chunk_fluctuation_percentage"`
+	AgentHashlistRetentionHours  int     `json:"agent_hashlist_retention_hours"`
+	ProgressReportingInterval    int     `json:"progress_reporting_interval"`
+	MaxConcurrentJobsPerAgent    int     `json:"max_concurrent_jobs_per_agent"`
+	JobInterruptionEnabled       bool    `json:"job_interruption_enabled"`
+	BenchmarkCacheDurationHours  int     `json:"benchmark_cache_duration_hours"`
 	EnableRealtimeCrackNotifications bool `json:"enable_realtime_crack_notifications"`
-	MetricsRetentionRealtimeDays int  `json:"metrics_retention_realtime_days"`
-	MetricsRetentionDailyDays    int  `json:"metrics_retention_daily_days"`
-	MetricsRetentionWeeklyDays   int  `json:"metrics_retention_weekly_days"`
-	JobRefreshIntervalSeconds    int  `json:"job_refresh_interval_seconds"`
-	MaxChunkRetryAttempts        int  `json:"max_chunk_retry_attempts"`
-	JobsPerPageDefault           int  `json:"jobs_per_page_default"`
+	MetricsRetentionRealtimeDays int     `json:"metrics_retention_realtime_days"`
+	MetricsRetentionDailyDays    int     `json:"metrics_retention_daily_days"`
+	MetricsRetentionWeeklyDays   int     `json:"metrics_retention_weekly_days"`
+	JobRefreshIntervalSeconds    int     `json:"job_refresh_interval_seconds"`
+	MaxChunkRetryAttempts        int     `json:"max_chunk_retry_attempts"`
+	JobsPerPageDefault           int     `json:"jobs_per_page_default"`
+	// Rule splitting settings
+	RuleSplitEnabled   bool    `json:"rule_split_enabled"`
+	RuleSplitThreshold float64 `json:"rule_split_threshold"`
+	RuleSplitMinRules  int     `json:"rule_split_min_rules"`
+	RuleSplitMaxChunks int     `json:"rule_split_max_chunks"`
+	RuleChunkTempDir   string  `json:"rule_chunk_temp_dir"`
 }
 
 // GetJobExecutionSettings returns all job execution settings
@@ -61,6 +67,12 @@ func (h *JobSettingsHandler) GetJobExecutionSettings(w http.ResponseWriter, r *h
 		"job_refresh_interval_seconds",
 		"max_chunk_retry_attempts",
 		"jobs_per_page_default",
+		// Rule splitting settings
+		"rule_split_enabled",
+		"rule_split_threshold",
+		"rule_split_min_rules",
+		"rule_split_max_chunks",
+		"rule_chunk_temp_dir",
 	}
 
 	settings := JobExecutionSettings{
@@ -79,6 +91,12 @@ func (h *JobSettingsHandler) GetJobExecutionSettings(w http.ResponseWriter, r *h
 		JobRefreshIntervalSeconds:    5,
 		MaxChunkRetryAttempts:        3,
 		JobsPerPageDefault:           25,
+		// Rule splitting defaults
+		RuleSplitEnabled:   true,
+		RuleSplitThreshold: 2.0,
+		RuleSplitMinRules:  100,
+		RuleSplitMaxChunks: 1000,
+		RuleChunkTempDir:   "/data/krakenhashes/temp/rule_chunks",
 	}
 
 	// Retrieve each setting
@@ -147,6 +165,22 @@ func (h *JobSettingsHandler) GetJobExecutionSettings(w http.ResponseWriter, r *h
 				if val, err := strconv.Atoi(*setting.Value); err == nil {
 					settings.JobsPerPageDefault = val
 				}
+			case "rule_split_enabled":
+				settings.RuleSplitEnabled = *setting.Value == "true"
+			case "rule_split_threshold":
+				if val, err := strconv.ParseFloat(*setting.Value, 64); err == nil {
+					settings.RuleSplitThreshold = val
+				}
+			case "rule_split_min_rules":
+				if val, err := strconv.Atoi(*setting.Value); err == nil {
+					settings.RuleSplitMinRules = val
+				}
+			case "rule_split_max_chunks":
+				if val, err := strconv.Atoi(*setting.Value); err == nil {
+					settings.RuleSplitMaxChunks = val
+				}
+			case "rule_chunk_temp_dir":
+				settings.RuleChunkTempDir = *setting.Value
 			}
 		}
 	}
@@ -181,6 +215,12 @@ func (h *JobSettingsHandler) UpdateJobExecutionSettings(w http.ResponseWriter, r
 		"job_refresh_interval_seconds":         strconv.Itoa(settings.JobRefreshIntervalSeconds),
 		"max_chunk_retry_attempts":             strconv.Itoa(settings.MaxChunkRetryAttempts),
 		"jobs_per_page_default":                strconv.Itoa(settings.JobsPerPageDefault),
+		// Rule splitting settings
+		"rule_split_enabled":                   strconv.FormatBool(settings.RuleSplitEnabled),
+		"rule_split_threshold":                 strconv.FormatFloat(settings.RuleSplitThreshold, 'f', 1, 64),
+		"rule_split_min_rules":                 strconv.Itoa(settings.RuleSplitMinRules),
+		"rule_split_max_chunks":                strconv.Itoa(settings.RuleSplitMaxChunks),
+		"rule_chunk_temp_dir":                  settings.RuleChunkTempDir,
 	}
 
 	for key, value := range updates {

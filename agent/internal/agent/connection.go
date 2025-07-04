@@ -48,6 +48,7 @@ const (
 	WSTypeBenchmarkRequest WSMessageType = "benchmark_request"
 	WSTypeBenchmarkResult  WSMessageType = "benchmark_result"
 	WSTypeHashcatOutput    WSMessageType = "hashcat_output"
+	WSTypeForceCleanup     WSMessageType = "force_cleanup"
 	
 	// Device detection message types
 	WSTypeDeviceDetection  WSMessageType = "device_detection"
@@ -253,6 +254,7 @@ type JobManager interface {
 	ProcessJobAssignment(ctx context.Context, assignmentData []byte) error
 	StopJob(taskID string) error
 	RunManualBenchmark(ctx context.Context, binaryPath string, hashType int, attackMode int) (*jobs.BenchmarkResult, error)
+	ForceCleanup() error
 }
 
 // loadCACertificate loads the CA certificate from disk
@@ -472,7 +474,7 @@ func (c *Connection) maintainConnection() {
 					go c.writePump()
 				}
 			} else {
-				debug.Debug("Connection state: connected")
+				// debug.Debug("Connection state: connected") // Commented out to reduce log spam
 			}
 			time.Sleep(time.Second)
 		}
@@ -815,6 +817,22 @@ func (c *Connection) readPump() {
 				debug.Error("Failed to stop job %s: %v", stopPayload.TaskID, err)
 			} else {
 				debug.Info("Successfully stopped job %s", stopPayload.TaskID)
+			}
+			
+		case WSTypeForceCleanup:
+			// Server requested to force cleanup all hashcat processes
+			debug.Info("Received force cleanup command")
+			
+			if c.jobManager == nil {
+				debug.Error("Job manager not initialized, cannot process force cleanup")
+				continue
+			}
+			
+			// Force cleanup all hashcat processes
+			if err := c.jobManager.ForceCleanup(); err != nil {
+				debug.Error("Failed to force cleanup: %v", err)
+			} else {
+				debug.Info("Successfully completed force cleanup")
 			}
 
 		case WSTypeBenchmarkRequest:

@@ -138,23 +138,24 @@ const (
 		WHERE id = $2
 	`
 
-	DisableUserAccount = `
-		UPDATE users
-		SET account_enabled = false,
-			disabled_reason = $1,
-			disabled_at = CURRENT_TIMESTAMP,
-			disabled_by = $2
-		WHERE id = $3
-	`
+	// Commented out - duplicate in admin_user_queries.go
+	// DisableUserAccount = `
+	// 	UPDATE users
+	// 	SET account_enabled = false,
+	// 		disabled_reason = $1,
+	// 		disabled_at = CURRENT_TIMESTAMP,
+	// 		disabled_by = $2
+	// 	WHERE id = $3
+	// `
 
-	EnableUserAccount = `
-		UPDATE users
-		SET account_enabled = true,
-			disabled_reason = NULL,
-			disabled_at = NULL,
-			disabled_by = NULL
-		WHERE id = $1
-	`
+	// EnableUserAccount = `
+	// 	UPDATE users
+	// 	SET account_enabled = true,
+	// 		disabled_reason = NULL,
+	// 		disabled_at = NULL,
+	// 		disabled_by = NULL
+	// 	WHERE id = $1
+	// `
 
 	UpdateLastLogin = `
 		UPDATE users

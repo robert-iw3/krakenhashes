@@ -43,6 +43,12 @@ func (r *UserRepository) Create(ctx context.Context, user *models.User) error {
 // GetByID retrieves a user by ID
 func (r *UserRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.User, error) {
 	user := &models.User{}
+	var mfaType interface{}
+	var backupCodes interface{}
+	var mfaSecret sql.NullString
+	var preferredMFAMethod sql.NullString
+	var lastFailedAttempt, accountLockedUntil, lastLogin, disabledAt sql.NullTime
+	var disabledReason sql.NullString
 
 	err := r.db.QueryRowContext(ctx, queries.GetUserByID, id).Scan(
 		&user.ID,
@@ -52,12 +58,60 @@ func (r *UserRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.Use
 		&user.Role,
 		&user.CreatedAt,
 		&user.UpdatedAt,
+		&user.MFAEnabled,
+		&mfaType,
+		&mfaSecret,
+		&backupCodes,
+		&preferredMFAMethod,
+		&user.LastPasswordChange,
+		&user.FailedLoginAttempts,
+		&lastFailedAttempt,
+		&user.AccountLocked,
+		&accountLockedUntil,
+		&user.AccountEnabled,
+		&lastLogin,
+		&disabledReason,
+		&disabledAt,
+		&user.DisabledBy,
 	)
 
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("user not found: %s", id)
 	} else if err != nil {
 		return nil, fmt.Errorf("failed to get user: %w", err)
+	}
+
+	// Handle nullable fields
+	if mfaSecret.Valid {
+		user.MFASecret = mfaSecret.String
+	}
+	if preferredMFAMethod.Valid {
+		user.PreferredMFAMethod = preferredMFAMethod.String
+	}
+	if lastFailedAttempt.Valid {
+		user.LastFailedAttempt = &lastFailedAttempt.Time
+	}
+	if accountLockedUntil.Valid {
+		user.AccountLockedUntil = &accountLockedUntil.Time
+	}
+	if lastLogin.Valid {
+		user.LastLogin = &lastLogin.Time
+	}
+	if disabledReason.Valid {
+		user.DisabledReason = &disabledReason.String
+	}
+	if disabledAt.Valid {
+		user.DisabledAt = &disabledAt.Time
+	}
+
+	// Handle MFA type array
+	if err := user.ScanMFAType(mfaType); err != nil {
+		return nil, fmt.Errorf("failed to scan MFA type: %w", err)
+	}
+
+	// Handle backup codes array
+	if err := user.ScanBackupCodes(backupCodes); err != nil {
+		return nil, fmt.Errorf("failed to scan backup codes: %w", err)
 	}
 
 	// Get user's teams
@@ -256,4 +310,290 @@ func (r *UserRepository) List(ctx context.Context, filters map[string]interface{
 	}
 
 	return users, nil
+}
+
+// ListAll retrieves all users for admin view
+func (r *UserRepository) ListAll(ctx context.Context) ([]models.User, error) {
+	rows, err := r.db.QueryContext(ctx, queries.ListAllUsers)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list all users: %w", err)
+	}
+	defer rows.Close()
+
+	var users []models.User
+	for rows.Next() {
+		var user models.User
+		var mfaType interface{}
+		var preferredMFAMethod sql.NullString
+		var lastLogin, disabledAt, lockedUntil sql.NullTime
+		var disabledReason sql.NullString
+		var disabledBy *uuid.UUID
+
+		err := rows.Scan(
+			&user.ID,
+			&user.Username,
+			&user.Email,
+			&user.Role,
+			&user.AccountEnabled,
+			&user.AccountLocked,
+			&lockedUntil,
+			&user.MFAEnabled,
+			&mfaType,
+			&preferredMFAMethod,
+			&user.CreatedAt,
+			&user.UpdatedAt,
+			&lastLogin,
+			&disabledReason,
+			&disabledAt,
+			&disabledBy,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan user: %w", err)
+		}
+
+		// Handle nullable fields
+		if lastLogin.Valid {
+			user.LastLogin = &lastLogin.Time
+		}
+		if disabledAt.Valid {
+			user.DisabledAt = &disabledAt.Time
+		}
+		if lockedUntil.Valid {
+			user.AccountLockedUntil = &lockedUntil.Time
+		}
+		if disabledReason.Valid {
+			user.DisabledReason = &disabledReason.String
+		}
+		if preferredMFAMethod.Valid {
+			user.PreferredMFAMethod = preferredMFAMethod.String
+		}
+		user.DisabledBy = disabledBy
+
+		// Handle MFA type array
+		if err := user.ScanMFAType(mfaType); err != nil {
+			return nil, fmt.Errorf("failed to scan MFA type: %w", err)
+		}
+
+		users = append(users, user)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating users: %w", err)
+	}
+
+	return users, nil
+}
+
+// GetDetails retrieves detailed user information for admin view
+func (r *UserRepository) GetDetails(ctx context.Context, id uuid.UUID) (*models.User, error) {
+	user := &models.User{}
+	var mfaType interface{}
+	var preferredMFAMethod sql.NullString
+	var lastLogin, lastPasswordChange, lastFailedAttempt, disabledAt, lockedUntil sql.NullTime
+	var disabledReason sql.NullString
+	var disabledBy *uuid.UUID
+
+	err := r.db.QueryRowContext(ctx, queries.GetUserDetails, id).Scan(
+		&user.ID,
+		&user.Username,
+		&user.Email,
+		&user.Role,
+		&user.AccountEnabled,
+		&user.AccountLocked,
+		&lockedUntil,
+		&user.MFAEnabled,
+		&mfaType,
+		&preferredMFAMethod,
+		&user.CreatedAt,
+		&user.UpdatedAt,
+		&lastLogin,
+		&lastPasswordChange,
+		&user.FailedLoginAttempts,
+		&lastFailedAttempt,
+		&disabledReason,
+		&disabledAt,
+		&disabledBy,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("user not found: %s", id)
+	} else if err != nil {
+		return nil, fmt.Errorf("failed to get user details: %w", err)
+	}
+
+	// Handle nullable fields
+	if lastLogin.Valid {
+		user.LastLogin = &lastLogin.Time
+	}
+	if lastPasswordChange.Valid {
+		user.LastPasswordChange = lastPasswordChange.Time
+	}
+	if lastFailedAttempt.Valid {
+		user.LastFailedAttempt = &lastFailedAttempt.Time
+	}
+	if disabledAt.Valid {
+		user.DisabledAt = &disabledAt.Time
+	}
+	if lockedUntil.Valid {
+		user.AccountLockedUntil = &lockedUntil.Time
+	}
+	if disabledReason.Valid {
+		user.DisabledReason = &disabledReason.String
+	}
+	if preferredMFAMethod.Valid {
+		user.PreferredMFAMethod = preferredMFAMethod.String
+	}
+	user.DisabledBy = disabledBy
+
+	// Handle MFA type array
+	if err := user.ScanMFAType(mfaType); err != nil {
+		return nil, fmt.Errorf("failed to scan MFA type: %w", err)
+	}
+
+	// Get user's teams
+	teams, err := r.getUserTeams(ctx, user.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user teams: %w", err)
+	}
+	user.Teams = teams
+
+	return user, nil
+}
+
+// DisableAccount disables a user account
+func (r *UserRepository) DisableAccount(ctx context.Context, userID uuid.UUID, reason string, adminID uuid.UUID) error {
+	result, err := r.db.ExecContext(ctx, queries.DisableUserAccount, userID, reason, adminID)
+	if err != nil {
+		return fmt.Errorf("failed to disable user account: %w", err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rows == 0 {
+		return fmt.Errorf("user not found: %s", userID)
+	}
+
+	return nil
+}
+
+// EnableAccount re-enables a user account
+func (r *UserRepository) EnableAccount(ctx context.Context, userID uuid.UUID) error {
+	result, err := r.db.ExecContext(ctx, queries.EnableUserAccount, userID)
+	if err != nil {
+		return fmt.Errorf("failed to enable user account: %w", err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rows == 0 {
+		return fmt.Errorf("user not found: %s", userID)
+	}
+
+	return nil
+}
+
+// ResetPassword updates a user's password (admin action)
+func (r *UserRepository) ResetPassword(ctx context.Context, userID uuid.UUID, passwordHash string) error {
+	result, err := r.db.ExecContext(ctx, queries.AdminResetUserPassword, userID, passwordHash)
+	if err != nil {
+		return fmt.Errorf("failed to reset user password: %w", err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rows == 0 {
+		return fmt.Errorf("user not found: %s", userID)
+	}
+
+	return nil
+}
+
+// DisableMFA disables MFA for a user
+func (r *UserRepository) DisableMFA(ctx context.Context, userID uuid.UUID) error {
+	result, err := r.db.ExecContext(ctx, queries.DisableUserMFA, userID)
+	if err != nil {
+		return fmt.Errorf("failed to disable user MFA: %w", err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rows == 0 {
+		return fmt.Errorf("user not found: %s", userID)
+	}
+
+	return nil
+}
+
+// UpdateDetails updates username and/or email and/or role
+func (r *UserRepository) UpdateDetails(ctx context.Context, userID uuid.UUID, username, email, role *string) error {
+	// Check for duplicate username
+	if username != nil {
+		var exists bool
+		err := r.db.QueryRowContext(ctx, queries.CheckUsernameExists, *username, userID).Scan(&exists)
+		if err != nil {
+			return fmt.Errorf("failed to check username: %w", err)
+		}
+		if exists {
+			return fmt.Errorf("username already exists: %s", *username)
+		}
+	}
+
+	// Check for duplicate email
+	if email != nil {
+		var exists bool
+		err := r.db.QueryRowContext(ctx, queries.CheckEmailExists, *email, userID).Scan(&exists)
+		if err != nil {
+			return fmt.Errorf("failed to check email: %w", err)
+		}
+		if exists {
+			return fmt.Errorf("email already exists: %s", *email)
+		}
+	}
+
+	result, err := r.db.ExecContext(ctx, queries.UpdateUserDetails, userID, username, email, role)
+	if err != nil {
+		return fmt.Errorf("failed to update user details: %w", err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rows == 0 {
+		return fmt.Errorf("user not found: %s", userID)
+	}
+
+	return nil
+}
+
+// UnlockAccount unlocks a locked user account
+func (r *UserRepository) UnlockAccount(ctx context.Context, userID uuid.UUID) error {
+	result, err := r.db.ExecContext(ctx, queries.UnlockUserAccount, userID)
+	if err != nil {
+		return fmt.Errorf("failed to unlock user account: %w", err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rows == 0 {
+		return fmt.Errorf("user not found: %s", userID)
+	}
+
+	return nil
 }

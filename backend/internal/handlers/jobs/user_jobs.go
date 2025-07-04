@@ -61,23 +61,29 @@ func NewUserJobsHandler(
 
 // JobSummary represents a job summary for the UI
 type JobSummary struct {
-	ID                string  `json:"id"`
-	Name              string  `json:"name"`
-	HashlistID        int64   `json:"hashlist_id"`
-	HashlistName      string  `json:"hashlist_name"`
-	Status            string  `json:"status"`
-	Priority          int     `json:"priority"`
-	MaxAgents         int     `json:"max_agents"`
-	DispatchedPercent float64 `json:"dispatched_percent"`
-	SearchedPercent   float64 `json:"searched_percent"`
-	CrackedCount      int     `json:"cracked_count"`
-	AgentCount        int     `json:"agent_count"`
-	TotalSpeed        int64   `json:"total_speed"`
-	CreatedAt         string  `json:"created_at"`
-	UpdatedAt         string  `json:"updated_at"`
-	CompletedAt       *string `json:"completed_at,omitempty"`
-	CreatedByUsername *string `json:"created_by_username,omitempty"`
-	ErrorMessage      *string `json:"error_message,omitempty"`
+	ID                   string  `json:"id"`
+	Name                 string  `json:"name"`
+	HashlistID           int64   `json:"hashlist_id"`
+	HashlistName         string  `json:"hashlist_name"`
+	Status               string  `json:"status"`
+	Priority             int     `json:"priority"`
+	MaxAgents            int     `json:"max_agents"`
+	DispatchedPercent    float64 `json:"dispatched_percent"`
+	SearchedPercent      float64 `json:"searched_percent"`
+	CrackedCount         int     `json:"cracked_count"`
+	AgentCount           int     `json:"agent_count"`
+	TotalSpeed           int64   `json:"total_speed"`
+	CreatedAt            string  `json:"created_at"`
+	UpdatedAt            string  `json:"updated_at"`
+	CompletedAt          *string `json:"completed_at,omitempty"`
+	CreatedByUsername    *string `json:"created_by_username,omitempty"`
+	ErrorMessage         *string `json:"error_message,omitempty"`
+	TotalKeyspace        *int64  `json:"total_keyspace,omitempty"`
+	EffectiveKeyspace    *int64  `json:"effective_keyspace,omitempty"`
+	MultiplicationFactor int     `json:"multiplication_factor,omitempty"`
+	UsesRuleSplitting    bool    `json:"uses_rule_splitting"`
+	ProcessedKeyspace    *int64  `json:"processed_keyspace,omitempty"`
+	OverallProgressPercent float64 `json:"overall_progress_percent"`
 }
 
 // ListJobs handles GET /api/jobs with pagination and filtering
@@ -182,12 +188,53 @@ func (h *UserJobsHandler) ListJobs(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		
-		// Calculate percentages
+		// Calculate percentages using effective keyspace when available
 		dispatchedPercent := 0.0
 		searchedPercent := 0.0
-		if job.TotalKeyspace != nil && *job.TotalKeyspace > 0 {
-			dispatchedPercent = float64(keyspaceDispatched) / float64(*job.TotalKeyspace) * 100
-			searchedPercent = float64(keyspaceSearched) / float64(*job.TotalKeyspace) * 100
+		overallProgressPercent := 0.0
+		
+		// Use effective keyspace if available, otherwise fall back to total keyspace
+		var keyspaceForProgress int64
+		if job.EffectiveKeyspace != nil && *job.EffectiveKeyspace > 0 {
+			keyspaceForProgress = *job.EffectiveKeyspace
+		} else if job.TotalKeyspace != nil && *job.TotalKeyspace > 0 {
+			keyspaceForProgress = *job.TotalKeyspace
+		} else {
+			keyspaceForProgress = 0
+		}
+		
+		if keyspaceForProgress > 0 {
+			// For dispatched percentage, we need to consider rule splitting
+			if job.UsesRuleSplitting {
+				// For rule split jobs, calculate based on chunks assigned
+				dispatchedChunks := 0
+				totalProgress := 0.0
+				chunksWithProgress := 0
+				
+				for _, task := range tasks {
+					if task.Status != models.JobTaskStatusPending {
+						dispatchedChunks++
+						
+						// Calculate searched percentage from task progress
+						if task.ProgressPercent > 0 {
+							totalProgress += task.ProgressPercent
+							chunksWithProgress++
+						}
+					}
+				}
+				
+				if job.RuleSplitCount > 0 {
+					dispatchedPercent = float64(dispatchedChunks) / float64(job.RuleSplitCount) * 100
+					// For rule-split jobs, searched % is the average progress of all dispatched chunks
+					if chunksWithProgress > 0 {
+						searchedPercent = (totalProgress / float64(job.RuleSplitCount))
+					}
+				}
+			} else {
+				// For keyspace-based jobs
+				dispatchedPercent = float64(keyspaceDispatched) / float64(keyspaceForProgress) * 100
+				searchedPercent = float64(job.ProcessedKeyspace) / float64(keyspaceForProgress) * 100
+			}
 			
 			// Cap percentages at 100%
 			if dispatchedPercent > 100 {
@@ -196,24 +243,40 @@ func (h *UserJobsHandler) ListJobs(w http.ResponseWriter, r *http.Request) {
 			if searchedPercent > 100 {
 				searchedPercent = 100
 			}
+			
+			// Overall progress is the searched percentage
+			overallProgressPercent = searchedPercent
+		}
+		
+		// Use the backend-calculated overall progress if available and more accurate
+		if job.OverallProgressPercent > 0 {
+			overallProgressPercent = job.OverallProgressPercent
+			// For consistency, use this for searched percentage too
+			searchedPercent = overallProgressPercent
 		}
 		
 		summary := JobSummary{
-			ID:                job.ID.String(),
-			Name:              getJobName(job, hashlist),
-			HashlistID:        job.HashlistID,
-			HashlistName:      hashlist.Name,
-			Status:            string(job.Status),
-			Priority:          job.Priority,
-			MaxAgents:         job.MaxAgents,
-			DispatchedPercent: dispatchedPercent,
-			SearchedPercent:   searchedPercent,
-			CrackedCount:      crackedCount,
-			AgentCount:        agentCount,
-			TotalSpeed:        totalSpeed,
-			CreatedAt:         job.CreatedAt.Format(time.RFC3339),
-			UpdatedAt:         job.UpdatedAt.Format(time.RFC3339),
-			CreatedByUsername: jobWithUser.CreatedByUsername,
+			ID:                   job.ID.String(),
+			Name:                 getJobName(job, hashlist),
+			HashlistID:           job.HashlistID,
+			HashlistName:         hashlist.Name,
+			Status:               string(job.Status),
+			Priority:             job.Priority,
+			MaxAgents:            job.MaxAgents,
+			DispatchedPercent:    dispatchedPercent,
+			SearchedPercent:      searchedPercent,
+			CrackedCount:         crackedCount,
+			AgentCount:           agentCount,
+			TotalSpeed:           totalSpeed,
+			CreatedAt:            job.CreatedAt.Format(time.RFC3339),
+			UpdatedAt:            job.UpdatedAt.Format(time.RFC3339),
+			CreatedByUsername:    jobWithUser.CreatedByUsername,
+			TotalKeyspace:        job.TotalKeyspace,
+			EffectiveKeyspace:    job.EffectiveKeyspace,
+			MultiplicationFactor: job.MultiplicationFactor,
+			UsesRuleSplitting:    job.UsesRuleSplitting,
+			ProcessedKeyspace:    &job.ProcessedKeyspace,
+			OverallProgressPercent: overallProgressPercent,
 		}
 		
 		// Add completed time if present
@@ -522,7 +585,9 @@ func (h *UserJobsHandler) GetJobDetail(w http.ResponseWriter, r *http.Request) {
 	
 	for _, task := range tasks {
 		if task.Status == models.JobTaskStatusRunning {
-			activeAgents[task.AgentID] = true
+			if task.AgentID != nil {
+				activeAgents[*task.AgentID] = true
+			}
 			if task.BenchmarkSpeed != nil {
 				totalSpeed += *task.BenchmarkSpeed
 			}
@@ -689,9 +754,8 @@ func (h *UserJobsHandler) RetryJob(w http.ResponseWriter, r *http.Request) {
 	
 	// Check if job can be retried
 	if job.Status != models.JobExecutionStatusFailed && 
-	   job.Status != models.JobExecutionStatusInterrupted && 
 	   job.Status != models.JobExecutionStatusCancelled {
-		http.Error(w, "Job can only be retried if it's failed, interrupted, or cancelled", http.StatusBadRequest)
+		http.Error(w, "Job can only be retried if it's failed or cancelled", http.StatusBadRequest)
 		return
 	}
 	
@@ -1041,12 +1105,53 @@ func (h *UserJobsHandler) ListUserJobs(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		
-		// Calculate percentages
+		// Calculate percentages using effective keyspace when available
 		dispatchedPercent := 0.0
 		searchedPercent := 0.0
-		if job.TotalKeyspace != nil && *job.TotalKeyspace > 0 {
-			dispatchedPercent = float64(keyspaceDispatched) / float64(*job.TotalKeyspace) * 100
-			searchedPercent = float64(keyspaceSearched) / float64(*job.TotalKeyspace) * 100
+		overallProgressPercent := 0.0
+		
+		// Use effective keyspace if available, otherwise fall back to total keyspace
+		var keyspaceForProgress int64
+		if job.EffectiveKeyspace != nil && *job.EffectiveKeyspace > 0 {
+			keyspaceForProgress = *job.EffectiveKeyspace
+		} else if job.TotalKeyspace != nil && *job.TotalKeyspace > 0 {
+			keyspaceForProgress = *job.TotalKeyspace
+		} else {
+			keyspaceForProgress = 0
+		}
+		
+		if keyspaceForProgress > 0 {
+			// For dispatched percentage, we need to consider rule splitting
+			if job.UsesRuleSplitting {
+				// For rule split jobs, calculate based on chunks assigned
+				dispatchedChunks := 0
+				totalProgress := 0.0
+				chunksWithProgress := 0
+				
+				for _, task := range tasks {
+					if task.Status != models.JobTaskStatusPending {
+						dispatchedChunks++
+						
+						// Calculate searched percentage from task progress
+						if task.ProgressPercent > 0 {
+							totalProgress += task.ProgressPercent
+							chunksWithProgress++
+						}
+					}
+				}
+				
+				if job.RuleSplitCount > 0 {
+					dispatchedPercent = float64(dispatchedChunks) / float64(job.RuleSplitCount) * 100
+					// For rule-split jobs, searched % is the average progress of all dispatched chunks
+					if chunksWithProgress > 0 {
+						searchedPercent = (totalProgress / float64(job.RuleSplitCount))
+					}
+				}
+			} else {
+				// For keyspace-based jobs
+				dispatchedPercent = float64(keyspaceDispatched) / float64(keyspaceForProgress) * 100
+				searchedPercent = float64(job.ProcessedKeyspace) / float64(keyspaceForProgress) * 100
+			}
 			
 			// Cap percentages at 100%
 			if dispatchedPercent > 100 {
@@ -1055,6 +1160,16 @@ func (h *UserJobsHandler) ListUserJobs(w http.ResponseWriter, r *http.Request) {
 			if searchedPercent > 100 {
 				searchedPercent = 100
 			}
+			
+			// Overall progress is the searched percentage
+			overallProgressPercent = searchedPercent
+		}
+		
+		// Use the backend-calculated overall progress if available and more accurate
+		if job.OverallProgressPercent > 0 {
+			overallProgressPercent = job.OverallProgressPercent
+			// For consistency, use this for searched percentage too
+			searchedPercent = overallProgressPercent
 		}
 		
 		// Get preset job name
@@ -1083,6 +1198,12 @@ func (h *UserJobsHandler) ListUserJobs(w http.ResponseWriter, r *http.Request) {
 			UpdatedAt:         job.UpdatedAt.Format(time.RFC3339),
 			ErrorMessage:      job.ErrorMessage,
 			CreatedByUsername: jobWithUser.CreatedByUsername,
+			TotalKeyspace:        job.TotalKeyspace,
+			EffectiveKeyspace:    job.EffectiveKeyspace,
+			MultiplicationFactor: job.MultiplicationFactor,
+			UsesRuleSplitting:    job.UsesRuleSplitting,
+			ProcessedKeyspace:    &job.ProcessedKeyspace,
+			OverallProgressPercent: overallProgressPercent,
 		}
 		
 		// Add completed time if present

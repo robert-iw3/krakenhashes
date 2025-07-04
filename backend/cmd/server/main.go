@@ -261,7 +261,7 @@ func main() {
 
 	// Initialize job cleanup service and clean up stale tasks
 	debug.Info("Creating job cleanup service...")
-	jobCleanupService := services.NewJobCleanupService(jobExecutionRepo, jobTaskRepo, systemSettingsRepo)
+	jobCleanupService := services.NewJobCleanupService(jobExecutionRepo, jobTaskRepo, systemSettingsRepo, agentRepo)
 	debug.Info("Job cleanup service created, starting cleanup of stale tasks from previous runs...")
 	cleanupErr := jobCleanupService.CleanupStaleTasksOnStartup(context.Background())
 	if cleanupErr != nil {

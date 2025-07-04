@@ -127,22 +127,25 @@ func (s *JobSchedulingService) assignWorkToAgent(ctx context.Context, agent *mod
 		"agent_name": agent.Name,
 	})
 
-	// Get the next pending job (priority + FIFO)
-	nextJob, err := s.jobExecutionService.GetNextPendingJob(ctx)
+	// Get the next job with available work (respects priority + FIFO and max_agents)
+	nextJobWithWork, err := s.jobExecutionService.GetNextJobWithWork(ctx)
 	if err != nil {
-		debug.Log("Error getting next pending job", map[string]interface{}{
+		debug.Log("Error getting next job with work", map[string]interface{}{
 			"agent_id": agent.ID,
 			"error":    err.Error(),
 		})
-		return nil, nil, fmt.Errorf("failed to get next pending job: %w", err)
+		return nil, nil, fmt.Errorf("failed to get next job with work: %w", err)
 	}
 
-	if nextJob == nil {
-		debug.Log("No pending jobs for agent", map[string]interface{}{
+	if nextJobWithWork == nil {
+		debug.Log("No jobs with available work for agent", map[string]interface{}{
 			"agent_id": agent.ID,
 		})
 		return nil, nil, nil // No work available
 	}
+
+	// Convert JobExecutionWithWork to JobExecution for compatibility
+	nextJob := &nextJobWithWork.JobExecution
 
 	debug.Log("Found pending job for agent", map[string]interface{}{
 		"agent_id":          agent.ID,
@@ -244,6 +247,41 @@ func (s *JobSchedulingService) assignWorkToAgent(ctx context.Context, agent *mod
 		return nil, interruptedJobs, fmt.Errorf("benchmark required but WebSocket integration not available")
 	}
 
+	// Check if this job uses rule splitting and needs initialization
+	if nextJob.UsesRuleSplitting {
+		// Check if tasks already exist for this job
+		taskCount, err := s.jobExecutionService.jobTaskRepo.GetTaskCountByJobExecution(ctx, nextJob.ID)
+		if err != nil {
+			return nil, interruptedJobs, fmt.Errorf("failed to get task count: %w", err)
+		}
+		
+		debug.Log("Checking rule splitting initialization", map[string]interface{}{
+			"job_id": nextJob.ID,
+			"rule_split_count": nextJob.RuleSplitCount,
+			"existing_tasks": taskCount,
+			"processed_keyspace": nextJob.ProcessedKeyspace,
+		})
+		
+		if taskCount == 0 {
+			// This is the first time, need to initialize rule splitting
+			debug.Log("Initializing rule splitting for job", map[string]interface{}{
+				"job_id": nextJob.ID,
+				"rule_split_count": nextJob.RuleSplitCount,
+			})
+			
+			// Let the job execution service handle rule splitting
+			err = s.jobExecutionService.InitializeRuleSplitting(ctx, nextJob)
+			if err != nil {
+				debug.Error("Failed to initialize rule splitting: %v", err)
+				return nil, interruptedJobs, fmt.Errorf("failed to initialize rule splitting: %w", err)
+			}
+			
+			debug.Log("Rule splitting initialized successfully", map[string]interface{}{
+				"job_id": nextJob.ID,
+			})
+		}
+	}
+
 	// Calculate the next chunk for this agent
 	chunkReq := ChunkCalculationRequest{
 		JobExecution:  nextJob,
@@ -264,37 +302,79 @@ func (s *JobSchedulingService) assignWorkToAgent(ctx context.Context, agent *mod
 		"chunk_duration": chunkReq.ChunkDuration,
 	})
 
-	chunkResult, err := s.jobChunkingService.CalculateNextChunk(ctx, chunkReq)
-	if err != nil {
-		debug.Log("Failed to calculate chunk", map[string]interface{}{
+	// For rule-split jobs, we need special handling
+	var jobTask *models.JobTask
+	if nextJob.UsesRuleSplitting {
+		// Get the next available rule chunk task
+		debug.Log("Getting next rule split task", map[string]interface{}{
+			"job_id": nextJob.ID,
 			"agent_id": agent.ID,
-			"error":    err.Error(),
 		})
-		return nil, interruptedJobs, fmt.Errorf("failed to calculate chunk: %w", err)
+		
+		jobTask, err = s.jobExecutionService.GetNextRuleSplitTask(ctx, nextJob, agent)
+		if err != nil {
+			return nil, interruptedJobs, fmt.Errorf("failed to get rule split task: %w", err)
+		}
+		if jobTask == nil {
+			// No more tasks available for this job
+			debug.Log("No more rule split tasks available", map[string]interface{}{
+				"job_id": nextJob.ID,
+			})
+			return nil, interruptedJobs, nil
+		}
+		
+		debug.Log("Got rule split task", map[string]interface{}{
+			"task_id": jobTask.ID,
+			"is_rule_split_task": jobTask.IsRuleSplitTask,
+			"rule_chunk_path": jobTask.RuleChunkPath,
+		})
+	} else {
+		// Regular chunking
+		chunkResult, err := s.jobChunkingService.CalculateNextChunk(ctx, chunkReq)
+		if err != nil {
+			debug.Log("Failed to calculate chunk", map[string]interface{}{
+				"agent_id": agent.ID,
+				"error":    err.Error(),
+			})
+			return nil, interruptedJobs, fmt.Errorf("failed to calculate chunk: %w", err)
+		}
+
+		debug.Log("Chunk calculated successfully", map[string]interface{}{
+			"agent_id":        agent.ID,
+			"keyspace_start":  chunkResult.KeyspaceStart,
+			"keyspace_end":    chunkResult.KeyspaceEnd,
+			"benchmark_speed": chunkResult.BenchmarkSpeed,
+		})
+
+		// Create the job task
+		jobTask, err = s.jobExecutionService.CreateJobTask(
+			ctx,
+			nextJob,
+			agent,
+			chunkResult.KeyspaceStart,
+			chunkResult.KeyspaceEnd,
+			chunkResult.BenchmarkSpeed,
+		)
+		if err != nil {
+			return nil, interruptedJobs, fmt.Errorf("failed to create job task: %w", err)
+		}
 	}
 
-	debug.Log("Chunk calculated successfully", map[string]interface{}{
-		"agent_id":        agent.ID,
-		"keyspace_start":  chunkResult.KeyspaceStart,
-		"keyspace_end":    chunkResult.KeyspaceEnd,
-		"benchmark_speed": chunkResult.BenchmarkSpeed,
-	})
-
-	// Create the job task
-	jobTask, err := s.jobExecutionService.CreateJobTask(
-		ctx,
-		nextJob,
-		agent,
-		chunkResult.KeyspaceStart,
-		chunkResult.KeyspaceEnd,
-		chunkResult.BenchmarkSpeed,
-	)
-	if err != nil {
-		return nil, interruptedJobs, fmt.Errorf("failed to create job task: %w", err)
+	// Sync any rule chunks if this is a rule split task
+	if jobTask.IsRuleSplitTask {
+		err = s.hashlistSyncService.SyncJobFiles(ctx, agent.ID, jobTask)
+		if err != nil {
+			debug.Log("Failed to sync rule chunk to agent", map[string]interface{}{
+				"agent_id": agent.ID,
+				"task_id":  jobTask.ID,
+				"error":    err.Error(),
+			})
+			// Don't fail the task assignment - the agent will get the file on demand
+		}
 	}
 
-	// Start the job execution if this is the first task
-	if chunkResult.KeyspaceStart == 0 {
+	// Start the job execution if it's in pending status (handles both initial start and restart after errors)
+	if nextJob.Status == models.JobExecutionStatusPending {
 		err = s.jobExecutionService.StartJobExecution(ctx, nextJob.ID)
 		if err != nil {
 			debug.Log("Failed to start job execution", map[string]interface{}{
@@ -320,8 +400,8 @@ func (s *JobSchedulingService) assignWorkToAgent(ctx context.Context, agent *mod
 		"agent_id":        agent.ID,
 		"job_task_id":     jobTask.ID,
 		"job_execution_id": nextJob.ID,
-		"keyspace_start":  chunkResult.KeyspaceStart,
-		"keyspace_end":    chunkResult.KeyspaceEnd,
+		"keyspace_start":  jobTask.KeyspaceStart,
+		"keyspace_end":    jobTask.KeyspaceEnd,
 	})
 
 	return jobTask, interruptedJobs, nil
@@ -349,6 +429,43 @@ func (s *JobSchedulingService) getChunkDuration(ctx context.Context, jobExecutio
 	}
 
 	return chunkDuration, nil
+}
+
+// HandleTaskSuccess handles successful task completion and resets consecutive failure counters
+func (s *JobSchedulingService) HandleTaskSuccess(ctx context.Context, taskID uuid.UUID) error {
+	// Get the task to find the job execution and agent
+	task, err := s.jobExecutionService.jobTaskRepo.GetByID(ctx, taskID)
+	if err != nil {
+		return fmt.Errorf("failed to get task: %w", err)
+	}
+
+	// Reset job's consecutive failures
+	jobExecution, err := s.jobExecutionService.jobExecRepo.GetByID(ctx, task.JobExecutionID)
+	if err == nil && jobExecution.ConsecutiveFailures > 0 {
+		err = s.jobExecutionService.jobExecRepo.UpdateConsecutiveFailures(ctx, task.JobExecutionID, 0)
+		if err != nil {
+			debug.Log("Failed to reset job consecutive failures", map[string]interface{}{
+				"job_execution_id": task.JobExecutionID,
+				"error":            err.Error(),
+			})
+		}
+	}
+
+	// Reset agent's consecutive failures if assigned
+	if task.AgentID != nil {
+		agent, err := s.agentRepo.GetByID(ctx, *task.AgentID)
+		if err == nil && agent.ConsecutiveFailures > 0 {
+			err = s.agentRepo.UpdateConsecutiveFailures(ctx, *task.AgentID, 0)
+			if err != nil {
+				debug.Log("Failed to reset agent consecutive failures", map[string]interface{}{
+					"agent_id": *task.AgentID,
+					"error":    err.Error(),
+				})
+			}
+		}
+	}
+
+	return nil
 }
 
 // StartScheduler starts the job scheduler with periodic scheduling
@@ -422,8 +539,8 @@ func (s *JobSchedulingService) ProcessJobCompletion(ctx context.Context, jobExec
 
 // ProcessTaskProgress handles task progress updates and job aggregation
 func (s *JobSchedulingService) ProcessTaskProgress(ctx context.Context, taskID uuid.UUID, progress *models.JobProgress) error {
-	// Update task progress
-	err := s.jobExecutionService.jobTaskRepo.UpdateProgress(ctx, taskID, progress.KeyspaceProcessed, &progress.HashRate)
+	// Use the enhanced progress tracking method from job execution service
+	err := s.jobExecutionService.UpdateTaskProgress(ctx, taskID, progress.KeyspaceProcessed, &progress.HashRate, progress.ProgressPercent)
 	if err != nil {
 		return fmt.Errorf("failed to update task progress: %w", err)
 	}
@@ -432,23 +549,6 @@ func (s *JobSchedulingService) ProcessTaskProgress(ctx context.Context, taskID u
 	task, err := s.jobExecutionService.jobTaskRepo.GetByID(ctx, taskID)
 	if err != nil {
 		return fmt.Errorf("failed to get task: %w", err)
-	}
-
-	// Aggregate progress for the entire job
-	tasks, err := s.jobExecutionService.jobTaskRepo.GetTasksByJobExecution(ctx, task.JobExecutionID)
-	if err != nil {
-		return fmt.Errorf("failed to get all tasks for job: %w", err)
-	}
-
-	var totalProcessed int64
-	for _, t := range tasks {
-		totalProcessed += t.KeyspaceProcessed
-	}
-
-	// Update job execution progress
-	err = s.jobExecutionService.UpdateJobProgress(ctx, task.JobExecutionID, totalProcessed)
-	if err != nil {
-		return fmt.Errorf("failed to update job progress: %w", err)
 	}
 
 	// Store performance metrics
@@ -549,7 +649,19 @@ func (s *JobSchedulingService) RecoverStaleJobs(ctx context.Context) error {
 	// Reset each stale task back to pending
 	for _, task := range staleTasks {
 		// Check if the agent is currently connected
-		agent, err := s.agentRepo.GetByID(ctx, task.AgentID)
+		if task.AgentID == nil {
+			// Task was never assigned to an agent, just reset it
+			err = s.jobExecutionService.jobTaskRepo.ResetTaskForRetry(ctx, task.ID)
+			if err != nil {
+				debug.Log("Failed to reset unassigned stale task", map[string]interface{}{
+					"task_id": task.ID,
+					"error":   err.Error(),
+				})
+			}
+			continue
+		}
+		
+		agent, err := s.agentRepo.GetByID(ctx, *task.AgentID)
 		if err != nil {
 			debug.Log("Failed to get agent for stale task", map[string]interface{}{
 				"task_id":  task.ID,

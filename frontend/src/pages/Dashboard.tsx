@@ -62,7 +62,8 @@ import {
   Badge,
   ToggleButton,
   ToggleButtonGroup,
-  Button
+  Button,
+  LinearProgress
 } from '@mui/material';
 import { 
   Delete as DeleteIcon, 
@@ -74,6 +75,7 @@ import JobsTable from '../pages/Jobs/JobsTable';
 import DeleteConfirm from '../pages/Jobs/DeleteConfirm';
 import { api } from '../services/api';
 import { JobSummary, PaginationInfo } from '../types/jobs';
+import { calculateJobProgress, formatKeyspace } from '../utils/jobProgress';
 // import JobStatusMonitor from '../components/JobStatusMonitor'; // Removed to improve page load performance
 
 /**
@@ -315,14 +317,56 @@ const Dashboard: React.FC = () => {
       <Grid item xs={12} md={4}>
         <Paper sx={{ p: 2, display: 'flex', flexDirection: 'column' }}>
           <Typography variant="h6" gutterBottom>
-            System Status
+            Active Jobs Overview
           </Typography>
-          {/* 
-            TODO: Implement system status widget
-            - Add real-time status updates
-            - Include error state handling
-            - Add refresh mechanism
-          */}
+          {(() => {
+            const activeJobs = jobs.filter(job => 
+              ['pending', 'running'].includes(job.status.toLowerCase())
+            );
+            
+            if (activeJobs.length === 0) {
+              return (
+                <Typography variant="body2" color="text.secondary">
+                  No active jobs
+                </Typography>
+              );
+            }
+            
+            return (
+              <Stack spacing={1}>
+                {activeJobs.slice(0, 3).map(job => {
+                  const progress = calculateJobProgress(job);
+                  return (
+                    <Box key={job.id}>
+                      <Typography variant="body2" noWrap>
+                        {job.name}
+                      </Typography>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <LinearProgress 
+                          variant="determinate" 
+                          value={progress.percentage} 
+                          sx={{ flexGrow: 1, height: 4 }}
+                        />
+                        <Typography variant="caption" color="text.secondary">
+                          {progress.percentage.toFixed(3)}%
+                        </Typography>
+                      </Box>
+                      {progress.hasMultiplier && (
+                        <Typography variant="caption" color="primary">
+                          {progress.multiplierText}
+                        </Typography>
+                      )}
+                    </Box>
+                  );
+                })}
+                {activeJobs.length > 3 && (
+                  <Typography variant="caption" color="text.secondary">
+                    +{activeJobs.length - 3} more...
+                  </Typography>
+                )}
+              </Stack>
+            );
+          })()}
         </Paper>
       </Grid>
 
@@ -354,7 +398,7 @@ const Dashboard: React.FC = () => {
         </Paper>
       </Grid>
     </>
-  ), []);
+  ), [jobs]);
 
   return (
     <Container maxWidth="lg">

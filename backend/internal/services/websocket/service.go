@@ -45,6 +45,7 @@ const (
 	TypeConfigUpdate     MessageType = "config_update"
 	TypeSyncRequest      MessageType = "file_sync_request"
 	TypeSyncCommand      MessageType = "file_sync_command"
+	TypeForceCleanup     MessageType = "force_cleanup"
 )
 
 // Client represents a connected agent

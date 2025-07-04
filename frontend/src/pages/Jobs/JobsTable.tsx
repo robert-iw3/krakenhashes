@@ -71,7 +71,8 @@ const JobsTable: React.FC<JobsTableProps> = ({
               <TableCell>Job Name</TableCell>
               <TableCell>Hashlist</TableCell>
               <TableCell>Created By</TableCell>
-              <TableCell align="center">Dispatched / Searched</TableCell>
+              <TableCell align="center">Progress</TableCell>
+              <TableCell align="center">Keyspace</TableCell>
               <TableCell align="center">Cracked</TableCell>
               <TableCell align="center">Agents</TableCell>
               <TableCell align="center">Priority</TableCell>
@@ -93,7 +94,7 @@ const JobsTable: React.FC<JobsTableProps> = ({
             {/* Visual separator between active and completed jobs */}
             {activeJobs.length > 0 && completedJobs.length > 0 && (
               <TableRow>
-                <TableCell colSpan={9} sx={{ py: 1, bgcolor: 'action.hover' }}>
+                <TableCell colSpan={10} sx={{ py: 1, bgcolor: 'action.hover' }}>
                   <Typography variant="body2" sx={{ fontWeight: 'medium', color: 'text.secondary', textAlign: 'center' }}>
                     Completed Jobs
                   </Typography>
