@@ -52,6 +52,8 @@ backend/*.dylib
 backend/*.test
 backend/*.out
 backend/vendor/
+backend/main
+backend/server
 
 # Go build directories
 /bin/
@@ -78,6 +80,11 @@ backend/certs/
 
 # Claude configuration
 CLAUDE.md
+
+# Agent specific
+# Go binaries
+agent/agent
+agent/main
 
 # Logs
 logs/
