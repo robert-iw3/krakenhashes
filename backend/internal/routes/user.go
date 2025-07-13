@@ -34,19 +34,19 @@ func CreateJobsHandler(database *db.DB, dataDir string, binaryManager binary.Man
 	agentRepo := repository.NewAgentRepository(dbWrapper)
 	systemSettingsRepo := repository.NewSystemSettingsRepository(dbWrapper)
 	fileRepo := repository.NewFileRepository(dbWrapper, dataDir)
-	
+
 	// Create client repository
 	clientRepo := repository.NewClientRepository(dbWrapper)
-	
+
 	// Create device repository
 	deviceRepo := repository.NewAgentDeviceRepository(dbWrapper)
-	
+
 	// Create additional repositories for job creation
 	workflowRepo := repository.NewJobWorkflowRepository(database.DB)
 	wordlistStore := wordlist.NewStore(database.DB)
 	ruleStore := rule.NewStore(database.DB)
 	binaryStore := binary.NewStore(database.DB)
-	
+
 	// Create job execution service
 	jobExecutionService := services.NewJobExecutionService(
 		jobExecRepo,
@@ -63,7 +63,7 @@ func CreateJobsHandler(database *db.DB, dataDir string, binaryManager binary.Man
 		"", // hashcatBinaryPath - not needed for keyspace calculation
 		dataDir,
 	)
-	
+
 	// Create jobs handler
 	return jobs.NewUserJobsHandler(
 		jobExecRepo,
@@ -85,26 +85,26 @@ func SetupUserRoutes(router *mux.Router, database *db.DB, dataDir string, binary
 	fmt.Printf("[STARTUP] ===== SetupUserRoutes CALLED =====\n")
 	debug.Info("Setting up user routes")
 	fmt.Printf("[STARTUP] Debug logging test from SetupUserRoutes\n")
-	
+
 	// Create handlers
 	jobsHandler := CreateJobsHandler(database, dataDir, binaryManager)
 	dbWrapper := &db.DB{DB: database.DB}
 	userHandler := user.NewHandler(dbWrapper)
-	
+
 	// SSE removed - using polling instead
 	// The frontend now polls /jobs endpoint every 5 seconds for updates
-	
+
 	// User listing route (for agent owner selection)
 	router.HandleFunc("/users", userHandler.ListUsers).Methods("GET", "OPTIONS")
-	
+
 	// User-specific jobs route
 	router.HandleFunc("/user/jobs", jobsHandler.ListUserJobs).Methods("GET", "OPTIONS")
-	
+
 	// IMPORTANT: Register specific routes before generic patterns to avoid conflicts
-	
+
 	// Other specific job routes (before generic {id} pattern)
 	router.HandleFunc("/jobs/finished", jobsHandler.DeleteFinishedJobs).Methods("DELETE", "OPTIONS")
-	
+
 	// Generic job routes (MUST come after specific routes)
 	router.HandleFunc("/jobs", jobsHandler.ListJobs).Methods("GET", "OPTIONS")
 	router.HandleFunc("/jobs/{id}", jobsHandler.GetJobDetail).Methods("GET", "OPTIONS")

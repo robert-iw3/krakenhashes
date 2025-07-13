@@ -251,15 +251,19 @@ func (s *adminPresetJobService) CreatePresetJob(ctx context.Context, params mode
 	}
 
 	debug.Info("Creating preset job: %s", params.Name)
-	
+
 	// Calculate keyspace for the preset job
 	keyspace, err := s.CalculateKeyspaceForPresetJob(ctx, &params)
 	if err != nil {
-		// Log the error but don't fail creation - keyspace can be calculated later
-		debug.Warning("Failed to calculate keyspace for preset job: %v", err)
+		debug.Error("Failed to calculate keyspace for preset job: %v", err)
+		return nil, fmt.Errorf("failed to calculate keyspace: %w", err)
+	}
+	if keyspace == nil {
+		debug.Error("Keyspace calculation returned nil for preset job")
+		return nil, fmt.Errorf("keyspace calculation failed: no keyspace value returned")
 	}
 	params.Keyspace = keyspace
-	
+
 	createdJob, err := s.presetJobRepo.Create(ctx, params)
 	if err != nil {
 		debug.Error("Failed to create preset job in repository: %v", err)
@@ -309,10 +313,10 @@ func (s *adminPresetJobService) UpdatePresetJob(ctx context.Context, id uuid.UUI
 	}
 
 	debug.Info("Updating preset job ID: %s", id)
-	
+
 	// Get the existing job to check if keyspace recalculation is needed
 	existingJob, _ := s.presetJobRepo.GetByID(ctx, id)
-	
+
 	// Check if keyspace was explicitly provided (from recalculation endpoint)
 	if params.Keyspace != nil {
 		// Keyspace was explicitly set, use it
@@ -330,7 +334,7 @@ func (s *adminPresetJobService) UpdatePresetJob(ctx context.Context, id uuid.UUI
 		// Keep existing keyspace if no changes affecting it
 		params.Keyspace = existingJob.Keyspace
 	}
-	
+
 	updatedJob, err := s.presetJobRepo.Update(ctx, id, params)
 	if err != nil {
 		debug.Error("Failed to update preset job %s: %v", id, err)
@@ -377,7 +381,7 @@ func (s *adminPresetJobService) needsKeyspaceRecalculation(existing, updated *mo
 	if existing.AttackMode != updated.AttackMode {
 		return true
 	}
-	
+
 	// Check if wordlists changed
 	if len(existing.WordlistIDs) != len(updated.WordlistIDs) {
 		return true
@@ -387,7 +391,7 @@ func (s *adminPresetJobService) needsKeyspaceRecalculation(existing, updated *mo
 			return true
 		}
 	}
-	
+
 	// Check if rules changed (only affects straight mode)
 	if existing.AttackMode == models.AttackModeStraight {
 		if len(existing.RuleIDs) != len(updated.RuleIDs) {
@@ -399,31 +403,57 @@ func (s *adminPresetJobService) needsKeyspaceRecalculation(existing, updated *mo
 			}
 		}
 	}
-	
+
 	// Check if mask changed (for mask-based modes)
 	if existing.Mask != updated.Mask {
 		return true
 	}
-	
+
 	// Check if binary version changed
 	if existing.BinaryVersionID != updated.BinaryVersionID {
 		return true
 	}
-	
+
 	return false
 }
 
 // CalculateKeyspaceForPresetJob calculates the total keyspace for a preset job using hashcat --keyspace
 func (s *adminPresetJobService) CalculateKeyspaceForPresetJob(ctx context.Context, presetJob *models.PresetJob) (*int64, error) {
+	debug.Log("Starting keyspace calculation for preset job", map[string]interface{}{
+		"preset_job_id":    presetJob.ID,
+		"binary_version_id": presetJob.BinaryVersionID,
+		"attack_mode":      presetJob.AttackMode,
+		"data_directory":   s.dataDirectory,
+	})
+	
 	// Get the hashcat binary path from binary manager
 	hashcatPath, err := s.binaryManager.GetLocalBinaryPath(ctx, int64(presetJob.BinaryVersionID))
 	if err != nil {
-		return nil, fmt.Errorf("failed to get hashcat binary path: %w", err)
+		debug.Error("Failed to get hashcat binary path", map[string]interface{}{
+			"binary_version_id": presetJob.BinaryVersionID,
+			"error":            err.Error(),
+		})
+		return nil, fmt.Errorf("failed to get hashcat binary path for version %d: %w", presetJob.BinaryVersionID, err)
+	}
+	
+	// Verify the binary exists and is executable
+	if fileInfo, err := os.Stat(hashcatPath); err != nil {
+		debug.Error("Hashcat binary not found", map[string]interface{}{
+			"path":  hashcatPath,
+			"error": err.Error(),
+		})
+		return nil, fmt.Errorf("hashcat binary not found at %s: %w", hashcatPath, err)
+	} else {
+		debug.Log("Found hashcat binary", map[string]interface{}{
+			"path": hashcatPath,
+			"size": fileInfo.Size(),
+			"mode": fileInfo.Mode().String(),
+		})
 	}
 
 	// Build hashcat command for keyspace calculation
 	var args []string
-	
+
 	// Add attack mode flag
 	args = append(args, "-a", fmt.Sprintf("%d", presetJob.AttackMode))
 
@@ -488,23 +518,25 @@ func (s *adminPresetJobService) CalculateKeyspaceForPresetJob(ctx context.Contex
 
 	// Add keyspace flag
 	args = append(args, "--keyspace")
-	
+
 	// Add --restore-disable to prevent creating restore files for keyspace calculation
 	args = append(args, "--restore-disable")
-	
+
 	// Add a unique session ID to allow concurrent executions
 	sessionID := fmt.Sprintf("keyspace_%s_%d", presetJob.ID, time.Now().UnixNano())
 	args = append(args, "--session", sessionID)
-	
+
 	// Add --quiet flag to suppress unnecessary output
 	args = append(args, "--quiet")
 
 	debug.Log("Calculating keyspace for preset job", map[string]interface{}{
-		"preset_job_id": presetJob.ID,
-		"command": hashcatPath,
-		"args":    args,
-		"attack_mode": presetJob.AttackMode,
-		"session_id": sessionID,
+		"preset_job_id":  presetJob.ID,
+		"command":        hashcatPath,
+		"args":           args,
+		"attack_mode":    presetJob.AttackMode,
+		"session_id":     sessionID,
+		"working_dir":    s.dataDirectory,
+		"full_command":   fmt.Sprintf("%s %s", hashcatPath, strings.Join(args, " ")),
 	})
 
 	// Execute hashcat command with timeout
@@ -515,28 +547,34 @@ func (s *adminPresetJobService) CalculateKeyspaceForPresetJob(ctx context.Contex
 	cmd := exec.CommandContext(ctx, hashcatPath, args...)
 	cmd.Dir = s.dataDirectory
 	
+	// Log environment
+	debug.Log("Executing hashcat command", map[string]interface{}{
+		"working_directory": cmd.Dir,
+		"path_env":         os.Getenv("PATH"),
+	})
+
 	// Capture stdout and stderr separately
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	
+
 	err = cmd.Run()
-	
+
 	// Clean up session files regardless of success/failure
 	// Note: With --restore-disable, .restore files won't be created
 	sessionFiles := []string{
-		filepath.Join(s.dataDirectory, sessionID + ".log"),  
-		filepath.Join(s.dataDirectory, sessionID + ".potfile"),
-		filepath.Join(s.dataDirectory, sessionID + ".induct"),
-		filepath.Join(s.dataDirectory, sessionID + ".outfile"),
+		filepath.Join(s.dataDirectory, sessionID+".log"),
+		filepath.Join(s.dataDirectory, sessionID+".potfile"),
+		filepath.Join(s.dataDirectory, sessionID+".induct"),
+		filepath.Join(s.dataDirectory, sessionID+".outfile"),
 		// Also check in binary directory in case hashcat creates files there
-		filepath.Join(filepath.Dir(hashcatPath), sessionID + ".log"),
-		filepath.Join(filepath.Dir(hashcatPath), sessionID + ".potfile"),
+		filepath.Join(filepath.Dir(hashcatPath), sessionID+".log"),
+		filepath.Join(filepath.Dir(hashcatPath), sessionID+".potfile"),
 	}
 	for _, file := range sessionFiles {
 		_ = os.Remove(file) // Ignore errors for non-existent files
 	}
-	
+
 	if err != nil {
 		// Check for specific error conditions
 		stderrStr := stderr.String()
@@ -544,16 +582,19 @@ func (s *adminPresetJobService) CalculateKeyspaceForPresetJob(ctx context.Contex
 			// This shouldn't happen with unique sessions, but handle it gracefully
 			return nil, fmt.Errorf("hashcat instance conflict (this should not happen with session IDs): %s", stderrStr)
 		}
-		
+
 		debug.Error("Hashcat keyspace calculation failed", map[string]interface{}{
 			"error":       err.Error(),
+			"exit_code":   cmd.ProcessState.ExitCode(),
 			"stdout":      stdout.String(),
 			"stderr":      stderrStr,
 			"command":     hashcatPath,
 			"args":        args,
 			"session_id":  sessionID,
+			"working_dir": cmd.Dir,
 		})
-		return nil, fmt.Errorf("hashcat keyspace calculation failed: %w (stderr: %s)", err, stderrStr)
+		return nil, fmt.Errorf("hashcat keyspace calculation failed (exit code %d): %w\nstderr: %s\nstdout: %s", 
+			cmd.ProcessState.ExitCode(), err, stderrStr, stdout.String())
 	}
 
 	// Parse keyspace from output
@@ -561,7 +602,7 @@ func (s *adminPresetJobService) CalculateKeyspaceForPresetJob(ctx context.Contex
 	if len(outputLines) == 0 {
 		return nil, fmt.Errorf("no output from hashcat keyspace calculation")
 	}
-	
+
 	// Get the last non-empty line
 	var keyspaceStr string
 	for i := len(outputLines) - 1; i >= 0; i-- {
@@ -571,7 +612,7 @@ func (s *adminPresetJobService) CalculateKeyspaceForPresetJob(ctx context.Contex
 			break
 		}
 	}
-	
+
 	keyspace, err := strconv.ParseInt(keyspaceStr, 10, 64)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse keyspace '%s': %w", keyspaceStr, err)
@@ -580,13 +621,13 @@ func (s *adminPresetJobService) CalculateKeyspaceForPresetJob(ctx context.Contex
 	if keyspace <= 0 {
 		return nil, fmt.Errorf("invalid keyspace: %d", keyspace)
 	}
-	
+
 	debug.Log("Keyspace calculated successfully", map[string]interface{}{
 		"preset_job_id": presetJob.ID,
-		"keyspace": keyspace,
-		"session_id": sessionID,
-		"stdout_lines": len(outputLines),
-		"keyspace_str": keyspaceStr,
+		"keyspace":      keyspace,
+		"session_id":    sessionID,
+		"stdout_lines":  len(outputLines),
+		"keyspace_str":  keyspaceStr,
 	})
 
 	return &keyspace, nil
@@ -594,102 +635,119 @@ func (s *adminPresetJobService) CalculateKeyspaceForPresetJob(ctx context.Contex
 
 // resolveWordlistPath resolves the full path for a wordlist ID
 func (s *adminPresetJobService) resolveWordlistPath(ctx context.Context, wordlistIDStr string) (string, error) {
+	debug.Log("Resolving wordlist path", map[string]interface{}{
+		"wordlist_id_str": wordlistIDStr,
+		"data_directory":  s.dataDirectory,
+	})
+	
 	wordlistID, err := strconv.ParseInt(wordlistIDStr, 10, 64)
 	if err != nil {
+		debug.Error("Invalid wordlist ID format", map[string]interface{}{
+			"wordlist_id_str": wordlistIDStr,
+			"error":           err.Error(),
+		})
 		return "", fmt.Errorf("invalid wordlist ID: %s", wordlistIDStr)
 	}
 
 	// Look up wordlist in database
 	wordlists, err := s.fileRepo.GetWordlists(ctx, "")
 	if err != nil {
+		debug.Error("Failed to get wordlists from database", map[string]interface{}{
+			"error": err.Error(),
+		})
 		return "", fmt.Errorf("failed to get wordlists: %w", err)
 	}
-	
+
 	for _, wl := range wordlists {
 		if wl.ID == int(wordlistID) {
-			// The Name field now contains category/filename (e.g., "general/crackstation.txt")
-			// We need to use just the filename without duplicating the category
-			filename := wl.Name
-			
-			// If the Name already contains the category path, extract just the filename
-			if strings.Contains(wl.Name, "/") {
-				filename = filepath.Base(wl.Name)
-			}
-			
-			// Build absolute path using the data directory
-			var path string
-			if wl.Category != "" {
-				path = filepath.Join(s.dataDirectory, "wordlists", wl.Category, filename)
-			} else {
-				path = filepath.Join(s.dataDirectory, "wordlists", filename)
-			}
-			
-			// Verify the file exists
-			if _, err := os.Stat(path); err != nil {
-				return "", fmt.Errorf("wordlist file not found at %s: %w", path, err)
-			}
-			
-			debug.Log("Resolved wordlist path", map[string]interface{}{
+			// The Name field already contains the relative path from wordlists directory
+			// e.g., "general/crackstation.txt"
+			path := filepath.Join(s.dataDirectory, "wordlists", wl.Name)
+
+			debug.Log("Found wordlist in database", map[string]interface{}{
 				"wordlist_id": wordlistID,
 				"category":    wl.Category,
 				"name_field":  wl.Name,
-				"filename":    filename,
 				"path":        path,
 			})
+			
+			// Verify the file exists
+			if fileInfo, err := os.Stat(path); err != nil {
+				debug.Error("Wordlist file not found", map[string]interface{}{
+					"path":  path,
+					"error": err.Error(),
+				})
+				return "", fmt.Errorf("wordlist file not found at %s: %w", path, err)
+			} else {
+				debug.Log("Wordlist file verified", map[string]interface{}{
+					"path": path,
+					"size": fileInfo.Size(),
+				})
+			}
+
 			return path, nil
 		}
 	}
-	
+
 	return "", fmt.Errorf("wordlist with ID %d not found", wordlistID)
 }
 
 // resolveRulePath resolves the full path for a rule ID
 func (s *adminPresetJobService) resolveRulePath(ctx context.Context, ruleIDStr string) (string, error) {
+	debug.Log("Resolving rule path", map[string]interface{}{
+		"rule_id_str":    ruleIDStr,
+		"data_directory": s.dataDirectory,
+	})
+	
 	ruleID, err := strconv.ParseInt(ruleIDStr, 10, 64)
 	if err != nil {
+		debug.Error("Invalid rule ID format", map[string]interface{}{
+			"rule_id_str": ruleIDStr,
+			"error":       err.Error(),
+		})
 		return "", fmt.Errorf("invalid rule ID: %s", ruleIDStr)
 	}
 
 	// Look up rule in database
 	rules, err := s.fileRepo.GetRules(ctx, "")
 	if err != nil {
+		debug.Error("Failed to get rules from database", map[string]interface{}{
+			"error": err.Error(),
+		})
 		return "", fmt.Errorf("failed to get rules: %w", err)
 	}
-	
+
 	for _, rule := range rules {
 		if rule.ID == int(ruleID) {
-			// Get the filename from the Name field
-			filename := rule.Name
-			
-			// Build absolute path using the data directory
-			var path string
-			
-			// If name already contains path separators, use it as-is
-			if strings.Contains(filename, "/") {
-				path = filepath.Join(s.dataDirectory, "rules", filename)
-			} else if rule.Category != "" {
-				// Otherwise use category + filename
-				path = filepath.Join(s.dataDirectory, "rules", rule.Category, filename)
-			} else {
-				path = filepath.Join(s.dataDirectory, "rules", filename)
-			}
-			
-			// Verify the file exists
-			if _, err := os.Stat(path); err != nil {
-				return "", fmt.Errorf("rule file not found at %s: %w", path, err)
-			}
-			
-			debug.Log("Resolved rule path", map[string]interface{}{
+			// The Name field already contains the relative path from rules directory
+			// e.g., "hashcat/_nsakey.v2.dive.rule"
+			path := filepath.Join(s.dataDirectory, "rules", rule.Name)
+
+			debug.Log("Found rule in database", map[string]interface{}{
 				"rule_id":    ruleID,
 				"category":   rule.Category,
 				"name_field": rule.Name,
-				"filename":   filename,
 				"path":       path,
 			})
+			
+			// Verify the file exists
+			if fileInfo, err := os.Stat(path); err != nil {
+				debug.Error("Rule file not found", map[string]interface{}{
+					"path":  path,
+					"error": err.Error(),
+				})
+				return "", fmt.Errorf("rule file not found at %s: %w", path, err)
+			} else {
+				debug.Log("Rule file verified", map[string]interface{}{
+					"path": path,
+					"size": fileInfo.Size(),
+				})
+			}
+
 			return path, nil
 		}
 	}
-	
+
 	return "", fmt.Errorf("rule with ID %d not found", ruleID)
 }
 
@@ -700,7 +758,7 @@ func (s *adminPresetJobService) RecalculateKeyspacesForWordlist(ctx context.Cont
 	if err != nil {
 		return fmt.Errorf("failed to list preset jobs: %w", err)
 	}
-	
+
 	for _, job := range allJobs {
 		// Check if this job uses the wordlist
 		usesWordlist := false
@@ -710,7 +768,7 @@ func (s *adminPresetJobService) RecalculateKeyspacesForWordlist(ctx context.Cont
 				break
 			}
 		}
-		
+
 		if usesWordlist {
 			// Recalculate keyspace
 			keyspace, err := s.CalculateKeyspaceForPresetJob(ctx, &job)
@@ -718,7 +776,7 @@ func (s *adminPresetJobService) RecalculateKeyspacesForWordlist(ctx context.Cont
 				debug.Warning("Failed to recalculate keyspace for preset job %s: %v", job.ID, err)
 				continue
 			}
-			
+
 			// Update the job with new keyspace
 			job.Keyspace = keyspace
 			_, err = s.presetJobRepo.Update(ctx, job.ID, job)
@@ -727,7 +785,7 @@ func (s *adminPresetJobService) RecalculateKeyspacesForWordlist(ctx context.Cont
 			}
 		}
 	}
-	
+
 	return nil
 }
 
@@ -738,13 +796,13 @@ func (s *adminPresetJobService) RecalculateKeyspacesForRule(ctx context.Context,
 	if err != nil {
 		return fmt.Errorf("failed to list preset jobs: %w", err)
 	}
-	
+
 	for _, job := range allJobs {
 		// Check if this job uses the rule (only straight mode uses rules)
 		if job.AttackMode != models.AttackModeStraight {
 			continue
 		}
-		
+
 		usesRule := false
 		for _, rID := range job.RuleIDs {
 			if rID == ruleID {
@@ -752,7 +810,7 @@ func (s *adminPresetJobService) RecalculateKeyspacesForRule(ctx context.Context,
 				break
 			}
 		}
-		
+
 		if usesRule {
 			// Recalculate keyspace
 			keyspace, err := s.CalculateKeyspaceForPresetJob(ctx, &job)
@@ -760,7 +818,7 @@ func (s *adminPresetJobService) RecalculateKeyspacesForRule(ctx context.Context,
 				debug.Warning("Failed to recalculate keyspace for preset job %s: %v", job.ID, err)
 				continue
 			}
-			
+
 			// Update the job with new keyspace
 			job.Keyspace = keyspace
 			_, err = s.presetJobRepo.Update(ctx, job.ID, job)
@@ -769,6 +827,6 @@ func (s *adminPresetJobService) RecalculateKeyspacesForRule(ctx context.Context,
 			}
 		}
 	}
-	
+
 	return nil
 }

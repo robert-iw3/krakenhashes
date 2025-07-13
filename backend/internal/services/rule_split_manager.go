@@ -32,7 +32,7 @@ func NewRuleSplitManager(tempDir string, fileRepo *repository.FileRepository) *R
 	if err := os.MkdirAll(tempDir, 0755); err != nil {
 		debug.Error("Failed to create rule chunk temp directory: %v", err)
 	}
-	
+
 	return &RuleSplitManager{
 		tempDir:  tempDir,
 		fileRepo: fileRepo,
@@ -74,21 +74,21 @@ func (m *RuleSplitManager) SplitRuleFile(ctx context.Context, jobID int64, ruleF
 	if err != nil {
 		return nil, fmt.Errorf("failed to read rule file: %w", err)
 	}
-	
+
 	if len(rules) == 0 {
 		return nil, fmt.Errorf("no rules found in file %s", ruleFile)
 	}
-	
+
 	if numSplits <= 0 {
 		numSplits = 1
 	}
-	
+
 	// Create job-specific directory
 	jobDir := filepath.Join(m.tempDir, fmt.Sprintf("job_%d", jobID))
 	if err := os.MkdirAll(jobDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create job directory: %w", err)
 	}
-	
+
 	debug.Log("Created job directory for rule chunks", map[string]interface{}{
 		"job_id":      jobID,
 		"job_dir":     jobDir,
@@ -96,19 +96,19 @@ func (m *RuleSplitManager) SplitRuleFile(ctx context.Context, jobID int64, ruleF
 		"total_rules": len(rules),
 		"num_splits":  numSplits,
 	})
-	
+
 	// Calculate rules per split
 	rulesPerSplit := (len(rules) + numSplits - 1) / numSplits
 	chunks := make([]RuleChunk, 0, numSplits)
-	
+
 	for i := 0; i < numSplits; i++ {
 		start := i * rulesPerSplit
-		end := min((i + 1) * rulesPerSplit, len(rules))
-		
+		end := min((i+1)*rulesPerSplit, len(rules))
+
 		if start >= len(rules) {
 			break
 		}
-		
+
 		// Create chunk file in job-specific directory
 		chunkPath := filepath.Join(jobDir, fmt.Sprintf("chunk_%d.rule", i))
 		if err := m.writeRuleChunk(chunkPath, rules[start:end]); err != nil {
@@ -116,14 +116,14 @@ func (m *RuleSplitManager) SplitRuleFile(ctx context.Context, jobID int64, ruleF
 			os.RemoveAll(jobDir)
 			return nil, fmt.Errorf("failed to write rule chunk %d: %w", i, err)
 		}
-		
+
 		chunks = append(chunks, RuleChunk{
 			Path:       chunkPath,
 			StartIndex: start,
 			EndIndex:   end,
 			RuleCount:  end - start,
 		})
-		
+
 		debug.Log("Created rule chunk", map[string]interface{}{
 			"chunk_index": i,
 			"path":        chunkPath,
@@ -132,7 +132,7 @@ func (m *RuleSplitManager) SplitRuleFile(ctx context.Context, jobID int64, ruleF
 			"rule_count":  end - start,
 		})
 	}
-	
+
 	return chunks, nil
 }
 
@@ -196,7 +196,7 @@ func (m *RuleSplitManager) cleanupChunks(chunks []RuleChunk) {
 // CleanupJobChunks removes all chunk files for a specific job
 func (m *RuleSplitManager) CleanupJobChunks(jobID int64) error {
 	jobDir := filepath.Join(m.tempDir, fmt.Sprintf("job_%d", jobID))
-	
+
 	// Check if directory exists
 	if _, err := os.Stat(jobDir); os.IsNotExist(err) {
 		debug.Log("Job directory does not exist, nothing to clean", map[string]interface{}{
@@ -205,22 +205,22 @@ func (m *RuleSplitManager) CleanupJobChunks(jobID int64) error {
 		})
 		return nil
 	}
-	
+
 	// Count files before removal for logging
 	files, _ := filepath.Glob(filepath.Join(jobDir, "*.rule"))
 	fileCount := len(files)
-	
+
 	// Remove the entire job directory
 	if err := os.RemoveAll(jobDir); err != nil {
 		return fmt.Errorf("failed to remove job directory %s: %w", jobDir, err)
 	}
-	
+
 	debug.Log("Cleaned up rule chunks for job", map[string]interface{}{
 		"job_id":     jobID,
 		"job_dir":    jobDir,
 		"file_count": fileCount,
 	})
-	
+
 	return nil
 }
 

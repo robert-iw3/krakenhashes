@@ -520,21 +520,21 @@ func (r *AgentRepository) UpdateAgentSettings(ctx context.Context, agentID int, 
 		    extra_parameters = $4,
 		    updated_at = CURRENT_TIMESTAMP
 		WHERE id = $1`
-	
+
 	result, err := r.db.ExecContext(ctx, query, agentID, isEnabled, ownerID, extraParameters)
 	if err != nil {
 		return fmt.Errorf("failed to update agent settings: %w", err)
 	}
-	
+
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
 		return fmt.Errorf("failed to get rows affected: %w", err)
 	}
-	
+
 	if rowsAffected == 0 {
 		return sql.ErrNoRows
 	}
-	
+
 	return nil
 }
 
@@ -545,26 +545,26 @@ func (r *AgentRepository) UpdateOSInfo(ctx context.Context, agentID int, osInfo 
 	if err != nil {
 		return fmt.Errorf("failed to marshal OS info: %w", err)
 	}
-	
+
 	query := `
 		UPDATE agents 
 		SET os_info = $2,
 		    updated_at = CURRENT_TIMESTAMP
 		WHERE id = $1`
-	
+
 	result, err := r.db.ExecContext(ctx, query, agentID, osInfoJSON)
 	if err != nil {
 		return fmt.Errorf("failed to update agent OS info: %w", err)
 	}
-	
+
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
 		return fmt.Errorf("failed to get rows affected: %w", err)
 	}
-	
+
 	if rowsAffected == 0 {
 		return sql.ErrNoRows
 	}
-	
+
 	return nil
 }

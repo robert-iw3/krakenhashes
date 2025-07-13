@@ -434,6 +434,7 @@ func (r *JobExecutionRepository) ClearError(ctx context.Context, id uuid.UUID) e
 
 	return nil
 }
+
 // UpdateKeyspaceInfo updates the enhanced keyspace information for a job execution
 func (r *JobExecutionRepository) UpdateKeyspaceInfo(ctx context.Context, job *models.JobExecution) error {
 	query := `
@@ -445,7 +446,7 @@ func (r *JobExecutionRepository) UpdateKeyspaceInfo(ctx context.Context, job *mo
 		    rule_split_count = $5,
 		    updated_at = CURRENT_TIMESTAMP
 		WHERE id = $6`
-		
+
 	result, err := r.db.ExecContext(ctx, query,
 		job.BaseKeyspace,
 		job.EffectiveKeyspace,
@@ -563,4 +564,3 @@ func (r *JobExecutionRepository) GetJobsWithPendingWork(ctx context.Context) ([]
 
 	return executions, nil
 }
-

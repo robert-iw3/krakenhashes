@@ -58,17 +58,17 @@ type PresetJob struct {
 	WordlistIDs               IDArray    `json:"wordlist_ids" db:"wordlist_ids"` // Stores numeric IDs as strings in JSONB
 	RuleIDs                   IDArray    `json:"rule_ids" db:"rule_ids"`         // Stores numeric IDs as strings in JSONB
 	AttackMode                AttackMode `json:"attack_mode" db:"attack_mode"`
-	HashType                  int        `json:"hash_type" db:"hash_type"`                 // Hashcat hash type number
+	HashType                  int        `json:"hash_type" db:"hash_type"` // Hashcat hash type number
 	Priority                  int        `json:"priority" db:"priority"`
 	ChunkSizeSeconds          int        `json:"chunk_size_seconds" db:"chunk_size_seconds"`
 	StatusUpdatesEnabled      bool       `json:"status_updates_enabled" db:"status_updates_enabled"`
 	IsSmallJob                bool       `json:"is_small_job" db:"is_small_job"`
 	AllowHighPriorityOverride bool       `json:"allow_high_priority_override" db:"allow_high_priority_override"`
-	BinaryVersionID           int        `json:"binary_version_id" db:"binary_version_id"` // References binary_versions.id
-	Mask                      string     `json:"mask,omitempty" db:"mask"`                 // For mask-based attack modes
+	BinaryVersionID           int        `json:"binary_version_id" db:"binary_version_id"`       // References binary_versions.id
+	Mask                      string     `json:"mask,omitempty" db:"mask"`                       // For mask-based attack modes
 	AdditionalArgs            *string    `json:"additional_args,omitempty" db:"additional_args"` // Additional hashcat arguments
-	Keyspace                  *int64     `json:"keyspace,omitempty" db:"keyspace"`         // Pre-calculated keyspace for this preset
-	MaxAgents                 int        `json:"max_agents" db:"max_agents"`               // Max agents allowed (0 = unlimited)
+	Keyspace                  *int64     `json:"keyspace,omitempty" db:"keyspace"`               // Pre-calculated keyspace for this preset
+	MaxAgents                 int        `json:"max_agents" db:"max_agents"`                     // Max agents allowed (0 = unlimited)
 	CreatedAt                 time.Time  `json:"created_at" db:"created_at"`
 	UpdatedAt                 time.Time  `json:"updated_at" db:"updated_at"`
 
@@ -127,40 +127,40 @@ const (
 
 // JobExecution represents an actual running instance of a preset job
 type JobExecution struct {
-	ID                uuid.UUID          `json:"id" db:"id"`
-	PresetJobID       uuid.UUID          `json:"preset_job_id" db:"preset_job_id"`
-	HashlistID        int64              `json:"hashlist_id" db:"hashlist_id"`
-	Status            JobExecutionStatus `json:"status" db:"status"`
-	Priority          int                `json:"priority" db:"priority"`
-	MaxAgents         int                `json:"max_agents" db:"max_agents"`
-	TotalKeyspace     *int64             `json:"total_keyspace" db:"total_keyspace"`
-	ProcessedKeyspace int64              `json:"processed_keyspace" db:"processed_keyspace"`
-	AttackMode        AttackMode         `json:"attack_mode" db:"attack_mode"`
-	CreatedBy         *uuid.UUID         `json:"created_by" db:"created_by"`
-	CreatedAt         time.Time          `json:"created_at" db:"created_at"`
-	StartedAt         *time.Time         `json:"started_at" db:"started_at"`
-	CompletedAt       *time.Time         `json:"completed_at" db:"completed_at"`
-	UpdatedAt         time.Time          `json:"updated_at" db:"updated_at"`
-	ErrorMessage      *string            `json:"error_message" db:"error_message"`
+	ID                  uuid.UUID          `json:"id" db:"id"`
+	PresetJobID         uuid.UUID          `json:"preset_job_id" db:"preset_job_id"`
+	HashlistID          int64              `json:"hashlist_id" db:"hashlist_id"`
+	Status              JobExecutionStatus `json:"status" db:"status"`
+	Priority            int                `json:"priority" db:"priority"`
+	MaxAgents           int                `json:"max_agents" db:"max_agents"`
+	TotalKeyspace       *int64             `json:"total_keyspace" db:"total_keyspace"`
+	ProcessedKeyspace   int64              `json:"processed_keyspace" db:"processed_keyspace"`
+	AttackMode          AttackMode         `json:"attack_mode" db:"attack_mode"`
+	CreatedBy           *uuid.UUID         `json:"created_by" db:"created_by"`
+	CreatedAt           time.Time          `json:"created_at" db:"created_at"`
+	StartedAt           *time.Time         `json:"started_at" db:"started_at"`
+	CompletedAt         *time.Time         `json:"completed_at" db:"completed_at"`
+	UpdatedAt           time.Time          `json:"updated_at" db:"updated_at"`
+	ErrorMessage        *string            `json:"error_message" db:"error_message"`
 	InterruptedBy       *uuid.UUID         `json:"interrupted_by" db:"interrupted_by"`
 	ConsecutiveFailures int                `json:"consecutive_failures" db:"consecutive_failures"` // Track consecutive task failures
 
 	// Enhanced chunking fields
-	BaseKeyspace         *int64 `json:"base_keyspace" db:"base_keyspace"`                     // Wordlist-only keyspace
-	EffectiveKeyspace    *int64 `json:"effective_keyspace" db:"effective_keyspace"`           // Base × multiplication factor
-	MultiplicationFactor int    `json:"multiplication_factor" db:"multiplication_factor"`     // Rules count or second wordlist size
-	UsesRuleSplitting    bool   `json:"uses_rule_splitting" db:"uses_rule_splitting"`         // Whether this job uses rule splitting
-	RuleSplitCount       int    `json:"rule_split_count" db:"rule_split_count"`               // Number of rule chunks created
-	
+	BaseKeyspace         *int64 `json:"base_keyspace" db:"base_keyspace"`                 // Wordlist-only keyspace
+	EffectiveKeyspace    *int64 `json:"effective_keyspace" db:"effective_keyspace"`       // Base × multiplication factor
+	MultiplicationFactor int    `json:"multiplication_factor" db:"multiplication_factor"` // Rules count or second wordlist size
+	UsesRuleSplitting    bool   `json:"uses_rule_splitting" db:"uses_rule_splitting"`     // Whether this job uses rule splitting
+	RuleSplitCount       int    `json:"rule_split_count" db:"rule_split_count"`           // Number of rule chunks created
+
 	// Progress tracking
 	OverallProgressPercent float64    `json:"overall_progress_percent" db:"overall_progress_percent"` // Overall job progress (0-100)
 	LastProgressUpdate     *time.Time `json:"last_progress_update" db:"last_progress_update"`         // Last time progress was updated
 
 	// Populated fields from JOINs
-	PresetJobName  string `json:"preset_job_name,omitempty" db:"preset_job_name"`
-	HashlistName   string `json:"hashlist_name,omitempty" db:"hashlist_name"`
-	TotalHashes    int    `json:"total_hashes,omitempty" db:"total_hashes"`
-	CrackedHashes  int    `json:"cracked_hashes,omitempty" db:"cracked_hashes"`
+	PresetJobName string `json:"preset_job_name,omitempty" db:"preset_job_name"`
+	HashlistName  string `json:"hashlist_name,omitempty" db:"hashlist_name"`
+	TotalHashes   int    `json:"total_hashes,omitempty" db:"total_hashes"`
+	CrackedHashes int    `json:"cracked_hashes,omitempty" db:"cracked_hashes"`
 }
 
 // JobTaskStatus represents the status of a job task
@@ -177,35 +177,35 @@ const (
 
 // JobTask represents a chunk of work assigned to an agent
 type JobTask struct {
-	ID               uuid.UUID     `json:"id" db:"id"`
-	JobExecutionID   uuid.UUID     `json:"job_execution_id" db:"job_execution_id"`
-	AgentID          *int          `json:"agent_id" db:"agent_id"`
-	Status           JobTaskStatus `json:"status" db:"status"`
-	Priority         int           `json:"priority" db:"priority"`                  // Task priority (inherited from job)
-	AttackCmd        string        `json:"attack_cmd" db:"attack_cmd"`              // Full hashcat command for this task
-	KeyspaceStart    int64         `json:"keyspace_start" db:"keyspace_start"`
-	KeyspaceEnd      int64         `json:"keyspace_end" db:"keyspace_end"`
+	ID                uuid.UUID     `json:"id" db:"id"`
+	JobExecutionID    uuid.UUID     `json:"job_execution_id" db:"job_execution_id"`
+	AgentID           *int          `json:"agent_id" db:"agent_id"`
+	Status            JobTaskStatus `json:"status" db:"status"`
+	Priority          int           `json:"priority" db:"priority"`     // Task priority (inherited from job)
+	AttackCmd         string        `json:"attack_cmd" db:"attack_cmd"` // Full hashcat command for this task
+	KeyspaceStart     int64         `json:"keyspace_start" db:"keyspace_start"`
+	KeyspaceEnd       int64         `json:"keyspace_end" db:"keyspace_end"`
 	KeyspaceProcessed int64         `json:"keyspace_processed" db:"keyspace_processed"`
-	ProgressPercent  float64       `json:"progress_percent" db:"progress_percent"` // Task progress percentage (0-100)
-	BenchmarkSpeed   *int64        `json:"benchmark_speed" db:"benchmark_speed"` // hashes per second
-	ChunkDuration    int           `json:"chunk_duration" db:"chunk_duration"`    // seconds
-	CreatedAt        time.Time     `json:"created_at" db:"created_at"`
-	AssignedAt       time.Time     `json:"assigned_at" db:"assigned_at"`
-	StartedAt        *time.Time    `json:"started_at" db:"started_at"`
-	CompletedAt      *time.Time    `json:"completed_at" db:"completed_at"`
-	UpdatedAt        time.Time     `json:"updated_at" db:"updated_at"`
-	LastCheckpoint   *time.Time    `json:"last_checkpoint" db:"last_checkpoint"`
-	ErrorMessage     *string       `json:"error_message" db:"error_message"`
-	
+	ProgressPercent   float64       `json:"progress_percent" db:"progress_percent"` // Task progress percentage (0-100)
+	BenchmarkSpeed    *int64        `json:"benchmark_speed" db:"benchmark_speed"`   // hashes per second
+	ChunkDuration     int           `json:"chunk_duration" db:"chunk_duration"`     // seconds
+	CreatedAt         time.Time     `json:"created_at" db:"created_at"`
+	AssignedAt        time.Time     `json:"assigned_at" db:"assigned_at"`
+	StartedAt         *time.Time    `json:"started_at" db:"started_at"`
+	CompletedAt       *time.Time    `json:"completed_at" db:"completed_at"`
+	UpdatedAt         time.Time     `json:"updated_at" db:"updated_at"`
+	LastCheckpoint    *time.Time    `json:"last_checkpoint" db:"last_checkpoint"`
+	ErrorMessage      *string       `json:"error_message" db:"error_message"`
+
 	// Enhanced fields for detailed chunk tracking
-	CrackCount      int    `json:"crack_count" db:"crack_count"`
-	DetailedStatus  string `json:"detailed_status" db:"detailed_status"`
-	RetryCount      int    `json:"retry_count" db:"retry_count"`
+	CrackCount     int    `json:"crack_count" db:"crack_count"`
+	DetailedStatus string `json:"detailed_status" db:"detailed_status"`
+	RetryCount     int    `json:"retry_count" db:"retry_count"`
 
 	// Rule splitting fields
-	RuleStartIndex  *int    `json:"rule_start_index" db:"rule_start_index"`   // Starting rule index for this chunk
-	RuleEndIndex    *int    `json:"rule_end_index" db:"rule_end_index"`       // Ending rule index for this chunk
-	RuleChunkPath   *string `json:"rule_chunk_path" db:"rule_chunk_path"`     // Path to temporary rule chunk file
+	RuleStartIndex  *int    `json:"rule_start_index" db:"rule_start_index"`     // Starting rule index for this chunk
+	RuleEndIndex    *int    `json:"rule_end_index" db:"rule_end_index"`         // Ending rule index for this chunk
+	RuleChunkPath   *string `json:"rule_chunk_path" db:"rule_chunk_path"`       // Path to temporary rule chunk file
 	IsRuleSplitTask bool    `json:"is_rule_split_task" db:"is_rule_split_task"` // Whether this is a rule-split task
 
 	// Populated fields from JOINs
@@ -237,9 +237,9 @@ const (
 type JobMetricType string
 
 const (
-	JobMetricTypeHashRate         JobMetricType = "hash_rate"
-	JobMetricTypeProgressPercent  JobMetricType = "progress_percentage"
-	JobMetricTypeCracksFound      JobMetricType = "cracks_found"
+	JobMetricTypeHashRate        JobMetricType = "hash_rate"
+	JobMetricTypeProgressPercent JobMetricType = "progress_percentage"
+	JobMetricTypeCracksFound     JobMetricType = "cracks_found"
 )
 
 // AggregationLevel represents the level of metric aggregation
@@ -277,83 +277,84 @@ type JobPerformanceMetric struct {
 
 // AgentHashlist tracks hashlist distribution to agents
 type AgentHashlist struct {
-	ID           uuid.UUID  `json:"id" db:"id"`
-	AgentID      int        `json:"agent_id" db:"agent_id"`
-	HashlistID   int64      `json:"hashlist_id" db:"hashlist_id"`
-	FilePath     string     `json:"file_path" db:"file_path"`
-	DownloadedAt time.Time  `json:"downloaded_at" db:"downloaded_at"`
-	LastUsedAt   time.Time  `json:"last_used_at" db:"last_used_at"`
-	FileHash     *string    `json:"file_hash" db:"file_hash"` // MD5 hash for verification
+	ID           uuid.UUID `json:"id" db:"id"`
+	AgentID      int       `json:"agent_id" db:"agent_id"`
+	HashlistID   int64     `json:"hashlist_id" db:"hashlist_id"`
+	FilePath     string    `json:"file_path" db:"file_path"`
+	DownloadedAt time.Time `json:"downloaded_at" db:"downloaded_at"`
+	LastUsedAt   time.Time `json:"last_used_at" db:"last_used_at"`
+	FileHash     *string   `json:"file_hash" db:"file_hash"` // MD5 hash for verification
 }
 
 // JobTaskAssignment contains the information sent to an agent to execute a task
 type JobTaskAssignment struct {
-	TaskID          uuid.UUID   `json:"task_id"`
-	JobExecutionID  uuid.UUID   `json:"job_execution_id"`
-	HashlistID      int64       `json:"hashlist_id"`
-	HashlistPath    string      `json:"hashlist_path"`    // Path where agent should download hashlist
-	AttackMode      AttackMode  `json:"attack_mode"`
-	HashType        int         `json:"hash_type"`
-	KeyspaceStart   int64       `json:"keyspace_start"`
-	KeyspaceEnd     int64       `json:"keyspace_end"`
-	WordlistPaths   []string    `json:"wordlist_paths"`   // Local paths on agent
-	RulePaths       []string    `json:"rule_paths"`       // Local paths on agent
-	Mask            string      `json:"mask,omitempty"`   // For mask-based attacks
-	BinaryPath      string      `json:"binary_path"`      // Hashcat binary to use
-	ChunkDuration   int         `json:"chunk_duration"`   // Expected duration in seconds
-	ReportInterval  int         `json:"report_interval"`  // Progress reporting interval
-	OutputFormat    string      `json:"output_format"`    // Hashcat output format
+	TaskID         uuid.UUID  `json:"task_id"`
+	JobExecutionID uuid.UUID  `json:"job_execution_id"`
+	HashlistID     int64      `json:"hashlist_id"`
+	HashlistPath   string     `json:"hashlist_path"` // Path where agent should download hashlist
+	AttackMode     AttackMode `json:"attack_mode"`
+	HashType       int        `json:"hash_type"`
+	KeyspaceStart  int64      `json:"keyspace_start"`
+	KeyspaceEnd    int64      `json:"keyspace_end"`
+	WordlistPaths  []string   `json:"wordlist_paths"`  // Local paths on agent
+	RulePaths      []string   `json:"rule_paths"`      // Local paths on agent
+	Mask           string     `json:"mask,omitempty"`  // For mask-based attacks
+	BinaryPath     string     `json:"binary_path"`     // Hashcat binary to use
+	ChunkDuration  int        `json:"chunk_duration"`  // Expected duration in seconds
+	ReportInterval int        `json:"report_interval"` // Progress reporting interval
+	OutputFormat   string     `json:"output_format"`   // Hashcat output format
 }
 
 // JobProgress represents a progress update from an agent
 type JobProgress struct {
-	TaskID            uuid.UUID      `json:"task_id"`
-	KeyspaceProcessed int64          `json:"keyspace_processed"` // Restore point (position in wordlist)
-	ProgressPercent   float64        `json:"progress_percent"`   // Actual progress percentage (0-100)
-	HashRate          int64          `json:"hash_rate"`         // Current hashes per second
-	Temperature       *float64       `json:"temperature"`       // GPU temperature
-	Utilization       *float64       `json:"utilization"`       // GPU utilization percentage
-	TimeRemaining     *int           `json:"time_remaining"`    // Estimated seconds remaining
-	CrackedCount      int            `json:"cracked_count"`     // Number of hashes cracked in this update
-	CrackedHashes     []CrackedHash  `json:"cracked_hashes"`    // Detailed crack information
-	Status            string         `json:"status,omitempty"`  // Task status (running, completed, failed)
-	ErrorMessage      string         `json:"error_message,omitempty"` // Error message if status is failed
+	TaskID            uuid.UUID     `json:"task_id"`
+	KeyspaceProcessed int64         `json:"keyspace_processed"`      // Restore point (position in wordlist)
+	ProgressPercent   float64       `json:"progress_percent"`        // Actual progress percentage (0-100)
+	HashRate          int64         `json:"hash_rate"`               // Current hashes per second
+	Temperature       *float64      `json:"temperature"`             // GPU temperature
+	Utilization       *float64      `json:"utilization"`             // GPU utilization percentage
+	TimeRemaining     *int          `json:"time_remaining"`          // Estimated seconds remaining
+	CrackedCount      int           `json:"cracked_count"`           // Number of hashes cracked in this update
+	CrackedHashes     []CrackedHash `json:"cracked_hashes"`          // Detailed crack information
+	Status            string        `json:"status,omitempty"`        // Task status (running, completed, failed)
+	ErrorMessage      string        `json:"error_message,omitempty"` // Error message if status is failed
 }
 
 // CrackedHash represents a cracked hash with all available information
 type CrackedHash struct {
-	Hash         string `json:"hash"`          // The original hash
-	Salt         string `json:"salt"`          // Salt (if applicable)
-	Plain        string `json:"plain"`         // Plain text password
-	HexPlain     string `json:"hex_plain"`     // Hex representation of plain
-	CrackPos     string `json:"crack_pos"`     // Position in keyspace where found
-	FullLine     string `json:"full_line"`     // Full output line for reference
+	Hash     string `json:"hash"`      // The original hash
+	Salt     string `json:"salt"`      // Salt (if applicable)
+	Plain    string `json:"plain"`     // Plain text password
+	HexPlain string `json:"hex_plain"` // Hex representation of plain
+	CrackPos string `json:"crack_pos"` // Position in keyspace where found
+	FullLine string `json:"full_line"` // Full output line for reference
 }
 
 // BenchmarkRequest represents a request to test speed for a specific job configuration
 // Now enhanced to include full job configuration for real-world speed testing
 type BenchmarkRequest struct {
-	RequestID      string     `json:"request_id"`
-	TaskID         uuid.UUID  `json:"task_id"`
-	HashlistID     int64      `json:"hashlist_id"`
-	HashlistPath   string     `json:"hashlist_path"`
-	AttackMode     AttackMode `json:"attack_mode"`
-	HashType       int        `json:"hash_type"`
-	WordlistPaths  []string   `json:"wordlist_paths"`
-	RulePaths      []string   `json:"rule_paths"`
-	Mask           string     `json:"mask,omitempty"`
-	BinaryPath     string     `json:"binary_path"`
-	TestDuration   int        `json:"test_duration"` // How long to run test (seconds)
+	RequestID       string     `json:"request_id"`
+	TaskID          uuid.UUID  `json:"task_id"`
+	HashlistID      int64      `json:"hashlist_id"`
+	HashlistPath    string     `json:"hashlist_path"`
+	AttackMode      AttackMode `json:"attack_mode"`
+	HashType        int        `json:"hash_type"`
+	WordlistPaths   []string   `json:"wordlist_paths"`
+	RulePaths       []string   `json:"rule_paths"`
+	Mask            string     `json:"mask,omitempty"`
+	BinaryPath      string     `json:"binary_path"`
+	TestDuration    int        `json:"test_duration"`    // How long to run test (seconds)
+	TimeoutDuration int        `json:"timeout_duration"` // Maximum time to wait for speedtest (seconds)
 }
 
 // BenchmarkResult represents the result of a speed test
 type BenchmarkResult struct {
-	RequestID      string        `json:"request_id"`
-	TaskID         uuid.UUID     `json:"task_id"`
-	TotalSpeed     int64         `json:"total_speed"` // Total H/s across all devices
-	DeviceSpeeds   []DeviceSpeed `json:"device_speeds"`
-	Success        bool          `json:"success"`
-	ErrorMessage   string        `json:"error_message,omitempty"`
+	RequestID    string        `json:"request_id"`
+	TaskID       uuid.UUID     `json:"task_id"`
+	TotalSpeed   int64         `json:"total_speed"` // Total H/s across all devices
+	DeviceSpeeds []DeviceSpeed `json:"device_speeds"`
+	Success      bool          `json:"success"`
+	ErrorMessage string        `json:"error_message,omitempty"`
 }
 
 // DeviceSpeed represents speed for a single device

@@ -69,7 +69,7 @@ func CORSMiddleware(next http.Handler) http.Handler {
 		}
 
 		// Set standard CORS headers
-		w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, X-API-Key, X-Agent-ID, Origin, Cookie, Cache-Control")
 		w.Header().Set("Access-Control-Allow-Credentials", "true")
 		w.Header().Set("Access-Control-Max-Age", "3600")
@@ -221,15 +221,15 @@ func SetupRoutes(r *mux.Router, sqlDB *sql.DB, tlsProvider tls.Provider, agentSe
 	SetupBinaryRoutes(jwtRouter, sqlDB, appConfig, agentService)
 
 	// Setup wordlist and rule routes
-	SetupWordlistRoutes(jwtRouter, sqlDB, appConfig, agentService)
-	SetupRuleRoutes(jwtRouter, sqlDB, appConfig, agentService)
+	SetupWordlistRoutes(jwtRouter, sqlDB, appConfig, agentService, presetJobService)
+	SetupRuleRoutes(jwtRouter, sqlDB, appConfig, agentService, presetJobService)
 
 	// Setup file download routes for agents
 	SetupFileDownloadRoutes(r, sqlDB, appConfig, agentService)
 
 	// Create jobs handler for hashlist routes
 	jobsHandler := CreateJobsHandler(database, appConfig.DataDir, binaryManager)
-	
+
 	// Register Hashlist Management Routes (includes user/agent hashlist, clients, hash types, hash search)
 	registerHashlistRoutes(jwtRouter, sqlDB, appConfig, agentService, jobsHandler)
 

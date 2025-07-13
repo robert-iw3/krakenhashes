@@ -20,7 +20,7 @@ import (
 )
 
 // SetupRuleRoutes configures all rule management related routes
-func SetupRuleRoutes(r *mux.Router, sqlDB *sql.DB, cfg *config.Config, agentService *services.AgentService) {
+func SetupRuleRoutes(r *mux.Router, sqlDB *sql.DB, cfg *config.Config, agentService *services.AgentService, presetJobService services.AdminPresetJobService) {
 	debug.Info("Setting up rule management routes")
 
 	// Initialize rule store and manager
@@ -102,6 +102,14 @@ func SetupRuleRoutes(r *mux.Router, sqlDB *sql.DB, cfg *config.Config, agentServ
 
 		// Call the handler with the updated context
 		handler.HandleAddRule(w, r.WithContext(ctx))
+		
+		// After successful upload, trigger keyspace recalculation for affected preset jobs
+		go func() {
+			// Log that recalculation should happen
+			debug.Info("Rule uploaded - keyspace recalculation should be triggered for affected preset jobs")
+			// TODO: Implement proper rule ID extraction and recalculation
+			// presetJobService.RecalculateKeyspacesForRule(context.Background(), ruleID)
+		}()
 	})
 
 	// Register upload endpoint with the custom handler - use Handle instead of HandleFunc

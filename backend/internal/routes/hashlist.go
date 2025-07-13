@@ -46,7 +46,7 @@ type hashlistHandler struct {
 	agentService       *services.AgentService
 	processor          *processor.HashlistDBProcessor
 	// Job-related dependencies
-	jobsHandler        interface {
+	jobsHandler interface {
 		GetAvailablePresetJobs(w http.ResponseWriter, r *http.Request)
 		CreateJobFromHashlist(w http.ResponseWriter, r *http.Request)
 	}

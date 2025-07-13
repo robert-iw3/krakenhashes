@@ -554,13 +554,13 @@ func (r *HashListRepository) SyncCrackedCount(ctx context.Context, hashlistID in
 	if err != nil {
 		return fmt.Errorf("failed to sync cracked count for hashlist %d: %w", hashlistID, err)
 	}
-	
+
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
 		debug.Warning("Could not get rows affected after syncing cracked count for hashlist %d: %v", hashlistID, err)
 	} else if rowsAffected == 0 {
 		return fmt.Errorf("hashlist %d not found for cracked count sync: %w", hashlistID, ErrNotFound)
 	}
-	
+
 	return nil
 }

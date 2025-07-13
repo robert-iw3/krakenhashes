@@ -11,13 +11,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/models"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/repository"
 	"github.com/ZerkerEOD/krakenhashes/backend/pkg/debug"
+	"github.com/google/uuid"
 )
-
-
 
 // HashlistSyncService handles hashlist distribution and cleanup for agents
 type HashlistSyncService struct {
@@ -98,7 +96,7 @@ func (s *HashlistSyncService) EnsureHashlistOnAgent(ctx context.Context, agentID
 				"error":       err.Error(),
 			})
 		}
-		
+
 		debug.Log("Agent already has current hashlist", map[string]interface{}{
 			"agent_id":    agentID,
 			"hashlist_id": hashlistID,
@@ -173,11 +171,11 @@ func (s *HashlistSyncService) GetHashlistSyncInfo(ctx context.Context, agentID i
 	}
 
 	debug.Log("Hashlist sync info", map[string]interface{}{
-		"agent_id":        agentID,
-		"hashlist_id":     hashlistID,
-		"hashlist_name":   hashlist.Name,
-		"sync_required":   syncRequired,
-		"file_size":       fileInfo.Size(),
+		"agent_id":      agentID,
+		"hashlist_id":   hashlistID,
+		"hashlist_name": hashlist.Name,
+		"sync_required": syncRequired,
+		"file_size":     fileInfo.Size(),
 	})
 
 	return result, nil
@@ -210,17 +208,17 @@ func (s *HashlistSyncService) CleanupOldHashlists(ctx context.Context) error {
 
 	if len(oldHashlists) > 0 {
 		debug.Log("Cleaned up old hashlists", map[string]interface{}{
-			"count":            len(oldHashlists),
-			"retention_hours":  retentionHours,
+			"count":           len(oldHashlists),
+			"retention_hours": retentionHours,
 		})
 
 		// Log details of cleaned up hashlists
 		for _, hashlist := range oldHashlists {
 			debug.Log("Cleaned up hashlist", map[string]interface{}{
-				"agent_id":      hashlist.AgentID,
-				"hashlist_id":   hashlist.HashlistID,
-				"file_path":     hashlist.FilePath,
-				"last_used_at":  hashlist.LastUsedAt,
+				"agent_id":     hashlist.AgentID,
+				"hashlist_id":  hashlist.HashlistID,
+				"file_path":    hashlist.FilePath,
+				"last_used_at": hashlist.LastUsedAt,
 			})
 		}
 	}
@@ -270,8 +268,8 @@ func (s *HashlistSyncService) GetAgentHashlists(ctx context.Context, agentID int
 // UpdateHashlistAfterCracks updates the hashlist file after hashes are cracked
 func (s *HashlistSyncService) UpdateHashlistAfterCracks(ctx context.Context, hashlistID int64, crackedHashes []string) error {
 	debug.Log("Updating hashlist after cracks", map[string]interface{}{
-		"hashlist_id":    hashlistID,
-		"cracked_count":  len(crackedHashes),
+		"hashlist_id":   hashlistID,
+		"cracked_count": len(crackedHashes),
 	})
 
 	// This would typically involve:
@@ -282,10 +280,10 @@ func (s *HashlistSyncService) UpdateHashlistAfterCracks(ctx context.Context, has
 	// 5. Marking all agent copies as outdated
 
 	hashlistFilePath := filepath.Join(s.dataDirectory, "hashlists", fmt.Sprintf("%d.hash", hashlistID))
-	
+
 	// For now, we'll just recalculate the file hash and mark all agent copies as outdated
 	// The actual file update logic would need to be implemented based on the hashlist format
-	
+
 	newFileHash, err := s.calculateFileHash(hashlistFilePath)
 	if err != nil {
 		return fmt.Errorf("failed to calculate updated file hash: %w", err)
@@ -311,9 +309,9 @@ func (s *HashlistSyncService) UpdateHashlistAfterCracks(ctx context.Context, has
 	}
 
 	debug.Log("Hashlist updated after cracks", map[string]interface{}{
-		"hashlist_id":      hashlistID,
-		"new_file_hash":    newFileHash,
-		"affected_agents":  len(distribution),
+		"hashlist_id":     hashlistID,
+		"new_file_hash":   newFileHash,
+		"affected_agents": len(distribution),
 	})
 
 	return nil
@@ -363,8 +361,8 @@ func (s *HashlistSyncService) calculateFileHash(filePath string) (string, error)
 // SyncJobFiles synchronizes all required files for a job task to an agent
 func (s *HashlistSyncService) SyncJobFiles(ctx context.Context, agentID int, task *models.JobTask) error {
 	debug.Log("Syncing job files to agent", map[string]interface{}{
-		"agent_id": agentID,
-		"task_id":  task.ID,
+		"agent_id":           agentID,
+		"task_id":            task.ID,
 		"is_rule_split_task": task.IsRuleSplitTask,
 	})
 
@@ -407,7 +405,7 @@ func (s *HashlistSyncService) syncRuleChunk(ctx context.Context, agentID int, ta
 	pathParts := strings.Split(*task.RuleChunkPath, string(filepath.Separator))
 	var jobDirName string
 	chunkFilename := filepath.Base(*task.RuleChunkPath)
-	
+
 	// Find the job directory name
 	for i, part := range pathParts {
 		if strings.HasPrefix(part, "job_") && i < len(pathParts)-1 {
@@ -415,7 +413,7 @@ func (s *HashlistSyncService) syncRuleChunk(ctx context.Context, agentID int, ta
 			break
 		}
 	}
-	
+
 	// Create target path with job directory to avoid conflicts
 	var targetPath string
 	if jobDirName != "" {
@@ -438,12 +436,12 @@ func (s *HashlistSyncService) syncRuleChunk(ctx context.Context, agentID int, ta
 	}
 
 	debug.Log("Rule chunk sync info", map[string]interface{}{
-		"agent_id":     agentID,
-		"source_path":  *task.RuleChunkPath,
-		"target_path":  targetPath,
-		"file_size":    fileInfo.Size(),
-		"file_hash":    fileHash,
-		"job_dir":      jobDirName,
+		"agent_id":    agentID,
+		"source_path": *task.RuleChunkPath,
+		"target_path": targetPath,
+		"file_size":   fileInfo.Size(),
+		"file_hash":   fileHash,
+		"job_dir":     jobDirName,
 	})
 
 	// The actual file transfer will be notified through the job assignment

@@ -3,6 +3,7 @@ package tls
 import (
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha1"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -279,6 +280,13 @@ func (p *SelfSignedProvider) generateNewCertificates() error {
 	}
 	p.caKey = caKey
 
+	// Generate subject key identifier for CA
+	caSubjectKeyID, err := generateSubjectKeyID(&caKey.PublicKey)
+	if err != nil {
+		debug.Error("Failed to generate CA subject key identifier: %v", err)
+		return fmt.Errorf("failed to generate CA subject key identifier: %w", err)
+	}
+
 	// Create CA certificate
 	debug.Debug("Creating CA certificate with validity: %d days", p.config.Validity.CA)
 	caTemplate := &x509.Certificate{
@@ -294,6 +302,8 @@ func (p *SelfSignedProvider) generateNewCertificates() error {
 		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign | x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
 		BasicConstraintsValid: true,
 		IsCA:                  true,
+		SubjectKeyId:          caSubjectKeyID,
+		AuthorityKeyId:        caSubjectKeyID, // Self-signed
 	}
 
 	// Self-sign the CA certificate
@@ -352,6 +362,13 @@ func (p *SelfSignedProvider) generateNewCertificates() error {
 		}
 	}
 
+	// Generate subject key identifier for server
+	serverSubjectKeyID, err := generateSubjectKeyID(&serverKey.PublicKey)
+	if err != nil {
+		debug.Error("Failed to generate server subject key identifier: %v", err)
+		return fmt.Errorf("failed to generate server subject key identifier: %w", err)
+	}
+
 	serverTemplate := &x509.Certificate{
 		SerialNumber: big.NewInt(2),
 		Subject: pkix.Name{
@@ -368,6 +385,8 @@ func (p *SelfSignedProvider) generateNewCertificates() error {
 		IsCA:                  false,
 		DNSNames:              dnsNames,
 		IPAddresses:           ipAddresses,
+		SubjectKeyId:          serverSubjectKeyID,
+		AuthorityKeyId:        caSubjectKeyID,
 	}
 
 	// Sign the server certificate with CA
@@ -393,6 +412,13 @@ func (p *SelfSignedProvider) generateNewCertificates() error {
 	}
 	p.clientKey = clientKey
 
+	// Generate subject key identifier for client
+	clientSubjectKeyID, err := generateSubjectKeyID(&clientKey.PublicKey)
+	if err != nil {
+		debug.Error("Failed to generate client subject key identifier: %v", err)
+		return fmt.Errorf("failed to generate client subject key identifier: %w", err)
+	}
+
 	clientTemplate := &x509.Certificate{
 		SerialNumber: big.NewInt(3),
 		Subject: pkix.Name{
@@ -407,6 +433,8 @@ func (p *SelfSignedProvider) generateNewCertificates() error {
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
 		BasicConstraintsValid: true,
 		IsCA:                  false,
+		SubjectKeyId:          clientSubjectKeyID,
+		AuthorityKeyId:        caSubjectKeyID,
 	}
 
 	// Sign the client certificate with CA
@@ -423,6 +451,20 @@ func (p *SelfSignedProvider) generateNewCertificates() error {
 		return fmt.Errorf("failed to parse client certificate: %w", err)
 	}
 
+	// Log certificate details for debugging
+	debug.Info("CA Certificate Details:")
+	debug.Info("  Subject: %s", p.ca.Subject.String())
+	debug.Info("  Validity: %s to %s", p.ca.NotBefore.Format(time.RFC3339), p.ca.NotAfter.Format(time.RFC3339))
+	debug.Info("  Serial: %s", p.ca.SerialNumber.String())
+	debug.Info("  Is CA: %v", p.ca.IsCA)
+	
+	debug.Info("Server Certificate Details:")
+	debug.Info("  Subject: %s", p.cert.Subject.String())
+	debug.Info("  Validity: %s to %s", p.cert.NotBefore.Format(time.RFC3339), p.cert.NotAfter.Format(time.RFC3339))
+	debug.Info("  DNS Names: %v", p.cert.DNSNames)
+	debug.Info("  IP Addresses: %v", p.cert.IPAddresses)
+	debug.Info("  Serial: %s", p.cert.SerialNumber.String())
+	
 	// Save all certificates
 	debug.Info("Saving certificates to disk")
 	if err := p.saveCertificates(); err != nil {
@@ -548,6 +590,24 @@ func fileExists(path string) bool {
 	return !os.IsNotExist(err)
 }
 
+// generateSubjectKeyID generates a subject key identifier from public key
+func generateSubjectKeyID(pub interface{}) ([]byte, error) {
+	var pubBytes []byte
+	switch pub := pub.(type) {
+	case *rsa.PublicKey:
+		pubDER, err := x509.MarshalPKIXPublicKey(pub)
+		if err != nil {
+			return nil, err
+		}
+		pubBytes = pubDER
+	default:
+		return nil, fmt.Errorf("unsupported public key type")
+	}
+	
+	hash := sha1.Sum(pubBytes)
+	return hash[:], nil
+}
+
 // ExportCACertificate exports the CA certificate in PEM format for browsers
 func (p *SelfSignedProvider) ExportCACertificate() ([]byte, error) {
 	debug.Info("Exporting CA certificate for browsers")
@@ -618,6 +678,16 @@ func (p *SelfSignedProvider) GenerateClientCertificate(commonName string) (*tls.
 		return nil, fmt.Errorf("failed to generate client key pair: %w", err)
 	}
 
+	// Generate subject key identifier for client
+	clientSubjectKeyID, err := generateSubjectKeyID(&clientKey.PublicKey)
+	if err != nil {
+		debug.Error("Failed to generate client subject key identifier: %v", err)
+		return nil, fmt.Errorf("failed to generate client subject key identifier: %w", err)
+	}
+
+	// Get CA subject key identifier
+	caSubjectKeyID := p.ca.SubjectKeyId
+
 	// Create client certificate template
 	debug.Debug("Creating client certificate template")
 	clientTemplate := &x509.Certificate{
@@ -634,6 +704,8 @@ func (p *SelfSignedProvider) GenerateClientCertificate(commonName string) (*tls.
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
 		BasicConstraintsValid: true,
 		IsCA:                  false,
+		SubjectKeyId:          clientSubjectKeyID,
+		AuthorityKeyId:        caSubjectKeyID,
 	}
 
 	// Sign the client certificate with CA

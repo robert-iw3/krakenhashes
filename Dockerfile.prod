@@ -1,0 +1,146 @@
+# Build stage for frontend
+FROM node:20-alpine AS frontend-builder
+WORKDIR /app/frontend
+# Install jq for version extraction
+RUN apk add --no-cache jq
+# Copy versions.json for build
+COPY versions.json ./
+# Install dependencies
+COPY frontend/package*.json ./
+RUN npm install --save-dev @babel/plugin-proposal-private-property-in-object && \
+    npm ci
+COPY frontend/ ./
+RUN VERSION=$(jq -r .frontend versions.json) && \
+    echo "REACT_APP_VERSION=$VERSION" >> .env && \
+    CI=false npm run build
+
+# Build stage for backend
+FROM golang:1.23.1-alpine AS backend-builder
+WORKDIR /app/backend
+# Install jq for version extraction
+RUN apk add --no-cache jq
+# Copy versions.json for build
+COPY versions.json ./
+COPY backend/go.* ./
+RUN go mod download
+COPY backend/ ./
+RUN VERSION=$(jq -r .backend versions.json) && \
+    CGO_ENABLED=0 GOOS=linux go build -ldflags="-X main.Version=$VERSION" -o krakenhashes ./cmd/server
+
+# Final stage - Debian without PostgreSQL
+FROM debian:12-slim
+
+# Install required packages (removed postgresql)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    nginx \
+    supervisor \
+    certbot \
+    python3-pip \
+    python3 \
+    logrotate \
+    tzdata \
+    jq \
+    locales \
+    openssl \
+    p7zip-full \
+    passwd \
+    libcap2-bin \
+    gosu \
+    curl \
+    ca-certificates \
+    netcat-openbsd \
+    && rm -rf /var/lib/apt/lists/* \
+    && locale-gen en_US.UTF-8
+
+# Install certbot-dns-cloudflare plugin
+RUN pip3 install --break-system-packages certbot-dns-cloudflare
+
+# Create krakenhashes user and group with default UID/GID 1000
+RUN groupadd -g 1000 krakenhashes && \
+    useradd -u 1000 -g krakenhashes -d /home/krakenhashes -s /bin/bash -m krakenhashes
+
+# Create necessary directories and set permissions
+RUN set -ex && \
+    # Add nginx user/group if doesn't exist (nginx package usually creates this)
+    groupadd -r nginx 2>/dev/null || true && \
+    useradd -r -g nginx -d /var/cache/nginx -s /sbin/nologin nginx 2>/dev/null || true && \
+    # Create base directories
+    mkdir -p /var/log/krakenhashes && \
+    mkdir -p /etc/krakenhashes && \
+    mkdir -p /usr/share/nginx/html && \
+    mkdir -p /var/cache/nginx && \
+    mkdir -p /var/run && \
+    # Create log directories with proper ownership
+    install -d -m 755 -o krakenhashes -g krakenhashes /var/log/krakenhashes/backend && \
+    install -d -m 755 -o root -g root /var/log/krakenhashes/frontend && \
+    install -d -m 755 -o nginx -g nginx /var/log/krakenhashes/nginx && \
+    # Create log files with proper ownership
+    install -m 644 -o krakenhashes -g krakenhashes /dev/null /var/log/krakenhashes/backend/backend.log && \
+    install -m 644 -o nginx -g nginx /dev/null /var/log/krakenhashes/nginx/access.log && \
+    install -m 644 -o root -g root /dev/null /var/log/krakenhashes/logrotate.log && \
+    install -m 644 -o root -g root /dev/null /var/log/krakenhashes/logrotate.err && \
+    install -m 644 -o root -g root /dev/null /var/log/krakenhashes/supervisord.log
+
+# Copy and protect versions.json in a non-persistent location
+COPY versions.json /usr/local/share/krakenhashes/versions.json
+RUN chown root:root /usr/local/share/krakenhashes/versions.json && \
+    chmod 644 /usr/local/share/krakenhashes/versions.json
+
+# Extract version for labels
+ARG VERSION
+RUN VERSION=$(jq -r .backend /usr/local/share/krakenhashes/versions.json)
+
+# Add version labels
+LABEL org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.description="KrakenHashes - Password Cracking Management System" \
+      org.opencontainers.image.source="https://github.com/ZerkerEOD/krakenhashes"
+
+# Copy Nginx configuration
+COPY docker/nginx/nginx.conf /etc/nginx/nginx.conf
+# Create templates directory for nginx configs
+RUN mkdir -p /etc/nginx/templates
+COPY docker/nginx/templates/ /etc/nginx/templates/
+
+# Copy logrotate configuration
+COPY docker/logrotate/krakenhashes /etc/logrotate.d/krakenhashes
+
+# Copy supervisord configuration (will need to update this)
+COPY docker/supervisord/supervisord-prod.conf /etc/supervisord.conf
+
+# Copy built artifacts
+COPY --from=frontend-builder /app/frontend/build /usr/share/nginx/html
+COPY --from=backend-builder /app/backend/krakenhashes /usr/local/bin/
+
+# Copy migrations
+COPY backend/db/migrations /usr/local/share/krakenhashes/migrations
+
+# Create data directory with proper ownership
+RUN mkdir -p /var/lib/krakenhashes && \
+    chown -R krakenhashes:krakenhashes /var/lib/krakenhashes && \
+    chmod 750 /var/lib/krakenhashes
+
+# Give nginx capability to bind to port 443
+RUN setcap 'cap_net_bind_service=+ep' /usr/sbin/nginx
+
+# Copy startup scripts
+COPY docker/scripts/entrypoint-prod.sh /entrypoint.sh
+COPY docker/scripts/certbot-renew.sh /usr/local/bin/certbot-renew.sh
+COPY docker/scripts/certbot-deploy-hook.sh /usr/local/bin/certbot-deploy-hook.sh
+RUN chmod +x /entrypoint.sh /usr/local/bin/certbot-renew.sh /usr/local/bin/certbot-deploy-hook.sh
+
+# Set up cron job for certbot renewal (twice daily)
+RUN echo "0 3,15 * * * /usr/local/bin/certbot-renew.sh >> /var/log/krakenhashes/certbot-renew.log 2>&1" | crontab -
+
+# Set environment variables
+ENV KH_IN_DOCKER=TRUE \
+    KH_HOST=0.0.0.0 \
+    LANG=en_US.UTF-8 \
+    LANGUAGE=en_US:en \
+    LC_ALL=en_US.UTF-8
+
+# Expose ports
+EXPOSE 443 1337 31337
+
+# Set entrypoint
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["supervisord", "-c", "/etc/supervisord.conf"]

@@ -26,7 +26,7 @@ func TestJobManager_Creation(t *testing.T) {
 		progressUpdates = append(progressUpdates, progress)
 	}
 
-	jobManager := NewJobManager(cfg, progressCallback)
+	jobManager := NewJobManager(cfg, progressCallback, nil)
 
 	assert.NotNil(t, jobManager)
 	assert.Equal(t, cfg, jobManager.config)
@@ -43,15 +43,15 @@ func TestJobManager_JobAssignmentParsing(t *testing.T) {
 		DataDirectory: tempDir,
 	}
 
-	jobManager := NewJobManager(cfg, nil)
+	jobManager := NewJobManager(cfg, nil, nil)
 
 	// Create test job assignment
 	assignment := JobTaskAssignment{
 		TaskID:          "test-task-123",
 		JobExecutionID:  "job-exec-456",
-		HashlistID:      "hashlist-789",
+		HashlistID:      789,
 		HashlistPath:    "hashlists/test.hash",
-		AttackMode:      AttackModeStraight,
+		AttackMode:      int(AttackModeStraight),
 		HashType:        0, // MD5
 		KeyspaceStart:   0,
 		KeyspaceEnd:     1000000,
@@ -112,13 +112,13 @@ func TestJobManager_BenchmarkCaching(t *testing.T) {
 		DataDirectory: tempDir,
 	}
 
-	jobManager := NewJobManager(cfg, nil)
+	jobManager := NewJobManager(cfg, nil, nil)
 
 	// Add a benchmark result manually
 	benchmarkKey := "0_0" // MD5, dictionary attack
 	result := &BenchmarkResult{
 		HashType:   0,
-		AttackMode: AttackModeStraight,
+		AttackMode: int(AttackModeStraight),
 		Speed:      1000000, // 1MH/s
 		Timestamp:  time.Now(),
 	}
@@ -139,7 +139,7 @@ func TestJobManager_ActiveJobsTracking(t *testing.T) {
 		DataDirectory: tempDir,
 	}
 
-	jobManager := NewJobManager(cfg, nil)
+	jobManager := NewJobManager(cfg, nil, nil)
 
 	// Initially no active jobs
 	activeJobs := jobManager.GetActiveJobs()
@@ -149,7 +149,7 @@ func TestJobManager_ActiveJobsTracking(t *testing.T) {
 	assignment := &JobTaskAssignment{
 		TaskID:         "test-task-123",
 		JobExecutionID: "job-exec-456",
-		AttackMode:     AttackModeStraight,
+		AttackMode:     int(AttackModeStraight),
 		HashType:       0,
 	}
 
@@ -182,9 +182,9 @@ func TestJobTaskAssignment_JSONMarshaling(t *testing.T) {
 	assignment := JobTaskAssignment{
 		TaskID:          "task-123",
 		JobExecutionID:  "job-456",
-		HashlistID:      "hashlist-789",
+		HashlistID:      789,
 		HashlistPath:    "hashlists/test.hash",
-		AttackMode:      AttackModeStraight,
+		AttackMode:      int(AttackModeStraight),
 		HashType:        0,
 		KeyspaceStart:   0,
 		KeyspaceEnd:     1000000,
@@ -232,7 +232,10 @@ func TestJobProgress_JSONMarshaling(t *testing.T) {
 		Utilization:       &utilization,
 		TimeRemaining:     &timeRemaining,
 		CrackedCount:      5,
-		CrackedHashes:     []string{"hash1:plain1", "hash2:plain2"},
+		CrackedHashes:     []CrackedHash{
+			{Hash: "hash1", Plain: "plain1", FullLine: "hash1:plain1"},
+			{Hash: "hash2", Plain: "plain2", FullLine: "hash2:plain2"},
+		},
 	}
 
 	// Test JSON marshaling

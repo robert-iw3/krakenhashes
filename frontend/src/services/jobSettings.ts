@@ -8,6 +8,7 @@ export interface JobExecutionSettings {
   max_concurrent_jobs_per_agent: number;
   job_interruption_enabled: boolean;
   benchmark_cache_duration_hours: number;
+  speedtest_timeout_seconds: number;
   enable_realtime_crack_notifications: boolean;
   metrics_retention_realtime_days: number;
   metrics_retention_daily_days: number;

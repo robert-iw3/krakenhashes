@@ -38,10 +38,10 @@ const (
 
 // MFA test codes
 const (
-	ValidTOTPSecret   = "JBSWY3DPEHPK3PXP" // Base32 encoded test secret
-	ValidEmailCode    = "123456"
-	ValidBackupCode   = "ABCD1234"
-	InvalidMFACode    = "000000"
+	ValidTOTPSecret = "JBSWY3DPEHPK3PXP" // Base32 encoded test secret
+	ValidEmailCode  = "123456"
+	ValidBackupCode = "ABCD1234"
+	InvalidMFACode  = "000000"
 )
 
 // Test JWT secret

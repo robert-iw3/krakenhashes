@@ -94,7 +94,11 @@ func CheckDependencies() ([]string, error) {
 	// Check common dependencies
 	for _, dep := range CommonDependencies {
 		if _, err := exec.LookPath(dep.Command); err != nil {
-			debug.Warning("Missing %s dependency: %s", dep.Optional, dep.Name)
+			if dep.Optional {
+				debug.Warning("Missing optional dependency: %s", dep.Name)
+			} else {
+				debug.Warning("Missing required dependency: %s", dep.Name)
+			}
 			if !dep.Optional {
 				missing = append(missing, dep.Name)
 			}

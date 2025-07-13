@@ -19,23 +19,21 @@ import (
 	"github.com/google/uuid"
 )
 
-
-
 // JobExecutionService handles job execution orchestration
 type JobExecutionService struct {
-	jobExecRepo       *repository.JobExecutionRepository
-	jobTaskRepo       *repository.JobTaskRepository
-	benchmarkRepo     *repository.BenchmarkRepository
-	agentHashlistRepo *repository.AgentHashlistRepository
-	agentRepo         *repository.AgentRepository
-	deviceRepo        *repository.AgentDeviceRepository
-	presetJobRepo     repository.PresetJobRepository
-	hashlistRepo      *repository.HashListRepository
+	jobExecRepo        *repository.JobExecutionRepository
+	jobTaskRepo        *repository.JobTaskRepository
+	benchmarkRepo      *repository.BenchmarkRepository
+	agentHashlistRepo  *repository.AgentHashlistRepository
+	agentRepo          *repository.AgentRepository
+	deviceRepo         *repository.AgentDeviceRepository
+	presetJobRepo      repository.PresetJobRepository
+	hashlistRepo       *repository.HashListRepository
 	systemSettingsRepo *repository.SystemSettingsRepository
-	fileRepo          *repository.FileRepository
-	binaryManager     binary.Manager
-	ruleSplitManager  *RuleSplitManager
-	
+	fileRepo           *repository.FileRepository
+	binaryManager      binary.Manager
+	ruleSplitManager   *RuleSplitManager
+
 	// Configuration paths
 	hashcatBinaryPath string
 	dataDirectory     string
@@ -61,11 +59,11 @@ func NewJobExecutionService(
 		"data_directory": dataDirectory,
 		"is_absolute":    filepath.IsAbs(dataDirectory),
 	})
-	
+
 	// Create rule split manager with temp directory
 	ruleSplitDir := filepath.Join(dataDirectory, "temp", "rule_chunks")
 	ruleSplitManager := NewRuleSplitManager(ruleSplitDir, fileRepo)
-	
+
 	return &JobExecutionService{
 		jobExecRepo:        jobExecRepo,
 		jobTaskRepo:        jobTaskRepo,
@@ -109,7 +107,7 @@ func (s *JobExecutionService) CreateJobExecution(ctx context.Context, presetJobI
 		totalKeyspace = presetJob.Keyspace
 		debug.Log("Using pre-calculated keyspace from preset job", map[string]interface{}{
 			"preset_job_id": presetJobID,
-			"keyspace": *totalKeyspace,
+			"keyspace":      *totalKeyspace,
 		})
 	} else {
 		// Fallback to calculating keyspace if not pre-calculated
@@ -145,7 +143,7 @@ func (s *JobExecutionService) CreateJobExecution(ctx context.Context, presetJobI
 		// Log the error but don't fail - we can still use the base keyspace
 		debug.Log("Failed to calculate effective keyspace", map[string]interface{}{
 			"job_execution_id": jobExecution.ID,
-			"error": err.Error(),
+			"error":            err.Error(),
 		})
 	}
 
@@ -155,17 +153,17 @@ func (s *JobExecutionService) CreateJobExecution(ctx context.Context, presetJobI
 		if err != nil {
 			debug.Log("Failed to determine rule splitting", map[string]interface{}{
 				"job_execution_id": jobExecution.ID,
-				"error": err.Error(),
+				"error":            err.Error(),
 			})
 		}
 	}
 
 	debug.Log("Job execution created", map[string]interface{}{
-		"job_execution_id": jobExecution.ID,
-		"total_keyspace":   totalKeyspace,
-		"effective_keyspace": jobExecution.EffectiveKeyspace,
+		"job_execution_id":      jobExecution.ID,
+		"total_keyspace":        totalKeyspace,
+		"effective_keyspace":    jobExecution.EffectiveKeyspace,
 		"multiplication_factor": jobExecution.MultiplicationFactor,
-		"uses_rule_splitting": jobExecution.UsesRuleSplitting,
+		"uses_rule_splitting":   jobExecution.UsesRuleSplitting,
 	})
 
 	return jobExecution, nil
@@ -173,10 +171,37 @@ func (s *JobExecutionService) CreateJobExecution(ctx context.Context, presetJobI
 
 // calculateKeyspace calculates the total keyspace for a job using hashcat --keyspace
 func (s *JobExecutionService) calculateKeyspace(ctx context.Context, presetJob *models.PresetJob, hashlist *models.HashList) (*int64, error) {
+	debug.Log("Starting keyspace calculation for job execution", map[string]interface{}{
+		"preset_job_id":     presetJob.ID,
+		"binary_version_id": presetJob.BinaryVersionID,
+		"attack_mode":       presetJob.AttackMode,
+		"hashlist_id":       hashlist.ID,
+		"data_directory":    s.dataDirectory,
+	})
+	
 	// Get the hashcat binary path from binary manager
 	hashcatPath, err := s.binaryManager.GetLocalBinaryPath(ctx, int64(presetJob.BinaryVersionID))
 	if err != nil {
-		return nil, fmt.Errorf("failed to get hashcat binary path: %w", err)
+		debug.Error("Failed to get hashcat binary path", map[string]interface{}{
+			"binary_version_id": presetJob.BinaryVersionID,
+			"error":            err.Error(),
+		})
+		return nil, fmt.Errorf("failed to get hashcat binary path for version %d: %w", presetJob.BinaryVersionID, err)
+	}
+	
+	// Verify the binary exists and is executable
+	if fileInfo, err := os.Stat(hashcatPath); err != nil {
+		debug.Error("Hashcat binary not found", map[string]interface{}{
+			"path":  hashcatPath,
+			"error": err.Error(),
+		})
+		return nil, fmt.Errorf("hashcat binary not found at %s: %w", hashcatPath, err)
+	} else {
+		debug.Log("Found hashcat binary", map[string]interface{}{
+			"path": hashcatPath,
+			"size": fileInfo.Size(),
+			"mode": fileInfo.Mode().String(),
+		})
 	}
 
 	// Build hashcat command for keyspace calculation
@@ -249,8 +274,8 @@ func (s *JobExecutionService) calculateKeyspace(ctx context.Context, presetJob *
 	args = append(args, "--keyspace")
 
 	debug.Log("Calculating keyspace", map[string]interface{}{
-		"command": hashcatPath,
-		"args":    args,
+		"command":     hashcatPath,
+		"args":        args,
 		"attack_mode": presetJob.AttackMode,
 	})
 
@@ -261,7 +286,7 @@ func (s *JobExecutionService) calculateKeyspace(ctx context.Context, presetJob *
 
 	startTime := time.Now()
 	cmd := exec.CommandContext(ctx, hashcatPath, args...)
-	
+
 	// Log current working directory for debugging
 	cwd, _ := os.Getwd()
 	debug.Log("Executing hashcat command", map[string]interface{}{
@@ -269,12 +294,12 @@ func (s *JobExecutionService) calculateKeyspace(ctx context.Context, presetJob *
 		"command":     hashcatPath,
 		"args":        args,
 	})
-	
+
 	// Capture stdout and stderr separately
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	
+
 	err = cmd.Run()
 	if err != nil {
 		// Log the full output for debugging
@@ -295,7 +320,7 @@ func (s *JobExecutionService) calculateKeyspace(ctx context.Context, presetJob *
 	if len(outputLines) == 0 {
 		return nil, fmt.Errorf("no output from hashcat keyspace calculation")
 	}
-	
+
 	// Get the last non-empty line
 	var keyspaceStr string
 	for i := len(outputLines) - 1; i >= 0; i-- {
@@ -305,7 +330,7 @@ func (s *JobExecutionService) calculateKeyspace(ctx context.Context, presetJob *
 			break
 		}
 	}
-	
+
 	keyspace, err := strconv.ParseInt(keyspaceStr, 10, 64)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse keyspace '%s': %w", keyspaceStr, err)
@@ -314,11 +339,11 @@ func (s *JobExecutionService) calculateKeyspace(ctx context.Context, presetJob *
 	if keyspace <= 0 {
 		return nil, fmt.Errorf("invalid keyspace: %d", keyspace)
 	}
-	
+
 	duration := time.Since(startTime)
 	debug.Log("Keyspace calculated successfully", map[string]interface{}{
-		"keyspace": keyspace,
-		"duration": duration.String(),
+		"keyspace":        keyspace,
+		"duration":        duration.String(),
 		"stderr_warnings": stderr.String(),
 	})
 
@@ -338,7 +363,7 @@ func (s *JobExecutionService) extractRuleFiles(ctx context.Context, presetJob *m
 		if err != nil {
 			debug.Log("Failed to resolve rule path", map[string]interface{}{
 				"rule_id": ruleIDStr,
-				"error": err.Error(),
+				"error":   err.Error(),
 			})
 			continue // Skip invalid rules
 		}
@@ -355,7 +380,7 @@ func (s *JobExecutionService) extractWordlists(ctx context.Context, presetJob *m
 		if err != nil {
 			debug.Log("Failed to resolve wordlist path", map[string]interface{}{
 				"wordlist_id": wordlistIDStr,
-				"error": err.Error(),
+				"error":       err.Error(),
 			})
 			continue // Skip invalid wordlists
 		}
@@ -419,23 +444,23 @@ func (s *JobExecutionService) calculateEffectiveKeyspace(ctx context.Context, jo
 	if job.TotalKeyspace == nil {
 		return fmt.Errorf("job has no total keyspace calculated")
 	}
-	
+
 	baseKeyspace := *job.TotalKeyspace
 	attackMode := s.parseAttackMode(presetJob)
-	
+
 	debug.Log("Calculating effective keyspace", map[string]interface{}{
-		"job_id": job.ID,
+		"job_id":        job.ID,
 		"base_keyspace": baseKeyspace,
-		"attack_mode": attackMode,
+		"attack_mode":   attackMode,
 	})
-	
+
 	switch models.AttackMode(attackMode) {
 	case models.AttackModeStraight: // Straight attack
 		ruleFiles, err := s.extractRuleFiles(ctx, presetJob)
 		if err != nil {
 			return fmt.Errorf("failed to extract rule files: %w", err)
 		}
-		
+
 		if len(ruleFiles) > 0 {
 			totalRules := 1
 			for _, ruleFile := range ruleFiles {
@@ -443,22 +468,22 @@ func (s *JobExecutionService) calculateEffectiveKeyspace(ctx context.Context, jo
 				if err != nil {
 					debug.Log("Failed to count rules in file", map[string]interface{}{
 						"rule_file": ruleFile,
-						"error": err.Error(),
+						"error":     err.Error(),
 					})
 					// Use 1 as fallback to avoid zeroing out the multiplication
 					count = 1
 				}
 				totalRules *= count
 			}
-			
+
 			job.BaseKeyspace = &baseKeyspace
 			job.MultiplicationFactor = totalRules
 			effectiveKeyspace := baseKeyspace * int64(totalRules)
 			job.EffectiveKeyspace = &effectiveKeyspace
-			
+
 			debug.Log("Straight attack with rules", map[string]interface{}{
-				"rule_files": len(ruleFiles),
-				"total_rules": totalRules,
+				"rule_files":         len(ruleFiles),
+				"total_rules":        totalRules,
 				"effective_keyspace": effectiveKeyspace,
 			})
 		} else {
@@ -467,37 +492,37 @@ func (s *JobExecutionService) calculateEffectiveKeyspace(ctx context.Context, jo
 			job.MultiplicationFactor = 1
 			job.EffectiveKeyspace = &baseKeyspace
 		}
-		
+
 	case models.AttackModeCombination: // Combination attack
 		wordlists, err := s.extractWordlists(ctx, presetJob)
 		if err != nil {
 			return fmt.Errorf("failed to extract wordlists: %w", err)
 		}
-		
+
 		if len(wordlists) >= 2 {
 			keyspace1, err := s.calculateWordlistKeyspace(ctx, wordlists[0])
 			if err != nil {
 				return fmt.Errorf("failed to calculate keyspace for wordlist 1: %w", err)
 			}
-			
+
 			keyspace2, err := s.calculateWordlistKeyspace(ctx, wordlists[1])
 			if err != nil {
 				return fmt.Errorf("failed to calculate keyspace for wordlist 2: %w", err)
 			}
-			
+
 			// The base keyspace from hashcat is the larger wordlist
 			job.BaseKeyspace = &baseKeyspace
-			
+
 			// Multiplication factor is the smaller wordlist
 			if keyspace1 > keyspace2 {
 				job.MultiplicationFactor = int(keyspace2)
 			} else {
 				job.MultiplicationFactor = int(keyspace1)
 			}
-			
+
 			effectiveKeyspace := keyspace1 * keyspace2
 			job.EffectiveKeyspace = &effectiveKeyspace
-			
+
 			debug.Log("Combination attack", map[string]interface{}{
 				"wordlist1_keyspace": keyspace1,
 				"wordlist2_keyspace": keyspace2,
@@ -509,13 +534,13 @@ func (s *JobExecutionService) calculateEffectiveKeyspace(ctx context.Context, jo
 			job.MultiplicationFactor = 1
 			job.EffectiveKeyspace = &baseKeyspace
 		}
-		
+
 	case models.AttackModeAssociation: // Association attack
 		ruleFiles, err := s.extractRuleFiles(ctx, presetJob)
 		if err != nil {
 			return fmt.Errorf("failed to extract rule files: %w", err)
 		}
-		
+
 		if len(ruleFiles) > 0 {
 			totalRules := 0
 			for _, ruleFile := range ruleFiles {
@@ -523,22 +548,22 @@ func (s *JobExecutionService) calculateEffectiveKeyspace(ctx context.Context, jo
 				if err != nil {
 					debug.Log("Failed to count rules in file", map[string]interface{}{
 						"rule_file": ruleFile,
-						"error": err.Error(),
+						"error":     err.Error(),
 					})
 					continue
 				}
 				totalRules += count
 			}
-			
+
 			baseKeyspace := int64(1)
 			job.BaseKeyspace = &baseKeyspace
 			job.MultiplicationFactor = totalRules
 			effectiveKeyspace := int64(totalRules)
 			job.EffectiveKeyspace = &effectiveKeyspace
-			
+
 			debug.Log("Association attack", map[string]interface{}{
-				"rule_files": len(ruleFiles),
-				"total_rules": totalRules,
+				"rule_files":         len(ruleFiles),
+				"total_rules":        totalRules,
 				"effective_keyspace": effectiveKeyspace,
 			})
 		} else {
@@ -547,18 +572,18 @@ func (s *JobExecutionService) calculateEffectiveKeyspace(ctx context.Context, jo
 			job.MultiplicationFactor = 1
 			job.EffectiveKeyspace = &baseKeyspace
 		}
-		
+
 	default: // Attacks 3, 6, 7 - hashcat calculates correctly
 		job.BaseKeyspace = &baseKeyspace
 		job.MultiplicationFactor = 1
 		job.EffectiveKeyspace = &baseKeyspace
-		
+
 		debug.Log("Standard attack mode", map[string]interface{}{
 			"attack_mode": attackMode,
-			"keyspace": baseKeyspace,
+			"keyspace":    baseKeyspace,
 		})
 	}
-	
+
 	// Update job in database
 	return s.jobExecRepo.UpdateKeyspaceInfo(ctx, job)
 }
@@ -619,17 +644,17 @@ func (s *JobExecutionService) determineRuleSplitting(ctx context.Context, job *m
 	// Estimate job duration at a reasonable speed (300MH/s)
 	estimatedSpeed := int64(300_000_000) // 300 MH/s
 	estimatedDuration := float64(*job.EffectiveKeyspace) / float64(estimatedSpeed)
-	
+
 	// Check if job duration exceeds threshold
 	if estimatedDuration > float64(chunkDuration)*threshold {
 		job.UsesRuleSplitting = true
-		
+
 		// Calculate number of splits needed
 		numSplits := int(estimatedDuration / float64(chunkDuration))
 		if numSplits < 2 {
 			numSplits = 2
 		}
-		
+
 		// Get max chunks setting
 		maxChunksSetting, err := s.systemSettingsRepo.GetSetting(ctx, "rule_split_max_chunks")
 		if err == nil && maxChunksSetting.Value != nil {
@@ -637,22 +662,22 @@ func (s *JobExecutionService) determineRuleSplitting(ctx context.Context, job *m
 				numSplits = maxChunks
 			}
 		}
-		
+
 		job.RuleSplitCount = numSplits
-		
+
 		debug.Log("Rule splitting enabled for job", map[string]interface{}{
-			"job_id": job.ID,
+			"job_id":             job.ID,
 			"effective_keyspace": *job.EffectiveKeyspace,
 			"estimated_duration": estimatedDuration,
-			"chunk_duration": chunkDuration,
-			"threshold": threshold,
-			"num_splits": numSplits,
+			"chunk_duration":     chunkDuration,
+			"threshold":          threshold,
+			"num_splits":         numSplits,
 		})
-		
+
 		// Update job in database
 		return s.jobExecRepo.UpdateKeyspaceInfo(ctx, job)
 	}
-	
+
 	return nil
 }
 
@@ -660,7 +685,7 @@ func (s *JobExecutionService) determineRuleSplitting(ctx context.Context, job *m
 // DEPRECATED: Use GetNextJobWithWork instead
 func (s *JobExecutionService) GetNextPendingJob(ctx context.Context) (*models.JobExecution, error) {
 	debug.Log("Getting next pending job", nil)
-	
+
 	pendingJobs, err := s.jobExecRepo.GetPendingJobs(ctx)
 	if err != nil {
 		debug.Log("Failed to get pending jobs from repository", map[string]interface{}{
@@ -680,12 +705,12 @@ func (s *JobExecutionService) GetNextPendingJob(ctx context.Context) (*models.Jo
 	// Jobs are already ordered by priority DESC, created_at ASC in the repository
 	nextJob := &pendingJobs[0]
 	debug.Log("Selected next job", map[string]interface{}{
-		"job_id":        nextJob.ID,
-		"priority":      nextJob.Priority,
-		"preset_job":    nextJob.PresetJobName,
-		"hashlist":      nextJob.HashlistName,
+		"job_id":     nextJob.ID,
+		"priority":   nextJob.Priority,
+		"preset_job": nextJob.PresetJobName,
+		"hashlist":   nextJob.HashlistName,
 	})
-	
+
 	return nextJob, nil
 }
 
@@ -693,7 +718,7 @@ func (s *JobExecutionService) GetNextPendingJob(ctx context.Context) (*models.Jo
 // Jobs are ordered by priority DESC, created_at ASC (FIFO for same priority)
 func (s *JobExecutionService) GetNextJobWithWork(ctx context.Context) (*models.JobExecutionWithWork, error) {
 	debug.Log("Getting next job with available work", nil)
-	
+
 	jobsWithWork, err := s.jobExecRepo.GetJobsWithPendingWork(ctx)
 	if err != nil {
 		debug.Log("Failed to get jobs with pending work", map[string]interface{}{
@@ -722,7 +747,7 @@ func (s *JobExecutionService) GetNextJobWithWork(ctx context.Context) (*models.J
 		"pending_work":  nextJob.PendingWork,
 		"status":        nextJob.Status,
 	})
-	
+
 	return nextJob, nil
 }
 
@@ -759,7 +784,7 @@ func (s *JobExecutionService) GetAvailableAgents(ctx context.Context) ([]models.
 			"status":     agent.Status,
 			"is_enabled": agent.IsEnabled,
 		})
-		
+
 		// Skip disabled agents (maintenance mode)
 		if !agent.IsEnabled {
 			debug.Log("Agent is disabled (maintenance mode), skipping", map[string]interface{}{
@@ -767,7 +792,7 @@ func (s *JobExecutionService) GetAvailableAgents(ctx context.Context) ([]models.
 			})
 			continue
 		}
-		
+
 		// Count active tasks for this agent
 		activeTasks, err := s.jobTaskRepo.GetActiveTasksByAgent(ctx, agent.ID)
 		if err != nil {
@@ -795,7 +820,7 @@ func (s *JobExecutionService) GetAvailableAgents(ctx context.Context) ([]models.
 				})
 				continue
 			}
-			
+
 			if hasEnabledDevices {
 				availableAgents = append(availableAgents, agent)
 			} else {
@@ -841,11 +866,11 @@ func (s *JobExecutionService) CreateJobTask(ctx context.Context, jobExecution *m
 	}
 
 	debug.Log("Job task created", map[string]interface{}{
-		"task_id":         jobTask.ID,
-		"agent_id":        agent.ID,
-		"keyspace_start":  keyspaceStart,
-		"keyspace_end":    keyspaceEnd,
-		"chunk_duration":  chunkDuration,
+		"task_id":        jobTask.ID,
+		"agent_id":       agent.ID,
+		"keyspace_start": keyspaceStart,
+		"keyspace_end":   keyspaceEnd,
+		"chunk_duration": chunkDuration,
 	})
 
 	return jobTask, nil
@@ -896,37 +921,37 @@ func (s *JobExecutionService) UpdateTaskProgress(ctx context.Context, taskID uui
 	if err != nil {
 		return fmt.Errorf("failed to update task progress: %w", err)
 	}
-	
+
 	// Get the task to find the job execution
 	task, err := s.jobTaskRepo.GetByID(ctx, taskID)
 	if err != nil {
 		return fmt.Errorf("failed to get task: %w", err)
 	}
-	
+
 	// Calculate total job progress
 	totalProgress, err := s.calculateTotalJobProgress(ctx, task.JobExecutionID)
 	if err != nil {
 		return fmt.Errorf("failed to calculate total job progress: %w", err)
 	}
-	
+
 	// Calculate overall progress percentage
 	overallPercent, err := s.calculateOverallProgressPercent(ctx, task.JobExecutionID)
 	if err != nil {
 		return fmt.Errorf("failed to calculate overall progress percent: %w", err)
 	}
-	
+
 	// Update job execution progress
 	err = s.UpdateJobProgress(ctx, task.JobExecutionID, totalProgress)
 	if err != nil {
 		return fmt.Errorf("failed to update job progress: %w", err)
 	}
-	
+
 	// Update overall progress percentage
 	err = s.UpdateJobProgressPercent(ctx, task.JobExecutionID, overallPercent)
 	if err != nil {
 		return fmt.Errorf("failed to update job progress percent: %w", err)
 	}
-	
+
 	return nil
 }
 
@@ -936,14 +961,14 @@ func (s *JobExecutionService) calculateTotalJobProgress(ctx context.Context, job
 	if err != nil {
 		return 0, fmt.Errorf("failed to get job execution: %w", err)
 	}
-	
+
 	tasks, err := s.jobTaskRepo.GetTasksByJobExecution(ctx, jobID)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get tasks: %w", err)
 	}
-	
+
 	var totalProgress int64
-	
+
 	if job.UsesRuleSplitting {
 		// Sum effective progress from all rule chunks
 		for _, task := range tasks {
@@ -969,15 +994,15 @@ func (s *JobExecutionService) calculateTotalJobProgress(ctx context.Context, job
 			totalProgress += task.KeyspaceProcessed
 		}
 	}
-	
+
 	debug.Log("Calculated total job progress", map[string]interface{}{
-		"job_id": jobID,
-		"total_progress": totalProgress,
-		"uses_rule_splitting": job.UsesRuleSplitting,
+		"job_id":                jobID,
+		"total_progress":        totalProgress,
+		"uses_rule_splitting":   job.UsesRuleSplitting,
 		"multiplication_factor": job.MultiplicationFactor,
-		"task_count": len(tasks),
+		"task_count":            len(tasks),
 	})
-	
+
 	return totalProgress, nil
 }
 
@@ -987,21 +1012,21 @@ func (s *JobExecutionService) calculateOverallProgressPercent(ctx context.Contex
 	if err != nil {
 		return 0, fmt.Errorf("failed to get job execution: %w", err)
 	}
-	
+
 	tasks, err := s.jobTaskRepo.GetTasksByJobExecution(ctx, jobID)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get tasks: %w", err)
 	}
-	
+
 	var overallPercent float64
 	completedTasks := 0
 	var activeTaskProgress float64
-	
+
 	if job.UsesRuleSplitting {
 		// For rule-based chunking: calculate based on completed chunks and active progress
 		hasActiveTask := false
 		totalRuleSplitTasks := 0
-		
+
 		for _, task := range tasks {
 			if task.IsRuleSplitTask {
 				totalRuleSplitTasks++
@@ -1014,7 +1039,7 @@ func (s *JobExecutionService) calculateOverallProgressPercent(ctx context.Contex
 				}
 			}
 		}
-		
+
 		// Calculate overall progress based on completed tasks + active task progress
 		if totalRuleSplitTasks > 0 {
 			completedPercent := (float64(completedTasks) / float64(totalRuleSplitTasks)) * 100
@@ -1025,16 +1050,16 @@ func (s *JobExecutionService) calculateOverallProgressPercent(ctx context.Contex
 			} else {
 				overallPercent = completedPercent
 			}
-			
+
 			debug.Log("Rule-split job progress calculation", map[string]interface{}{
-				"job_id": jobID,
+				"job_id":                 jobID,
 				"total_rule_split_tasks": totalRuleSplitTasks,
-				"total_tasks": len(tasks),
-				"completed_tasks": completedTasks,
-				"active_task_progress": activeTaskProgress,
-				"has_active_task": hasActiveTask,
-				"completed_percent": completedPercent,
-				"overall_percent": overallPercent,
+				"total_tasks":            len(tasks),
+				"completed_tasks":        completedTasks,
+				"active_task_progress":   activeTaskProgress,
+				"has_active_task":        hasActiveTask,
+				"completed_percent":      completedPercent,
+				"overall_percent":        overallPercent,
 			})
 		}
 	} else {
@@ -1053,19 +1078,19 @@ func (s *JobExecutionService) calculateOverallProgressPercent(ctx context.Contex
 			overallPercent = (float64(totalProcessed) / float64(*job.TotalKeyspace)) * 100
 		}
 	}
-	
+
 	// Ensure percentage is within bounds
 	if overallPercent > 100 {
 		overallPercent = 100
 	}
-	
+
 	debug.Log("Calculated overall job progress percentage", map[string]interface{}{
-		"job_id": jobID,
-		"overall_percent": overallPercent,
+		"job_id":              jobID,
+		"overall_percent":     overallPercent,
 		"uses_rule_splitting": job.UsesRuleSplitting,
-		"total_tasks": len(tasks),
+		"total_tasks":         len(tasks),
 	})
-	
+
 	return overallPercent, nil
 }
 
@@ -1075,7 +1100,7 @@ func (s *JobExecutionService) UpdateJobProgressPercent(ctx context.Context, jobE
 	if err != nil {
 		return fmt.Errorf("failed to update job progress percent: %w", err)
 	}
-	
+
 	return nil
 }
 
@@ -1138,28 +1163,29 @@ func (s *JobExecutionService) InterruptJob(ctx context.Context, jobExecutionID, 
 	}
 
 	debug.Log("Job interrupted", map[string]interface{}{
-		"job_execution_id":      jobExecutionID,
-		"interrupting_job_id":   interruptingJobID,
+		"job_execution_id":    jobExecutionID,
+		"interrupting_job_id": interruptingJobID,
 	})
 
 	return nil
 }
+
 // GetSystemSetting retrieves a system setting by key (public method for integration)
 func (s *JobExecutionService) GetSystemSetting(ctx context.Context, key string) (int, error) {
 	setting, err := s.systemSettingsRepo.GetSetting(ctx, key)
 	if err != nil {
 		return 0, err
 	}
-	
+
 	if setting.Value == nil {
 		return 0, fmt.Errorf("setting value is null")
 	}
-	
+
 	value, err := strconv.Atoi(*setting.Value)
 	if err != nil {
 		return 0, fmt.Errorf("invalid setting value: %w", err)
 	}
-	
+
 	return value, nil
 }
 
@@ -1196,13 +1222,13 @@ func (s *JobExecutionService) RetryFailedChunk(ctx context.Context, taskID uuid.
 			"retry_count": task.RetryCount,
 			"max_retries": maxRetryAttempts,
 		})
-		
+
 		// Mark as permanently failed
 		err = s.jobTaskRepo.UpdateTaskStatus(ctx, taskID, "failed", "failed")
 		if err != nil {
 			return fmt.Errorf("failed to mark task as permanently failed: %w", err)
 		}
-		
+
 		return fmt.Errorf("maximum retry attempts (%d) exceeded for task %s", maxRetryAttempts, taskID)
 	}
 
@@ -1249,10 +1275,10 @@ func (s *JobExecutionService) ProcessFailedChunks(ctx context.Context, jobExecut
 	}
 
 	debug.Log("Completed failed chunk processing", map[string]interface{}{
-		"job_execution_id":       jobExecutionID,
-		"retried_count":          retriedCount,
+		"job_execution_id":        jobExecutionID,
+		"retried_count":           retriedCount,
 		"permanent_failure_count": permanentFailureCount,
-		"total_failed_tasks":     len(failedTasks),
+		"total_failed_tasks":      len(failedTasks),
 	})
 
 	return nil
@@ -1277,9 +1303,9 @@ func (s *JobExecutionService) UpdateChunkStatusWithCracks(ctx context.Context, t
 // GetDynamicChunkSize calculates optimal chunk size based on agent benchmark data
 func (s *JobExecutionService) GetDynamicChunkSize(ctx context.Context, agentID int, attackMode int, hashType int, defaultDurationSeconds int) (int64, error) {
 	debug.Log("Calculating dynamic chunk size", map[string]interface{}{
-		"agent_id":        agentID,
-		"attack_mode":     attackMode,
-		"hash_type":       hashType,
+		"agent_id":         agentID,
+		"attack_mode":      attackMode,
+		"hash_type":        hashType,
 		"default_duration": defaultDurationSeconds,
 	})
 
@@ -1319,31 +1345,17 @@ func (s *JobExecutionService) resolveWordlistPath(ctx context.Context, wordlistI
 		if err != nil {
 			return "", fmt.Errorf("failed to get wordlists: %w", err)
 		}
-		
+
 		for _, wl := range wordlists {
 			if wl.ID == wordlistID {
-				// The Name field now contains category/filename (e.g., "general/crackstation.txt")
-				// We need to use just the filename without duplicating the category
-				filename := wl.Name
-				
-				// If the Name already contains the category path, extract just the filename
-				if strings.Contains(wl.Name, "/") {
-					filename = filepath.Base(wl.Name)
-				}
-				
-				// Build absolute path using the data directory
-				var path string
-				if wl.Category != "" {
-					path = filepath.Join(s.dataDirectory, "wordlists", wl.Category, filename)
-				} else {
-					path = filepath.Join(s.dataDirectory, "wordlists", filename)
-				}
-				
+				// The Name field already contains the relative path from wordlists directory
+				// e.g., "general/crackstation.txt"
+				path := filepath.Join(s.dataDirectory, "wordlists", wl.Name)
+
 				debug.Log("Resolved wordlist path", map[string]interface{}{
 					"wordlist_id": wordlistID,
 					"category":    wl.Category,
 					"name_field":  wl.Name,
-					"filename":    filename,
 					"path":        path,
 				})
 				return path, nil
@@ -1351,7 +1363,7 @@ func (s *JobExecutionService) resolveWordlistPath(ctx context.Context, wordlistI
 		}
 		return "", fmt.Errorf("wordlist with ID %d not found", wordlistID)
 	}
-	
+
 	// If not a numeric ID, treat as a filename
 	path := filepath.Join(s.dataDirectory, "wordlists", wordlistIDStr)
 	debug.Log("Resolved wordlist path from string", map[string]interface{}{
@@ -1370,31 +1382,17 @@ func (s *JobExecutionService) resolveRulePath(ctx context.Context, ruleIDStr str
 		if err != nil {
 			return "", fmt.Errorf("failed to get rules: %w", err)
 		}
-		
+
 		for _, rule := range rules {
 			if rule.ID == ruleID {
-				// The Name field now contains category/filename (e.g., "hashcat/wordlist_2f26acbe.txt")
-				// We need to use just the filename without duplicating the category
-				filename := rule.Name
-				
-				// If the Name already contains the category path, extract just the filename
-				if strings.Contains(rule.Name, "/") {
-					filename = filepath.Base(rule.Name)
-				}
-				
-				// Build absolute path using the data directory
-				var path string
-				if rule.Category != "" {
-					path = filepath.Join(s.dataDirectory, "rules", rule.Category, filename)
-				} else {
-					path = filepath.Join(s.dataDirectory, "rules", filename)
-				}
-				
+				// The Name field already contains the relative path from rules directory
+				// e.g., "hashcat/_nsakey.v2.dive.rule"
+				path := filepath.Join(s.dataDirectory, "rules", rule.Name)
+
 				debug.Log("Resolved rule path", map[string]interface{}{
 					"rule_id":    ruleID,
 					"category":   rule.Category,
 					"name_field": rule.Name,
-					"filename":   filename,
 					"path":       path,
 				})
 				return path, nil
@@ -1402,7 +1400,7 @@ func (s *JobExecutionService) resolveRulePath(ctx context.Context, ruleIDStr str
 		}
 		return "", fmt.Errorf("rule with ID %d not found", ruleID)
 	}
-	
+
 	// If not a numeric ID, treat as a filename
 	path := filepath.Join(s.dataDirectory, "rules", ruleIDStr)
 	debug.Log("Resolved rule path from string", map[string]interface{}{
@@ -1428,21 +1426,21 @@ func (s *JobExecutionService) analyzeForRuleSplitting(ctx context.Context, job *
 	if err != nil || ruleSplitEnabled.Value == nil || *ruleSplitEnabled.Value != "true" {
 		return &RuleSplitDecision{ShouldSplit: false}, nil
 	}
-	
+
 	// Only applicable for attacks 0 and 9 with rules
 	if job.AttackMode != models.AttackModeStraight && job.AttackMode != models.AttackModeAssociation {
 		return &RuleSplitDecision{ShouldSplit: false}, nil
 	}
-	
+
 	if job.MultiplicationFactor <= 1 {
 		return &RuleSplitDecision{ShouldSplit: false}, nil
 	}
-	
+
 	// For attack mode 9 (association), always split if rules present
 	if job.AttackMode == models.AttackModeAssociation {
 		return s.createSplitDecision(ctx, job, presetJob, benchmarkSpeed)
 	}
-	
+
 	// For attack mode 0, check thresholds
 	thresholdSetting, err := s.systemSettingsRepo.GetSetting(ctx, "rule_split_threshold")
 	if err != nil {
@@ -1456,7 +1454,7 @@ func (s *JobExecutionService) analyzeForRuleSplitting(ctx context.Context, job *
 			threshold = parsed
 		}
 	}
-	
+
 	minRulesSetting, err := s.systemSettingsRepo.GetSetting(ctx, "rule_split_min_rules")
 	if err != nil {
 		debug.Log("Failed to get min rules setting, using default", map[string]interface{}{
@@ -1469,7 +1467,7 @@ func (s *JobExecutionService) analyzeForRuleSplitting(ctx context.Context, job *
 			minRules = parsed
 		}
 	}
-	
+
 	// Calculate estimated time
 	effectiveKeyspace := job.EffectiveKeyspace
 	if effectiveKeyspace == nil {
@@ -1479,9 +1477,9 @@ func (s *JobExecutionService) analyzeForRuleSplitting(ctx context.Context, job *
 			return &RuleSplitDecision{ShouldSplit: false}, nil
 		}
 	}
-	
+
 	estimatedTimeSeconds := float64(*effectiveKeyspace) / benchmarkSpeed
-	
+
 	chunkDurationSetting, err := s.systemSettingsRepo.GetSetting(ctx, "default_chunk_duration")
 	if err != nil {
 		debug.Log("Failed to get chunk duration, using default", map[string]interface{}{
@@ -1494,21 +1492,21 @@ func (s *JobExecutionService) analyzeForRuleSplitting(ctx context.Context, job *
 			chunkDuration = parsed
 		}
 	}
-	
+
 	debug.Log("Analyzing for rule splitting", map[string]interface{}{
-		"job_id":            job.ID,
-		"attack_mode":       job.AttackMode,
+		"job_id":                job.ID,
+		"attack_mode":           job.AttackMode,
 		"multiplication_factor": job.MultiplicationFactor,
-		"estimated_time":    estimatedTimeSeconds,
-		"chunk_duration":    chunkDuration,
-		"threshold":         threshold,
-		"min_rules":         minRules,
+		"estimated_time":        estimatedTimeSeconds,
+		"chunk_duration":        chunkDuration,
+		"threshold":             threshold,
+		"min_rules":             minRules,
 	})
-	
-	if estimatedTimeSeconds > chunkDuration * threshold && job.MultiplicationFactor >= minRules {
+
+	if estimatedTimeSeconds > chunkDuration*threshold && job.MultiplicationFactor >= minRules {
 		return s.createSplitDecision(ctx, job, presetJob, benchmarkSpeed)
 	}
-	
+
 	return &RuleSplitDecision{ShouldSplit: false}, nil
 }
 
@@ -1519,21 +1517,21 @@ func (s *JobExecutionService) createSplitDecision(ctx context.Context, job *mode
 	if err != nil {
 		return nil, fmt.Errorf("failed to extract rule files: %w", err)
 	}
-	
+
 	if len(ruleFiles) == 0 {
 		return &RuleSplitDecision{ShouldSplit: false}, nil
 	}
-	
+
 	// For simplicity, we'll split the first rule file
 	// In a more advanced implementation, we might split multiple files
 	ruleFileToSplit := ruleFiles[0]
-	
+
 	// Count rules in the file
 	totalRules, err := s.ruleSplitManager.CountRules(ctx, ruleFileToSplit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to count rules: %w", err)
 	}
-	
+
 	// Get max chunks setting
 	maxChunksSetting, err := s.systemSettingsRepo.GetSetting(ctx, "rule_split_max_chunks")
 	if err != nil {
@@ -1547,7 +1545,7 @@ func (s *JobExecutionService) createSplitDecision(ctx context.Context, job *mode
 			maxChunks = parsed
 		}
 	}
-	
+
 	// Calculate optimal number of splits
 	chunkDurationSetting, err := s.systemSettingsRepo.GetSetting(ctx, "default_chunk_duration")
 	if err != nil {
@@ -1561,7 +1559,7 @@ func (s *JobExecutionService) createSplitDecision(ctx context.Context, job *mode
 			chunkDuration = parsed
 		}
 	}
-	
+
 	// Calculate how many rules we can process in chunk duration
 	var baseKeyspace int64
 	if job.BaseKeyspace != nil {
@@ -1571,13 +1569,13 @@ func (s *JobExecutionService) createSplitDecision(ctx context.Context, job *mode
 	} else {
 		baseKeyspace = 1000000 // Default fallback
 	}
-	
+
 	// Rules we can process in chunk duration = (benchmark_speed * chunk_duration) / base_keyspace
 	rulesPerChunkIdeal := int((benchmarkSpeed * chunkDuration) / float64(baseKeyspace))
 	if rulesPerChunkIdeal < 1 {
 		rulesPerChunkIdeal = 1
 	}
-	
+
 	// Calculate number of splits needed
 	numSplits := (totalRules + rulesPerChunkIdeal - 1) / rulesPerChunkIdeal
 	if numSplits > maxChunks {
@@ -1586,20 +1584,20 @@ func (s *JobExecutionService) createSplitDecision(ctx context.Context, job *mode
 	if numSplits < 1 {
 		numSplits = 1
 	}
-	
+
 	rulesPerChunk := (totalRules + numSplits - 1) / numSplits
-	
+
 	debug.Log("Created split decision", map[string]interface{}{
-		"job_id":               job.ID,
-		"rule_file":            ruleFileToSplit,
-		"total_rules":          totalRules,
-		"num_splits":           numSplits,
-		"rules_per_chunk":      rulesPerChunk,
+		"job_id":                job.ID,
+		"rule_file":             ruleFileToSplit,
+		"total_rules":           totalRules,
+		"num_splits":            numSplits,
+		"rules_per_chunk":       rulesPerChunk,
 		"rules_per_chunk_ideal": rulesPerChunkIdeal,
-		"base_keyspace":        baseKeyspace,
-		"benchmark_speed":      benchmarkSpeed,
+		"base_keyspace":         baseKeyspace,
+		"benchmark_speed":       benchmarkSpeed,
 	})
-	
+
 	return &RuleSplitDecision{
 		ShouldSplit:     true,
 		NumSplits:       numSplits,
@@ -1615,7 +1613,7 @@ func (s *JobExecutionService) createJobTasksWithRuleSplitting(ctx context.Contex
 		// Standard single task creation - this will be handled by JobChunkingService
 		return nil
 	}
-	
+
 	// Split the rule file
 	// Convert UUID to int64 for the job ID parameter
 	jobIDInt := int64(job.ID[0])<<56 | int64(job.ID[1])<<48 | int64(job.ID[2])<<40 | int64(job.ID[3])<<32 |
@@ -1624,7 +1622,7 @@ func (s *JobExecutionService) createJobTasksWithRuleSplitting(ctx context.Contex
 	if err != nil {
 		return fmt.Errorf("failed to split rules: %w", err)
 	}
-	
+
 	// Update job metadata
 	job.UsesRuleSplitting = true
 	job.RuleSplitCount = len(chunks)
@@ -1633,28 +1631,28 @@ func (s *JobExecutionService) createJobTasksWithRuleSplitting(ctx context.Contex
 		s.ruleSplitManager.CleanupJobChunks(jobIDInt)
 		return fmt.Errorf("failed to update job metadata: %w", err)
 	}
-	
+
 	// Get the attack command template from preset job
 	attackCmd, err := s.buildAttackCommand(ctx, presetJob, job)
 	if err != nil {
 		s.ruleSplitManager.CleanupJobChunks(jobIDInt)
 		return fmt.Errorf("failed to build attack command: %w", err)
 	}
-	
+
 	// Get chunk duration setting
 	chunkDurationSetting, err := s.systemSettingsRepo.GetSetting(ctx, "default_chunk_duration")
 	if err != nil {
 		s.ruleSplitManager.CleanupJobChunks(jobIDInt)
 		return fmt.Errorf("failed to get chunk duration setting: %w", err)
 	}
-	
+
 	chunkDuration := 1200 // Default 20 minutes
 	if chunkDurationSetting.Value != nil {
 		if parsed, parseErr := strconv.Atoi(*chunkDurationSetting.Value); parseErr == nil {
 			chunkDuration = parsed
 		}
 	}
-	
+
 	// Create task for each chunk
 	var baseKeyspace int64
 	if job.BaseKeyspace != nil {
@@ -1664,40 +1662,40 @@ func (s *JobExecutionService) createJobTasksWithRuleSplitting(ctx context.Contex
 	} else {
 		baseKeyspace = 0
 	}
-	
+
 	for i, chunk := range chunks {
 		task := &models.JobTask{
 			JobExecutionID:  job.ID,
 			Status:          models.JobTaskStatusPending,
 			Priority:        job.Priority,
-			KeyspaceStart:   0,                  // Full wordlist
-			KeyspaceEnd:     baseKeyspace,       // Full wordlist
+			KeyspaceStart:   0,            // Full wordlist
+			KeyspaceEnd:     baseKeyspace, // Full wordlist
 			RuleStartIndex:  &chunk.StartIndex,
 			RuleEndIndex:    &chunk.EndIndex,
 			RuleChunkPath:   &chunk.Path,
 			IsRuleSplitTask: true,
 			ChunkDuration:   chunkDuration,
 		}
-		
+
 		// Modify attack command to use chunk file
 		task.AttackCmd = strings.Replace(attackCmd, decision.RuleFileToSplit, chunk.Path, 1)
-		
+
 		if err := s.jobTaskRepo.Create(ctx, task); err != nil {
 			// Cleanup on error
 			s.ruleSplitManager.CleanupJobChunks(jobIDInt)
 			return fmt.Errorf("failed to create task %d: %w", i, err)
 		}
-		
+
 		debug.Log("Created rule split task", map[string]interface{}{
-			"task_id":        task.ID,
-			"job_id":         job.ID,
-			"chunk_index":    i,
-			"rule_start":     chunk.StartIndex,
-			"rule_end":       chunk.EndIndex,
-			"chunk_path":     chunk.Path,
+			"task_id":     task.ID,
+			"job_id":      job.ID,
+			"chunk_index": i,
+			"rule_start":  chunk.StartIndex,
+			"rule_end":    chunk.EndIndex,
+			"chunk_path":  chunk.Path,
 		})
 	}
-	
+
 	return nil
 }
 
@@ -1708,26 +1706,26 @@ func (s *JobExecutionService) buildAttackCommand(ctx context.Context, presetJob 
 	if err != nil {
 		return "", fmt.Errorf("failed to get hashcat binary path: %w", err)
 	}
-	
+
 	// Get the hashlist path
 	hashlist, err := s.hashlistRepo.GetByID(ctx, job.HashlistID)
 	if err != nil {
 		return "", fmt.Errorf("failed to get hashlist: %w", err)
 	}
 	hashlistPath := filepath.Join(s.dataDirectory, "hashlists", hashlist.FilePath)
-	
+
 	// Build the command
 	var args []string
-	
+
 	// Attack mode
 	args = append(args, "-a", strconv.Itoa(int(presetJob.AttackMode)))
-	
+
 	// Hash type
 	args = append(args, "-m", strconv.Itoa(presetJob.HashType))
-	
+
 	// Hashlist
 	args = append(args, hashlistPath)
-	
+
 	// Attack-specific arguments
 	switch presetJob.AttackMode {
 	case models.AttackModeStraight, models.AttackModeAssociation:
@@ -1747,7 +1745,7 @@ func (s *JobExecutionService) buildAttackCommand(ctx context.Context, presetJob 
 			}
 			args = append(args, "-r", rulePath)
 		}
-		
+
 	case models.AttackModeCombination:
 		// Add two wordlists
 		if len(presetJob.WordlistIDs) >= 2 {
@@ -1761,13 +1759,13 @@ func (s *JobExecutionService) buildAttackCommand(ctx context.Context, presetJob 
 			}
 			args = append(args, wordlist1Path, wordlist2Path)
 		}
-		
+
 	case models.AttackModeBruteForce:
 		// Add mask
 		if presetJob.Mask != "" {
 			args = append(args, presetJob.Mask)
 		}
-		
+
 	case models.AttackModeHybridWordlistMask:
 		// Add wordlist and mask
 		if len(presetJob.WordlistIDs) > 0 && presetJob.Mask != "" {
@@ -1777,7 +1775,7 @@ func (s *JobExecutionService) buildAttackCommand(ctx context.Context, presetJob 
 			}
 			args = append(args, wordlistPath, presetJob.Mask)
 		}
-		
+
 	case models.AttackModeHybridMaskWordlist:
 		// Add mask and wordlist
 		if presetJob.Mask != "" && len(presetJob.WordlistIDs) > 0 {
@@ -1788,13 +1786,13 @@ func (s *JobExecutionService) buildAttackCommand(ctx context.Context, presetJob 
 			args = append(args, presetJob.Mask, wordlistPath)
 		}
 	}
-	
+
 	// Add any additional arguments
 	if presetJob.AdditionalArgs != nil && *presetJob.AdditionalArgs != "" {
 		additionalArgs := strings.Fields(*presetJob.AdditionalArgs)
 		args = append(args, additionalArgs...)
 	}
-	
+
 	// Join command
 	fullCmd := hashcatPath + " " + strings.Join(args, " ")
 	return fullCmd, nil
@@ -1899,11 +1897,11 @@ func (s *JobExecutionService) HandleTaskCompletion(ctx context.Context, taskID u
 // InitializeRuleSplitting initializes rule splitting for a job
 func (s *JobExecutionService) InitializeRuleSplitting(ctx context.Context, job *models.JobExecution) error {
 	debug.Log("InitializeRuleSplitting called", map[string]interface{}{
-		"job_id": job.ID,
+		"job_id":              job.ID,
 		"uses_rule_splitting": job.UsesRuleSplitting,
-		"rule_split_count": job.RuleSplitCount,
+		"rule_split_count":    job.RuleSplitCount,
 	})
-	
+
 	if !job.UsesRuleSplitting {
 		return fmt.Errorf("job does not use rule splitting")
 	}
@@ -1913,10 +1911,10 @@ func (s *JobExecutionService) InitializeRuleSplitting(ctx context.Context, job *
 	if err != nil {
 		return fmt.Errorf("failed to get preset job: %w", err)
 	}
-	
+
 	debug.Log("Got preset job", map[string]interface{}{
 		"preset_job_id": presetJob.ID,
-		"rule_ids": presetJob.RuleIDs,
+		"rule_ids":      presetJob.RuleIDs,
 	})
 
 	// Get the rule files
@@ -1924,7 +1922,7 @@ func (s *JobExecutionService) InitializeRuleSplitting(ctx context.Context, job *
 	if err != nil {
 		return fmt.Errorf("failed to extract rule files: %w", err)
 	}
-	
+
 	debug.Log("Extracted rule files", map[string]interface{}{
 		"rule_count": len(ruleFiles),
 		"rule_files": ruleFiles,
@@ -1944,16 +1942,16 @@ func (s *JobExecutionService) InitializeRuleSplitting(ctx context.Context, job *
 
 	// Split the rule file
 	debug.Log("Splitting rule file", map[string]interface{}{
-		"rule_file": ruleFileToSplit,
+		"rule_file":  ruleFileToSplit,
 		"num_splits": job.RuleSplitCount,
 		"job_id_int": jobIDInt,
 	})
-	
+
 	chunks, err := s.ruleSplitManager.SplitRuleFile(ctx, jobIDInt, ruleFileToSplit, job.RuleSplitCount)
 	if err != nil {
 		return fmt.Errorf("failed to split rule file: %w", err)
 	}
-	
+
 	debug.Log("Rule file split successfully", map[string]interface{}{
 		"num_chunks": len(chunks),
 	})
@@ -1962,25 +1960,25 @@ func (s *JobExecutionService) InitializeRuleSplitting(ctx context.Context, job *
 	for i, chunk := range chunks {
 		// Calculate keyspace for this chunk
 		baseKeyspace := *job.BaseKeyspace
-		
+
 		task := &models.JobTask{
-			ID:              uuid.New(),
-			JobExecutionID:  job.ID,
-			Status:          models.JobTaskStatusPending,
-			Priority:        job.Priority,
-			KeyspaceStart:   int64(i) * baseKeyspace, // Use chunk index as multiplier
-			KeyspaceEnd:     int64(i+1) * baseKeyspace,
+			ID:                uuid.New(),
+			JobExecutionID:    job.ID,
+			Status:            models.JobTaskStatusPending,
+			Priority:          job.Priority,
+			KeyspaceStart:     int64(i) * baseKeyspace, // Use chunk index as multiplier
+			KeyspaceEnd:       int64(i+1) * baseKeyspace,
 			KeyspaceProcessed: 0,
-			ChunkDuration:   300, // 5 minutes per chunk
-			CreatedAt:       time.Now(),
-			UpdatedAt:       time.Now(),
+			ChunkDuration:     300, // 5 minutes per chunk
+			CreatedAt:         time.Now(),
+			UpdatedAt:         time.Now(),
 			// Rule splitting fields
 			RuleStartIndex:  &chunk.StartIndex,
 			RuleEndIndex:    &chunk.EndIndex,
 			RuleChunkPath:   &chunk.Path,
 			IsRuleSplitTask: true,
 		}
-		
+
 		// Create the task
 		err = s.jobTaskRepo.Create(ctx, task)
 		if err != nil {
@@ -1991,7 +1989,7 @@ func (s *JobExecutionService) InitializeRuleSplitting(ctx context.Context, job *
 	}
 
 	debug.Log("Created rule split tasks", map[string]interface{}{
-		"job_id": job.ID,
+		"job_id":    job.ID,
 		"num_tasks": len(chunks),
 		"rule_file": ruleFileToSplit,
 	})

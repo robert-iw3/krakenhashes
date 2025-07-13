@@ -67,13 +67,13 @@ func TestTokenManagement(t *testing.T) {
 	t.Run("concurrent token operations", func(t *testing.T) {
 		// Test that multiple tokens can exist for the same user
 		tokens := make([]string, 3)
-		
+
 		// Create multiple tokens
 		for i := range tokens {
 			token, err := handler.generateAuthToken(testUser)
 			require.NoError(t, err)
 			tokens[i] = token
-			
+
 			err = db.StoreToken(testUser.ID.String(), token)
 			require.NoError(t, err)
 		}

@@ -446,7 +446,7 @@ func generateExpiredToken(t *testing.T, userID, role string) string {
 	// Generate token that expires immediately
 	token, err := jwt.GenerateToken(userID, role)
 	require.NoError(t, err)
-	
+
 	// In a real implementation, you'd modify the expiration
 	// For this test, we'll simulate an expired token scenario
 	return token

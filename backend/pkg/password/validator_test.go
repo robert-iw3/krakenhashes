@@ -259,21 +259,21 @@ func TestPasswordComplexityCombinations(t *testing.T) {
 		hasNumber  bool
 		hasSpecial bool
 	}{
-		"UPPERCASE":        {true, false, false, false},
-		"lowercase":        {false, true, false, false},
-		"12345678":         {false, false, true, false},
-		"!@#$%^&*":         {false, false, false, true},
-		"UPPER123":         {true, false, true, false},
-		"lower123":         {false, true, true, false},
-		"UPPER!@#":         {true, false, false, true},
-		"lower!@#":         {false, true, false, true},
-		"123!@#$%":         {false, false, true, true},
-		"UpperLower":       {true, true, false, false},
-		"UpperLower123":    {true, true, true, false},
-		"UpperLower!":      {true, true, false, true},
-		"UPPER123!":        {true, false, true, true},
-		"lower123!":        {false, true, true, true},
-		"UpperLower123!":   {true, true, true, true},
+		"UPPERCASE":      {true, false, false, false},
+		"lowercase":      {false, true, false, false},
+		"12345678":       {false, false, true, false},
+		"!@#$%^&*":       {false, false, false, true},
+		"UPPER123":       {true, false, true, false},
+		"lower123":       {false, true, true, false},
+		"UPPER!@#":       {true, false, false, true},
+		"lower!@#":       {false, true, false, true},
+		"123!@#$%":       {false, false, true, true},
+		"UpperLower":     {true, true, false, false},
+		"UpperLower123":  {true, true, true, false},
+		"UpperLower!":    {true, true, false, true},
+		"UPPER123!":      {true, false, true, true},
+		"lower123!":      {false, true, true, true},
+		"UpperLower123!": {true, true, true, true},
 	}
 
 	for password, expected := range passwords {
@@ -330,9 +330,9 @@ func TestPasswordComplexityCombinations(t *testing.T) {
 func TestUnicodeCharacterClassification(t *testing.T) {
 	// Test that various unicode characters are properly classified
 	tests := []struct {
-		password string
-		settings *models.AuthSettings
-		shouldPass bool
+		password    string
+		settings    *models.AuthSettings
+		shouldPass  bool
 		description string
 	}{
 		{
@@ -344,7 +344,7 @@ func TestUnicodeCharacterClassification(t *testing.T) {
 				RequireNumbers:      true,
 				RequireSpecialChars: true,
 			},
-			shouldPass: true,
+			shouldPass:  true,
 			description: "Euro symbol should count as special character",
 		},
 		{
@@ -356,7 +356,7 @@ func TestUnicodeCharacterClassification(t *testing.T) {
 				RequireNumbers:      true,
 				RequireSpecialChars: false,
 			},
-			shouldPass: true,
+			shouldPass:  true,
 			description: "Chinese characters should be allowed",
 		},
 		{
@@ -368,7 +368,7 @@ func TestUnicodeCharacterClassification(t *testing.T) {
 				RequireNumbers:      true,
 				RequireSpecialChars: true,
 			},
-			shouldPass: true,
+			shouldPass:  true,
 			description: "Superscript numbers should count as numbers",
 		},
 	}

@@ -33,6 +33,10 @@ const (
 	
 	// PID file for tracking hashcat processes
 	hashcatPIDFile = "/tmp/krakenhashes-hashcat.pid"
+	
+	// Retry configuration for "already running" errors
+	MaxHashcatRetries = 5
+	HashcatRetryDelay = 5 * time.Second
 )
 
 // JobTaskAssignment represents a task assignment from the backend
@@ -253,6 +257,14 @@ func (e *HashcatExecutor) SetAgentExtraParams(params string) {
 
 // ExecuteTask starts execution of a hashcat task
 func (e *HashcatExecutor) ExecuteTask(ctx context.Context, assignment *JobTaskAssignment) (*HashcatProcess, error) {
+	// For now, directly call executeTaskInternal without retry logic
+	// The retry logic will be handled by the job manager monitoring the process
+	// and detecting AlreadyRunningError failures
+	return e.executeTaskInternal(ctx, assignment)
+}
+
+// executeTaskInternal is the internal implementation of ExecuteTask without retry logic
+func (e *HashcatExecutor) executeTaskInternal(ctx context.Context, assignment *JobTaskAssignment) (*HashcatProcess, error) {
 	e.mutex.Lock()
 	defer e.mutex.Unlock()
 
@@ -261,11 +273,8 @@ func (e *HashcatExecutor) ExecuteTask(ctx context.Context, assignment *JobTaskAs
 		return nil, fmt.Errorf("task %s is already running", assignment.TaskID)
 	}
 	
-	// Check for and clean up any existing hashcat processes
-	if err := e.checkAndKillExistingHashcat(); err != nil {
-		debug.Warning("Error checking for existing hashcat processes: %v", err)
-		// Continue anyway, as the new process might still work
-	}
+	// Don't kill existing processes - we'll let hashcat gracefully shut down
+	// and retry if needed
 
 	// Create process context with cancellation
 	processCtx, cancel := context.WithCancel(ctx)
@@ -476,6 +485,10 @@ func (e *HashcatExecutor) buildHashcatCommandWithOptions(assignment *JobTaskAssi
 	
 	// Create command
 	cmd := exec.Command(hashcatBinary, args...)
+	
+	// Set working directory to the hashcat binary directory so it can find relative dependencies like OpenCL
+	cmd.Dir = filepath.Dir(hashcatBinary)
+	debug.Info("Setting working directory to: %s", cmd.Dir)
 
 	return cmd, statusFile, potFile, outputFile, nil
 }
@@ -729,15 +742,25 @@ func (e *HashcatExecutor) runHashcatProcess(ctx context.Context, process *Hashca
 		lineCount := 0
 		
 		alreadyRunningDetected := false
+		var alreadyRunningPID string
 		for scanner.Scan() {
 			line := scanner.Text()
 			lineCount++
 			debug.Debug("[Hashcat stderr] %s", line)
 			
 			// Check for "Already an instance" error
+			// Example: "Already an instance C:\Users\Aaron Sullivan\Desktop\KrakenHashes\data\binaries\2\hashcat.exe running on pid 50444"
 			if strings.Contains(line, "Already an instance") && strings.Contains(line, "running on pid") {
 				alreadyRunningDetected = true
-				debug.Error("Detected 'Already an instance' error for task %s", process.TaskID)
+				
+				// Try to extract the PID
+				pidMatch := regexp.MustCompile(`running on pid (\d+)`).FindStringSubmatch(line)
+				if len(pidMatch) > 1 {
+					alreadyRunningPID = pidMatch[1]
+					debug.Error("Detected 'Already an instance' error for task %s - existing PID: %s", process.TaskID, alreadyRunningPID)
+				} else {
+					debug.Error("Detected 'Already an instance' error for task %s", process.TaskID)
+				}
 			}
 			
 			// Send error output via websocket if callback is set
@@ -751,6 +774,11 @@ func (e *HashcatExecutor) runHashcatProcess(ctx context.Context, process *Hashca
 			process.mutex.Lock()
 			process.AlreadyRunningError = true
 			process.mutex.Unlock()
+			
+			// Log additional details for debugging
+			if alreadyRunningPID != "" {
+				debug.Info("Hashcat process %s blocked by existing instance with PID %s", process.TaskID, alreadyRunningPID)
+			}
 		}
 		
 		// Check for scanner errors
@@ -876,18 +904,18 @@ func (e *HashcatExecutor) runHashcatProcess(ctx context.Context, process *Hashca
 					debug.Error("GPU watchdog alarm triggered for task %s", process.TaskID)
 					e.sendErrorProgress(process, "GPU watchdog alarm - possible GPU hang or temperature issue")
 					
-				case 255:
-					// Exit code 255 often means another instance is running
+				case 255, -1:
+					// Exit code 255 or -1 (4294967295 as unsigned) often means another instance is running
 					process.mutex.Lock()
 					alreadyRunning := process.AlreadyRunningError
 					process.mutex.Unlock()
 					
 					if alreadyRunning {
-						debug.Error("Hashcat exit code 255 for task %s - confirmed another instance is running", process.TaskID)
+						debug.Error("Hashcat exit code %d for task %s - confirmed another instance is running", exitCode, process.TaskID)
 						e.sendErrorProgress(process, "Hashcat failed to start - another instance is already running")
 					} else {
-						debug.Error("Hashcat exit code 255 for task %s - unknown error", process.TaskID)
-						e.sendErrorProgress(process, "Hashcat failed with exit code 255")
+						debug.Error("Hashcat exit code %d for task %s - unknown error", exitCode, process.TaskID)
+						e.sendErrorProgress(process, fmt.Sprintf("Hashcat failed with exit code %d", exitCode))
 					}
 					
 				default:
@@ -1048,6 +1076,10 @@ func (e *HashcatExecutor) RunSpeedTest(ctx context.Context, assignment *JobTaskA
 	// Create new command with filtered args
 	cmd = exec.CommandContext(ctx, cmd.Path, filteredArgs...)
 	
+	// Set working directory to the hashcat binary directory so it can find relative dependencies like OpenCL
+	cmd.Dir = filepath.Dir(cmd.Path)
+	debug.Info("Setting speed test working directory to: %s", cmd.Dir)
+	
 	// Set up pipes for stdout/stderr
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -1116,8 +1148,15 @@ func (e *HashcatExecutor) RunSpeedTest(ctx context.Context, assignment *JobTaskA
 		}
 	}()
 	
-	// Timer to stop after test duration
-	timer := time.NewTimer(time.Duration(testDuration) * time.Second)
+	// Timer to stop after timeout - use context deadline if available, otherwise 3 minutes
+	var timer *time.Timer
+	if deadline, ok := ctx.Deadline(); ok {
+		// Use remaining time from context
+		timer = time.NewTimer(time.Until(deadline))
+	} else {
+		// Fallback to 3 minutes if no deadline set
+		timer = time.NewTimer(3 * time.Minute)
+	}
 	
 	// Collect status updates
 	var statusUpdates []string

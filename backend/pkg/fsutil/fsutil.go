@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // CountLinesInFile counts the number of lines in a file
@@ -144,4 +145,36 @@ func GetFileSize(filePath string) (int64, error) {
 		return 0, err
 	}
 	return info.Size(), nil
+}
+
+// SanitizeFilename sanitizes a filename for safe storage
+// It replaces spaces and path separators with hyphens and converts to lowercase
+func SanitizeFilename(filename string) string {
+	// Replace problematic characters with hyphens
+	sanitized := strings.ReplaceAll(filename, " ", "-")
+	sanitized = strings.ReplaceAll(sanitized, "/", "-")
+	sanitized = strings.ReplaceAll(sanitized, "\\", "-")
+
+	// Convert to lowercase for consistency
+	sanitized = strings.ToLower(sanitized)
+
+	return sanitized
+}
+
+// ExtractBaseNameWithoutExt extracts the base filename without extension(s)
+// It handles multi-part extensions like .v2.dive.rule by removing only the final extension
+func ExtractBaseNameWithoutExt(filename string) string {
+	base := filepath.Base(filename)
+
+	// Remove only the last extension (e.g., .rule, .txt)
+	// This preserves multi-part names like name.v2.dive
+	ext := filepath.Ext(base)
+	nameWithoutExt := strings.TrimSuffix(base, ext)
+	
+	// If the result is empty (hidden files like .gitignore), return the original base
+	if nameWithoutExt == "" {
+		return base
+	}
+	
+	return nameWithoutExt
 }

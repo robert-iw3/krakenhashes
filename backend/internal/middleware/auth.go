@@ -15,14 +15,14 @@ func RequireAuth(database *db.DB) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			isSSERequest := r.URL.Path == "/api/jobs/stream"
-			
+
 			// Skip auth for agent routes - they use API key authentication
 			if strings.HasPrefix(r.URL.Path, "/api/agent/") {
 				debug.Debug("[AUTH] Skipping JWT auth for agent route: %s", r.URL.Path)
 				next.ServeHTTP(w, r)
 				return
 			}
-			
+
 			if isSSERequest {
 				debug.Info("[AUTH] SSE request authentication check for %s %s", r.Method, r.URL.Path)
 				debug.Debug("[AUTH] SSE Request headers: %+v", r.Header)
@@ -41,7 +41,7 @@ func RequireAuth(database *db.DB) func(http.Handler) http.Handler {
 			if isSSERequest {
 				debug.Info("[AUTH] SSE Request cookies count: %d", len(r.Cookies()))
 				for _, cookie := range r.Cookies() {
-					debug.Debug("[AUTH] SSE Cookie: %s (length: %d, secure: %v, httpOnly: %v)", 
+					debug.Debug("[AUTH] SSE Cookie: %s (length: %d, secure: %v, httpOnly: %v)",
 						cookie.Name, len(cookie.Value), cookie.Secure, cookie.HttpOnly)
 				}
 			} else {
@@ -61,7 +61,7 @@ func RequireAuth(database *db.DB) func(http.Handler) http.Handler {
 			}
 
 			if isSSERequest {
-				debug.Info("[AUTH] SSE: Found auth token cookie: %s (length: %d)", 
+				debug.Info("[AUTH] SSE: Found auth token cookie: %s (length: %d)",
 					cookie.Name, len(cookie.Value))
 			} else {
 				debug.Debug("[AUTH] Found auth token cookie: %s", cookie.Name)
@@ -132,7 +132,7 @@ func RequireAuth(database *db.DB) func(http.Handler) http.Handler {
 			} else {
 				debug.Debug("[AUTH] Authentication successful for user: %s with role: %s", userID, role)
 			}
-			
+
 			next.ServeHTTP(w, r)
 		})
 	}

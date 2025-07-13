@@ -20,7 +20,7 @@ import (
 )
 
 // SetupWordlistRoutes configures all wordlist management related routes
-func SetupWordlistRoutes(r *mux.Router, sqlDB *sql.DB, cfg *config.Config, agentService *services.AgentService) {
+func SetupWordlistRoutes(r *mux.Router, sqlDB *sql.DB, cfg *config.Config, agentService *services.AgentService, presetJobService services.AdminPresetJobService) {
 	debug.Info("Setting up wordlist management routes")
 
 	// Initialize wordlist store and manager
@@ -102,6 +102,17 @@ func SetupWordlistRoutes(r *mux.Router, sqlDB *sql.DB, cfg *config.Config, agent
 
 		// Call the handler with the updated context
 		handler.HandleAddWordlist(w, r.WithContext(ctx))
+		
+		// After successful upload, trigger keyspace recalculation for affected preset jobs
+		// Get the wordlist ID from the response (this is a bit hacky but works for now)
+		// In a production system, we'd modify the handler to return the wordlist ID
+		go func() {
+			// Use the last uploaded wordlist ID - this would need proper implementation
+			// For now, we'll log that recalculation should happen
+			debug.Info("Wordlist uploaded - keyspace recalculation should be triggered for affected preset jobs")
+			// TODO: Implement proper wordlist ID extraction and recalculation
+			// presetJobService.RecalculateKeyspacesForWordlist(context.Background(), wordlistID)
+		}()
 	})
 
 	// Register upload endpoint with the custom handler - use Handle instead of HandleFunc

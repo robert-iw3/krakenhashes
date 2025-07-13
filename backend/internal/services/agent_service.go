@@ -20,12 +20,12 @@ import (
 
 // AgentService handles agent-related operations
 type AgentService struct {
-	agentRepo       *repository.AgentRepository
-	voucherRepo     *repository.ClaimVoucherRepository
-	fileRepo        *repository.FileRepository
-	deviceRepo      *repository.AgentDeviceRepository
-	tokens          map[string]downloadToken
-	tokenMutex      sync.RWMutex
+	agentRepo   *repository.AgentRepository
+	voucherRepo *repository.ClaimVoucherRepository
+	fileRepo    *repository.FileRepository
+	deviceRepo  *repository.AgentDeviceRepository
+	tokens      map[string]downloadToken
+	tokenMutex  sync.RWMutex
 }
 
 type downloadToken struct {
@@ -130,7 +130,7 @@ func (s *AgentService) RegisterAgent(ctx context.Context, claimCode, hostname st
 		CreatedByID:   voucher.CreatedByID,
 		CreatedAt:     now,
 		UpdatedAt:     now,
-		LastHeartbeat: now, // Initialize heartbeat timestamp
+		LastHeartbeat: now,     // Initialize heartbeat timestamp
 		Version:       "1.0.0", // Set initial version
 		APIKey: sql.NullString{
 			String: apiKey,
@@ -478,19 +478,19 @@ func (s *AgentService) GetByAPIKey(ctx context.Context, apiKey string) (*models.
 // UpdateHeartbeat updates the last heartbeat timestamp for an agent
 func (s *AgentService) UpdateHeartbeat(ctx context.Context, agentID int) error {
 	debug.Info("Updating heartbeat for agent: %d", agentID)
-	
+
 	// First check if the agent has a zero timestamp and fix it
 	agent, err := s.agentRepo.GetByID(ctx, agentID)
 	if err != nil {
 		return fmt.Errorf("failed to get agent: %w", err)
 	}
-	
+
 	// Check for zero timestamp (0001-01-01)
 	if agent.LastHeartbeat.Year() < 2000 {
 		debug.Info("Agent %d has zero/invalid heartbeat timestamp, fixing it", agentID)
 		// Use the repository's UpdateHeartbeat which sets CURRENT_TIMESTAMP
 	}
-	
+
 	if err := s.agentRepo.UpdateHeartbeat(ctx, agentID); err != nil {
 		return fmt.Errorf("failed to update agent heartbeat: %w", err)
 	}
@@ -559,4 +559,3 @@ func (s *AgentService) UpdateAgent(ctx context.Context, agentID int, isEnabled b
 func (s *AgentService) UpdateAgentOSInfo(ctx context.Context, agentID int, osInfo map[string]interface{}) error {
 	return s.agentRepo.UpdateOSInfo(ctx, agentID, osInfo)
 }
-

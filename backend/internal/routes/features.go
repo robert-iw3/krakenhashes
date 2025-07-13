@@ -32,12 +32,12 @@ func SetupAgentRoutes(jwtRouter *mux.Router, agentService *services.AgentService
 	jwtRouter.HandleFunc("/agents/{id}", agentHandler.GetAgent).Methods("GET", "OPTIONS")
 	jwtRouter.HandleFunc("/agents/{id}", agentHandler.UpdateAgent).Methods("PUT", "OPTIONS")
 	jwtRouter.HandleFunc("/agents/{id}", agentHandler.DeleteAgent).Methods("DELETE", "OPTIONS")
-	
+
 	// Device management routes
 	jwtRouter.HandleFunc("/agents/{id}/devices", agentHandler.GetAgentDevices).Methods("GET", "OPTIONS")
 	jwtRouter.HandleFunc("/agents/{id}/devices/{deviceId}", agentHandler.UpdateDeviceStatus).Methods("PUT", "OPTIONS")
 	jwtRouter.HandleFunc("/agents/{id}/with-devices", agentHandler.GetAgentWithDevices).Methods("GET", "OPTIONS")
-	
+
 	// Force cleanup route - note: this requires admin role middleware to be added separately
 	jwtRouter.HandleFunc("/agents/{id}/force-cleanup", func(w http.ResponseWriter, r *http.Request) {
 		// Use the global JobIntegrationManager if available
@@ -48,7 +48,7 @@ func SetupAgentRoutes(jwtRouter *mux.Router, agentService *services.AgentService
 			http.Error(w, "WebSocket integration not available", http.StatusServiceUnavailable)
 		}
 	}).Methods("POST", "OPTIONS")
-	
+
 	debug.Info("Configured agent management endpoints: /agents")
 }
 

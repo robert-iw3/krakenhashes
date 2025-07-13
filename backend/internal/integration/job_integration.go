@@ -44,6 +44,7 @@ func NewJobIntegrationManager(
 	jobTaskRepo *repository.JobTaskRepository,
 	agentRepo *repository.AgentRepository,
 	deviceRepo *repository.AgentDeviceRepository,
+	systemSettingsRepo *repository.SystemSettingsRepository,
 	db *sql.DB,
 	wordlistManager wordlist.Manager,
 	ruleManager rule.Manager,
@@ -62,6 +63,7 @@ func NewJobIntegrationManager(
 		jobTaskRepo,
 		agentRepo,
 		deviceRepo,
+		systemSettingsRepo,
 		db,
 		wordlistManager,
 		ruleManager,
@@ -114,7 +116,7 @@ func (m *JobIntegrationManager) StartScheduler(ctx context.Context) {
 func (m *JobIntegrationManager) StopJob(ctx context.Context, jobExecutionID uuid.UUID, reason string) error {
 	debug.Log("Stop job requested", map[string]interface{}{
 		"job_execution_id": jobExecutionID,
-		"reason":          reason,
+		"reason":           reason,
 	})
 
 	// Stop the job in the scheduling service
@@ -136,7 +138,7 @@ func (m *JobIntegrationManager) StopJob(ctx context.Context, jobExecutionID uuid
 			if task.AgentID == nil {
 				continue
 			}
-			
+
 			// Get agent details
 			agent, err := m.wsIntegration.agentRepo.GetByID(ctx, *task.AgentID)
 			if err != nil {

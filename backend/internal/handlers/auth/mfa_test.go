@@ -27,9 +27,9 @@ func TestSetupMFAHandler(t *testing.T) {
 	testUser := testutil.CreateTestUser(t, db, "testuser", "test@example.com", testutil.DefaultTestPassword, "user")
 
 	t.Run("setup authenticator MFA", func(t *testing.T) {
-		req := testutil.MakeAuthenticatedRequest(t, http.MethodPost, "/auth/mfa/setup", 
+		req := testutil.MakeAuthenticatedRequest(t, http.MethodPost, "/auth/mfa/setup",
 			map[string]string{"method": "authenticator"}, testUser.ID.String(), "user")
-		
+
 		rr := httptest.NewRecorder()
 		handler.SetupMFAHandler(rr, req)
 
@@ -50,10 +50,10 @@ func TestSetupMFAHandler(t *testing.T) {
 
 	t.Run("setup email MFA", func(t *testing.T) {
 		emailService.Reset()
-		
-		req := testutil.MakeAuthenticatedRequest(t, http.MethodPost, "/auth/mfa/setup", 
+
+		req := testutil.MakeAuthenticatedRequest(t, http.MethodPost, "/auth/mfa/setup",
 			map[string]string{"method": "email"}, testUser.ID.String(), "user")
-		
+
 		rr := httptest.NewRecorder()
 		handler.SetupMFAHandler(rr, req)
 
@@ -70,9 +70,9 @@ func TestSetupMFAHandler(t *testing.T) {
 	})
 
 	t.Run("invalid MFA method", func(t *testing.T) {
-		req := testutil.MakeAuthenticatedRequest(t, http.MethodPost, "/auth/mfa/setup", 
+		req := testutil.MakeAuthenticatedRequest(t, http.MethodPost, "/auth/mfa/setup",
 			map[string]string{"method": "invalid"}, testUser.ID.String(), "user")
-		
+
 		rr := httptest.NewRecorder()
 		handler.SetupMFAHandler(rr, req)
 
@@ -102,9 +102,9 @@ func TestVerifyMFAHandler(t *testing.T) {
 		require.NoError(t, err)
 
 		req := testutil.MakeAuthenticatedRequest(t, http.MethodPost, "/auth/mfa/verify",
-			testutil.ValidMFAVerifyRequest("authenticator", code, ""), 
+			testutil.ValidMFAVerifyRequest("authenticator", code, ""),
 			testUser.ID.String(), "user")
-		
+
 		rr := httptest.NewRecorder()
 		handler.VerifyMFAHandler(rr, req)
 
@@ -126,7 +126,7 @@ func TestVerifyMFAHandler(t *testing.T) {
 		req := testutil.MakeAuthenticatedRequest(t, http.MethodPost, "/auth/mfa/verify",
 			testutil.ValidMFAVerifyRequest("email", emailCode, ""),
 			testUser.ID.String(), "user")
-		
+
 		rr := httptest.NewRecorder()
 		handler.VerifyMFAHandler(rr, req)
 
@@ -149,7 +149,7 @@ func TestVerifyMFAHandler(t *testing.T) {
 
 		req := testutil.MakeRequest(t, http.MethodPost, "/auth/mfa/verify",
 			testutil.ValidMFAVerifyRequest("authenticator", code, sessionToken))
-		
+
 		rr := httptest.NewRecorder()
 		handler.VerifyMFAHandler(rr, req)
 
@@ -171,7 +171,7 @@ func TestVerifyMFAHandler(t *testing.T) {
 
 		req := testutil.MakeRequest(t, http.MethodPost, "/auth/mfa/verify",
 			testutil.ValidMFAVerifyRequest("authenticator", "000000", sessionToken))
-		
+
 		rr := httptest.NewRecorder()
 		handler.VerifyMFAHandler(rr, req)
 
@@ -196,7 +196,7 @@ func TestVerifyMFAHandler(t *testing.T) {
 		for i := 0; i < 3; i++ {
 			req := testutil.MakeRequest(t, http.MethodPost, "/auth/mfa/verify",
 				testutil.ValidMFAVerifyRequest("authenticator", "000000", sessionToken))
-			
+
 			rr := httptest.NewRecorder()
 			handler.VerifyMFAHandler(rr, req)
 		}
@@ -204,7 +204,7 @@ func TestVerifyMFAHandler(t *testing.T) {
 		// Next attempt should fail with too many attempts
 		req := testutil.MakeRequest(t, http.MethodPost, "/auth/mfa/verify",
 			testutil.ValidMFAVerifyRequest("authenticator", "000000", sessionToken))
-		
+
 		rr := httptest.NewRecorder()
 		handler.VerifyMFAHandler(rr, req)
 
@@ -231,7 +231,7 @@ func TestBackupCodes(t *testing.T) {
 	t.Run("generate backup codes", func(t *testing.T) {
 		req := testutil.MakeAuthenticatedRequest(t, http.MethodPost, "/auth/mfa/backup-codes",
 			nil, testUser.ID.String(), "user")
-		
+
 		rr := httptest.NewRecorder()
 		mfaHandler.GenerateBackupCodes(rr, req)
 
@@ -241,7 +241,7 @@ func TestBackupCodes(t *testing.T) {
 		testutil.AssertJSONResponse(t, rr, http.StatusOK, &resp)
 
 		assert.Len(t, resp.BackupCodes, 8) // Default number of backup codes
-		
+
 		// Check all codes are unique
 		codeMap := make(map[string]bool)
 		for _, code := range resp.BackupCodes {
@@ -255,7 +255,7 @@ func TestBackupCodes(t *testing.T) {
 		// Generate and store backup codes
 		req := testutil.MakeAuthenticatedRequest(t, http.MethodPost, "/auth/mfa/backup-codes",
 			nil, testUser.ID.String(), "user")
-		
+
 		rr := httptest.NewRecorder()
 		mfaHandler.GenerateBackupCodes(rr, req)
 
@@ -263,7 +263,7 @@ func TestBackupCodes(t *testing.T) {
 			BackupCodes []string `json:"backupCodes"`
 		}
 		json.NewDecoder(rr.Body).Decode(&backupResp)
-		
+
 		// Create MFA session
 		sessionToken := uuid.New().String()
 		_, err := db.CreateMFASession(testUser.ID.String(), sessionToken)
@@ -272,7 +272,7 @@ func TestBackupCodes(t *testing.T) {
 		// Use one of the backup codes
 		req = testutil.MakeRequest(t, http.MethodPost, "/auth/mfa/verify",
 			testutil.ValidMFAVerifyRequest("backup", backupResp.BackupCodes[0], sessionToken))
-		
+
 		rr = httptest.NewRecorder()
 		handler.VerifyMFAHandler(rr, req)
 
@@ -288,7 +288,7 @@ func TestBackupCodes(t *testing.T) {
 
 		req = testutil.MakeRequest(t, http.MethodPost, "/auth/mfa/verify",
 			testutil.ValidMFAVerifyRequest("backup", backupResp.BackupCodes[0], sessionToken))
-		
+
 		rr = httptest.NewRecorder()
 		handler.VerifyMFAHandler(rr, req)
 
@@ -313,7 +313,7 @@ func TestMFASettings(t *testing.T) {
 
 		req := testutil.MakeAuthenticatedRequest(t, http.MethodGet, "/auth/mfa/settings",
 			nil, testUser.ID.String(), "user")
-		
+
 		rr := httptest.NewRecorder()
 		mfaHandler.GetUserMFASettings(rr, req)
 
@@ -340,7 +340,7 @@ func TestMFASettings(t *testing.T) {
 
 		req := testutil.MakeAuthenticatedRequest(t, http.MethodPost, "/auth/mfa/preferred",
 			map[string]string{"method": "authenticator"}, testUser.ID.String(), "user")
-		
+
 		rr := httptest.NewRecorder()
 		mfaHandler.UpdatePreferredMFAMethod(rr, req)
 
@@ -355,7 +355,7 @@ func TestMFASettings(t *testing.T) {
 	t.Run("disable MFA when not required", func(t *testing.T) {
 		req := testutil.MakeAuthenticatedRequest(t, http.MethodPost, "/auth/mfa/disable",
 			nil, testUser.ID.String(), "user")
-		
+
 		rr := httptest.NewRecorder()
 		mfaHandler.DisableMFA(rr, req)
 
@@ -374,7 +374,7 @@ func TestMFASettings(t *testing.T) {
 
 		req := testutil.MakeAuthenticatedRequest(t, http.MethodPost, "/auth/mfa/disable",
 			nil, testUser.ID.String(), "user")
-		
+
 		rr := httptest.NewRecorder()
 		mfaHandler.DisableMFA(rr, req)
 
@@ -408,7 +408,7 @@ func TestEmailMFAFlow(t *testing.T) {
 
 		req := testutil.MakeRequest(t, http.MethodPost, "/auth/mfa/send-code",
 			map[string]string{"sessionToken": sessionToken})
-		
+
 		rr := httptest.NewRecorder()
 		mfaHandler.SendEmailMFACode(rr, req)
 
@@ -433,7 +433,7 @@ func TestEmailMFAFlow(t *testing.T) {
 		// Send first code
 		req := testutil.MakeRequest(t, http.MethodPost, "/auth/mfa/send-code",
 			map[string]string{"sessionToken": sessionToken})
-		
+
 		rr := httptest.NewRecorder()
 		mfaHandler.SendEmailMFACode(rr, req)
 		assert.Equal(t, http.StatusOK, rr.Code)
@@ -441,7 +441,7 @@ func TestEmailMFAFlow(t *testing.T) {
 		// Try to send another code immediately - should fail due to cooldown
 		req = testutil.MakeRequest(t, http.MethodPost, "/auth/mfa/send-code",
 			map[string]string{"sessionToken": sessionToken})
-		
+
 		rr = httptest.NewRecorder()
 		mfaHandler.SendEmailMFACode(rr, req)
 

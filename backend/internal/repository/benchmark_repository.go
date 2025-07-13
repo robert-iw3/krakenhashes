@@ -116,7 +116,7 @@ func (r *BenchmarkRepository) IsRecentBenchmark(ctx context.Context, agentID int
 
 	var updatedAt time.Time
 	err := r.db.QueryRowContext(ctx, query, agentID, attackMode, hashType).Scan(&updatedAt)
-	
+
 	if err == sql.ErrNoRows {
 		return false, nil
 	}
@@ -255,7 +255,7 @@ func (r *BenchmarkRepository) GetJobMetrics(ctx context.Context, jobExecutionID 
 func (r *BenchmarkRepository) AggregateMetrics(ctx context.Context, fromLevel, toLevel models.AggregationLevel, before time.Time) error {
 	// This would typically be a stored procedure or complex query
 	// For now, we'll implement a simple aggregation
-	
+
 	var interval string
 	switch toLevel {
 	case models.AggregationLevelDaily:

@@ -228,6 +228,20 @@ const JobExecutionSettingsComponent: React.FC = () => {
                   }}
                 />
               </Grid>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  type="number"
+                  label="Speedtest Timeout"
+                  value={settings.speedtest_timeout_seconds}
+                  onChange={handleChange('speedtest_timeout_seconds')}
+                  helperText="Maximum time to wait for speedtest completion"
+                  InputProps={{
+                    inputProps: { min: 60, max: 600 },
+                    endAdornment: <InputAdornment position="end">seconds</InputAdornment>,
+                  }}
+                />
+              </Grid>
             </Grid>
           </Paper>
         </Grid>

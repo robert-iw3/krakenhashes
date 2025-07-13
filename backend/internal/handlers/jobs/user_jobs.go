@@ -61,51 +61,51 @@ func NewUserJobsHandler(
 
 // JobSummary represents a job summary for the UI
 type JobSummary struct {
-	ID                   string  `json:"id"`
-	Name                 string  `json:"name"`
-	HashlistID           int64   `json:"hashlist_id"`
-	HashlistName         string  `json:"hashlist_name"`
-	Status               string  `json:"status"`
-	Priority             int     `json:"priority"`
-	MaxAgents            int     `json:"max_agents"`
-	DispatchedPercent    float64 `json:"dispatched_percent"`
-	SearchedPercent      float64 `json:"searched_percent"`
-	CrackedCount         int     `json:"cracked_count"`
-	AgentCount           int     `json:"agent_count"`
-	TotalSpeed           int64   `json:"total_speed"`
-	CreatedAt            string  `json:"created_at"`
-	UpdatedAt            string  `json:"updated_at"`
-	CompletedAt          *string `json:"completed_at,omitempty"`
-	CreatedByUsername    *string `json:"created_by_username,omitempty"`
-	ErrorMessage         *string `json:"error_message,omitempty"`
-	TotalKeyspace        *int64  `json:"total_keyspace,omitempty"`
-	EffectiveKeyspace    *int64  `json:"effective_keyspace,omitempty"`
-	MultiplicationFactor int     `json:"multiplication_factor,omitempty"`
-	UsesRuleSplitting    bool    `json:"uses_rule_splitting"`
-	ProcessedKeyspace    *int64  `json:"processed_keyspace,omitempty"`
+	ID                     string  `json:"id"`
+	Name                   string  `json:"name"`
+	HashlistID             int64   `json:"hashlist_id"`
+	HashlistName           string  `json:"hashlist_name"`
+	Status                 string  `json:"status"`
+	Priority               int     `json:"priority"`
+	MaxAgents              int     `json:"max_agents"`
+	DispatchedPercent      float64 `json:"dispatched_percent"`
+	SearchedPercent        float64 `json:"searched_percent"`
+	CrackedCount           int     `json:"cracked_count"`
+	AgentCount             int     `json:"agent_count"`
+	TotalSpeed             int64   `json:"total_speed"`
+	CreatedAt              string  `json:"created_at"`
+	UpdatedAt              string  `json:"updated_at"`
+	CompletedAt            *string `json:"completed_at,omitempty"`
+	CreatedByUsername      *string `json:"created_by_username,omitempty"`
+	ErrorMessage           *string `json:"error_message,omitempty"`
+	TotalKeyspace          *int64  `json:"total_keyspace,omitempty"`
+	EffectiveKeyspace      *int64  `json:"effective_keyspace,omitempty"`
+	MultiplicationFactor   int     `json:"multiplication_factor,omitempty"`
+	UsesRuleSplitting      bool    `json:"uses_rule_splitting"`
+	ProcessedKeyspace      *int64  `json:"processed_keyspace,omitempty"`
 	OverallProgressPercent float64 `json:"overall_progress_percent"`
 }
 
 // ListJobs handles GET /api/jobs with pagination and filtering
 func (h *UserJobsHandler) ListJobs(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	
+
 	// Parse query parameters
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 	if page < 1 {
 		page = 1
 	}
-	
+
 	pageSize, _ := strconv.Atoi(r.URL.Query().Get("page_size"))
 	if pageSize < 1 || pageSize > 100 {
 		pageSize = 25
 	}
-	
+
 	// Parse filters
 	status := r.URL.Query().Get("status")
 	priorityStr := r.URL.Query().Get("priority")
 	search := r.URL.Query().Get("search")
-	
+
 	var priority *int
 	if priorityStr != "" {
 		p, err := strconv.Atoi(priorityStr)
@@ -113,14 +113,14 @@ func (h *UserJobsHandler) ListJobs(w http.ResponseWriter, r *http.Request) {
 			priority = &p
 		}
 	}
-	
+
 	// Create filter
 	filter := repository.JobFilter{
 		Status:   &status,
 		Priority: priority,
 		Search:   &search,
 	}
-	
+
 	// Get jobs with filters and user information
 	jobsWithUser, err := h.jobExecRepo.ListWithFiltersAndUser(ctx, pageSize, (page-1)*pageSize, filter)
 	if err != nil {
@@ -128,7 +128,7 @@ func (h *UserJobsHandler) ListJobs(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-	
+
 	// Get total count with filters
 	total, err := h.jobExecRepo.GetFilteredCount(ctx, filter)
 	if err != nil {
@@ -136,7 +136,7 @@ func (h *UserJobsHandler) ListJobs(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-	
+
 	// Get status counts
 	statusCounts, err := h.jobExecRepo.GetStatusCounts(ctx)
 	if err != nil {
@@ -144,7 +144,7 @@ func (h *UserJobsHandler) ListJobs(w http.ResponseWriter, r *http.Request) {
 		// Don't fail the request, just log the error
 		statusCounts = make(map[string]int)
 	}
-	
+
 	// Convert to job summaries
 	summaries := make([]JobSummary, 0, len(jobsWithUser))
 	for _, jobWithUser := range jobsWithUser {
@@ -155,21 +155,21 @@ func (h *UserJobsHandler) ListJobs(w http.ResponseWriter, r *http.Request) {
 			debug.Error("Failed to get hashlist %d: %v", job.HashlistID, err)
 			continue
 		}
-		
+
 		// Get task statistics
 		tasks, err := h.jobTaskRepo.GetTasksByJobExecution(ctx, job.ID)
 		if err != nil {
 			debug.Error("Failed to get tasks for job %s: %v", job.ID, err)
 			tasks = []models.JobTask{}
 		}
-		
+
 		// Calculate metrics
 		var agentCount int
 		var totalSpeed int64
 		var crackedCount int
 		var keyspaceSearched int64
 		var keyspaceDispatched int64
-		
+
 		for _, task := range tasks {
 			if task.Status == models.JobTaskStatusRunning {
 				agentCount++
@@ -179,7 +179,7 @@ func (h *UserJobsHandler) ListJobs(w http.ResponseWriter, r *http.Request) {
 			}
 			crackedCount += task.CrackCount
 			keyspaceSearched += task.KeyspaceProcessed
-			
+
 			// Calculate dispatched keyspace (assigned to tasks)
 			if task.Status != models.JobTaskStatusPending {
 				// Task has been dispatched if it's not pending
@@ -187,12 +187,12 @@ func (h *UserJobsHandler) ListJobs(w http.ResponseWriter, r *http.Request) {
 				keyspaceDispatched += taskKeyspace
 			}
 		}
-		
+
 		// Calculate percentages using effective keyspace when available
 		dispatchedPercent := 0.0
 		searchedPercent := 0.0
 		overallProgressPercent := 0.0
-		
+
 		// Use effective keyspace if available, otherwise fall back to total keyspace
 		var keyspaceForProgress int64
 		if job.EffectiveKeyspace != nil && *job.EffectiveKeyspace > 0 {
@@ -202,7 +202,7 @@ func (h *UserJobsHandler) ListJobs(w http.ResponseWriter, r *http.Request) {
 		} else {
 			keyspaceForProgress = 0
 		}
-		
+
 		if keyspaceForProgress > 0 {
 			// For dispatched percentage, we need to consider rule splitting
 			if job.UsesRuleSplitting {
@@ -210,11 +210,11 @@ func (h *UserJobsHandler) ListJobs(w http.ResponseWriter, r *http.Request) {
 				dispatchedChunks := 0
 				totalProgress := 0.0
 				chunksWithProgress := 0
-				
+
 				for _, task := range tasks {
 					if task.Status != models.JobTaskStatusPending {
 						dispatchedChunks++
-						
+
 						// Calculate searched percentage from task progress
 						if task.ProgressPercent > 0 {
 							totalProgress += task.ProgressPercent
@@ -222,7 +222,7 @@ func (h *UserJobsHandler) ListJobs(w http.ResponseWriter, r *http.Request) {
 						}
 					}
 				}
-				
+
 				if job.RuleSplitCount > 0 {
 					dispatchedPercent = float64(dispatchedChunks) / float64(job.RuleSplitCount) * 100
 					// For rule-split jobs, searched % is the average progress of all dispatched chunks
@@ -235,7 +235,7 @@ func (h *UserJobsHandler) ListJobs(w http.ResponseWriter, r *http.Request) {
 				dispatchedPercent = float64(keyspaceDispatched) / float64(keyspaceForProgress) * 100
 				searchedPercent = float64(job.ProcessedKeyspace) / float64(keyspaceForProgress) * 100
 			}
-			
+
 			// Cap percentages at 100%
 			if dispatchedPercent > 100 {
 				dispatchedPercent = 100
@@ -243,56 +243,56 @@ func (h *UserJobsHandler) ListJobs(w http.ResponseWriter, r *http.Request) {
 			if searchedPercent > 100 {
 				searchedPercent = 100
 			}
-			
+
 			// Overall progress is the searched percentage
 			overallProgressPercent = searchedPercent
 		}
-		
+
 		// Use the backend-calculated overall progress if available and more accurate
 		if job.OverallProgressPercent > 0 {
 			overallProgressPercent = job.OverallProgressPercent
 			// For consistency, use this for searched percentage too
 			searchedPercent = overallProgressPercent
 		}
-		
+
 		summary := JobSummary{
-			ID:                   job.ID.String(),
-			Name:                 getJobName(job, hashlist),
-			HashlistID:           job.HashlistID,
-			HashlistName:         hashlist.Name,
-			Status:               string(job.Status),
-			Priority:             job.Priority,
-			MaxAgents:            job.MaxAgents,
-			DispatchedPercent:    dispatchedPercent,
-			SearchedPercent:      searchedPercent,
-			CrackedCount:         crackedCount,
-			AgentCount:           agentCount,
-			TotalSpeed:           totalSpeed,
-			CreatedAt:            job.CreatedAt.Format(time.RFC3339),
-			UpdatedAt:            job.UpdatedAt.Format(time.RFC3339),
-			CreatedByUsername:    jobWithUser.CreatedByUsername,
-			TotalKeyspace:        job.TotalKeyspace,
-			EffectiveKeyspace:    job.EffectiveKeyspace,
-			MultiplicationFactor: job.MultiplicationFactor,
-			UsesRuleSplitting:    job.UsesRuleSplitting,
-			ProcessedKeyspace:    &job.ProcessedKeyspace,
+			ID:                     job.ID.String(),
+			Name:                   getJobName(job, hashlist),
+			HashlistID:             job.HashlistID,
+			HashlistName:           hashlist.Name,
+			Status:                 string(job.Status),
+			Priority:               job.Priority,
+			MaxAgents:              job.MaxAgents,
+			DispatchedPercent:      dispatchedPercent,
+			SearchedPercent:        searchedPercent,
+			CrackedCount:           crackedCount,
+			AgentCount:             agentCount,
+			TotalSpeed:             totalSpeed,
+			CreatedAt:              job.CreatedAt.Format(time.RFC3339),
+			UpdatedAt:              job.UpdatedAt.Format(time.RFC3339),
+			CreatedByUsername:      jobWithUser.CreatedByUsername,
+			TotalKeyspace:          job.TotalKeyspace,
+			EffectiveKeyspace:      job.EffectiveKeyspace,
+			MultiplicationFactor:   job.MultiplicationFactor,
+			UsesRuleSplitting:      job.UsesRuleSplitting,
+			ProcessedKeyspace:      &job.ProcessedKeyspace,
 			OverallProgressPercent: overallProgressPercent,
 		}
-		
+
 		// Add completed time if present
 		if job.CompletedAt != nil {
 			completedAtStr := job.CompletedAt.Format(time.RFC3339)
 			summary.CompletedAt = &completedAtStr
 		}
-		
+
 		// Add error message if present
 		if job.ErrorMessage != nil && *job.ErrorMessage != "" {
 			summary.ErrorMessage = job.ErrorMessage
 		}
-		
+
 		summaries = append(summaries, summary)
 	}
-	
+
 	// Prepare response
 	response := map[string]interface{}{
 		"jobs": summaries,
@@ -304,7 +304,7 @@ func (h *UserJobsHandler) ListJobs(w http.ResponseWriter, r *http.Request) {
 		},
 		"status_counts": statusCounts,
 	}
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		debug.Error("Failed to encode response: %v", err)
@@ -322,34 +322,34 @@ func getJobName(job models.JobExecution, hashlist *models.HashList) string {
 func (h *UserJobsHandler) CreateJobFromHashlist(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	vars := mux.Vars(r)
-	
+
 	// Get user ID from context
 	userIDStr, ok := ctx.Value("user_id").(string)
 	if !ok {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
-	
+
 	// Parse user ID to UUID
 	userID, err := uuid.Parse(userIDStr)
 	if err != nil {
 		http.Error(w, "Invalid user ID", http.StatusInternalServerError)
 		return
 	}
-	
+
 	hashlistID, err := strconv.ParseInt(vars["id"], 10, 64)
 	if err != nil {
 		http.Error(w, "Invalid hashlist ID", http.StatusBadRequest)
 		return
 	}
-	
+
 	// Parse the request body to determine job type
 	var rawReq json.RawMessage
 	if err := json.NewDecoder(r.Body).Decode(&rawReq); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	
+
 	// Determine the job type
 	var jobType struct {
 		Type string `json:"type"`
@@ -358,7 +358,7 @@ func (h *UserJobsHandler) CreateJobFromHashlist(w http.ResponseWriter, r *http.R
 		http.Error(w, "Invalid request format", http.StatusBadRequest)
 		return
 	}
-	
+
 	// Verify the hashlist exists
 	_, err = h.hashlistRepo.GetByID(ctx, hashlistID)
 	if err != nil {
@@ -366,9 +366,9 @@ func (h *UserJobsHandler) CreateJobFromHashlist(w http.ResponseWriter, r *http.R
 		http.Error(w, "Hashlist not found", http.StatusNotFound)
 		return
 	}
-	
+
 	var createdJobs []string
-	
+
 	switch jobType.Type {
 	case "preset":
 		// Handle preset jobs
@@ -380,7 +380,7 @@ func (h *UserJobsHandler) CreateJobFromHashlist(w http.ResponseWriter, r *http.R
 			http.Error(w, "Invalid preset job request", http.StatusBadRequest)
 			return
 		}
-		
+
 		// Create a job execution for each selected preset job
 		for _, presetJobIDStr := range req.PresetJobIDs {
 			presetJobID, err := uuid.Parse(presetJobIDStr)
@@ -388,24 +388,24 @@ func (h *UserJobsHandler) CreateJobFromHashlist(w http.ResponseWriter, r *http.R
 				debug.Error("Invalid preset job ID: %s", presetJobIDStr)
 				continue
 			}
-			
+
 			// Get the preset job to verify it exists
 			_, err = h.presetJobRepo.GetByID(ctx, presetJobID)
 			if err != nil {
 				debug.Error("Failed to get preset job %s: %v", presetJobID, err)
 				continue
 			}
-			
+
 			// Use CreateJobExecution to create job with keyspace calculation
 			jobExecution, err := h.jobExecutionService.CreateJobExecution(ctx, presetJobID, hashlistID, &userID)
 			if err != nil {
 				debug.Error("Failed to create job execution for preset %s: %v", presetJobID, err)
 				continue
 			}
-			
+
 			createdJobs = append(createdJobs, jobExecution.ID.String())
 		}
-		
+
 	case "workflow":
 		// Handle workflows
 		var req struct {
@@ -416,7 +416,7 @@ func (h *UserJobsHandler) CreateJobFromHashlist(w http.ResponseWriter, r *http.R
 			http.Error(w, "Invalid workflow request", http.StatusBadRequest)
 			return
 		}
-		
+
 		// For each workflow, create jobs for all its steps
 		for _, workflowIDStr := range req.WorkflowIDs {
 			workflowID, err := uuid.Parse(workflowIDStr)
@@ -424,14 +424,14 @@ func (h *UserJobsHandler) CreateJobFromHashlist(w http.ResponseWriter, r *http.R
 				debug.Error("Invalid workflow ID: %s", workflowIDStr)
 				continue
 			}
-			
+
 			// Get workflow steps
 			steps, err := h.workflowRepo.GetWorkflowSteps(ctx, workflowID)
 			if err != nil {
 				debug.Error("Failed to get workflow steps for %s: %v", workflowID, err)
 				continue
 			}
-			
+
 			// Create a job for each step in order
 			for _, step := range steps {
 				// Verify the preset job exists
@@ -440,38 +440,38 @@ func (h *UserJobsHandler) CreateJobFromHashlist(w http.ResponseWriter, r *http.R
 					debug.Error("Failed to get preset job %s for workflow step: %v", step.PresetJobID, err)
 					continue
 				}
-				
+
 				// Use CreateJobExecution to create job with keyspace calculation
 				jobExecution, err := h.jobExecutionService.CreateJobExecution(ctx, step.PresetJobID, hashlistID, &userID)
 				if err != nil {
 					debug.Error("Failed to create job execution for workflow step: %v", err)
 					continue
 				}
-				
+
 				createdJobs = append(createdJobs, jobExecution.ID.String())
 			}
 		}
-		
+
 	case "custom":
 		// Handle custom job
 		var req struct {
 			Type      string `json:"type"`
 			CustomJob struct {
-				Name             string   `json:"name"`
-				AttackMode       int      `json:"attack_mode"`
-				WordlistIDs      []string `json:"wordlist_ids"`
-				RuleIDs          []string `json:"rule_ids"`
-				Mask             string   `json:"mask"`
-				Priority         int      `json:"priority"`
-				MaxAgents        int      `json:"max_agents"`
-				BinaryVersionID  int      `json:"binary_version_id"`
+				Name            string   `json:"name"`
+				AttackMode      int      `json:"attack_mode"`
+				WordlistIDs     []string `json:"wordlist_ids"`
+				RuleIDs         []string `json:"rule_ids"`
+				Mask            string   `json:"mask"`
+				Priority        int      `json:"priority"`
+				MaxAgents       int      `json:"max_agents"`
+				BinaryVersionID int      `json:"binary_version_id"`
 			} `json:"custom_job"`
 		}
 		if err := json.Unmarshal(rawReq, &req); err != nil {
 			http.Error(w, "Invalid custom job request", http.StatusBadRequest)
 			return
 		}
-		
+
 		// Create a custom preset job first
 		customPresetJob := models.PresetJob{
 			ID:              uuid.New(),
@@ -484,11 +484,11 @@ func (h *UserJobsHandler) CreateJobFromHashlist(w http.ResponseWriter, r *http.R
 			CreatedAt:       time.Now(),
 			UpdatedAt:       time.Now(),
 		}
-		
+
 		// WordlistIDs and RuleIDs are already strings, just assign them
 		customPresetJob.WordlistIDs = models.IDArray(req.CustomJob.WordlistIDs)
 		customPresetJob.RuleIDs = models.IDArray(req.CustomJob.RuleIDs)
-		
+
 		// Save the custom preset job
 		_, err = h.presetJobRepo.Create(ctx, customPresetJob)
 		if err != nil {
@@ -496,7 +496,7 @@ func (h *UserJobsHandler) CreateJobFromHashlist(w http.ResponseWriter, r *http.R
 			http.Error(w, "Failed to create custom job", http.StatusInternalServerError)
 			return
 		}
-		
+
 		// Use CreateJobExecution to create job with keyspace calculation
 		jobExecution, err := h.jobExecutionService.CreateJobExecution(ctx, customPresetJob.ID, hashlistID, &userID)
 		if err != nil {
@@ -504,25 +504,25 @@ func (h *UserJobsHandler) CreateJobFromHashlist(w http.ResponseWriter, r *http.R
 			http.Error(w, "Failed to create job", http.StatusInternalServerError)
 			return
 		}
-		
+
 		createdJobs = append(createdJobs, jobExecution.ID.String())
-		
+
 	default:
 		http.Error(w, "Invalid job type", http.StatusBadRequest)
 		return
 	}
-	
+
 	if len(createdJobs) == 0 {
 		http.Error(w, "No jobs were created", http.StatusInternalServerError)
 		return
 	}
-	
+
 	// Return the created jobs
 	response := map[string]interface{}{
 		"ids":     createdJobs,
 		"message": fmt.Sprintf("%d job(s) created successfully", len(createdJobs)),
 	}
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(response)
@@ -532,13 +532,13 @@ func (h *UserJobsHandler) CreateJobFromHashlist(w http.ResponseWriter, r *http.R
 func (h *UserJobsHandler) GetJobDetail(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	vars := mux.Vars(r)
-	
+
 	jobID, err := uuid.Parse(vars["id"])
 	if err != nil {
 		http.Error(w, "Invalid job ID", http.StatusBadRequest)
 		return
 	}
-	
+
 	// Get job execution
 	job, err := h.jobExecRepo.GetByID(ctx, jobID)
 	if err != nil {
@@ -546,7 +546,7 @@ func (h *UserJobsHandler) GetJobDetail(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Job not found", http.StatusNotFound)
 		return
 	}
-	
+
 	// Get hashlist
 	hashlist, err := h.hashlistRepo.GetByID(ctx, job.HashlistID)
 	if err != nil {
@@ -554,7 +554,7 @@ func (h *UserJobsHandler) GetJobDetail(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Hashlist not found", http.StatusNotFound)
 		return
 	}
-	
+
 	// Get tasks with pagination
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 	if page < 1 {
@@ -562,27 +562,27 @@ func (h *UserJobsHandler) GetJobDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	pageSize := 50
 	offset := (page - 1) * pageSize
-	
+
 	tasks, err := h.jobTaskRepo.GetTasksByJobExecutionWithPagination(ctx, jobID, pageSize, offset)
 	if err != nil {
 		debug.Error("Failed to get tasks for job %s: %v", jobID, err)
 		tasks = []models.JobTask{}
 	}
-	
+
 	// Get total task count
 	totalTasks, err := h.jobTaskRepo.GetTaskCountByJobExecution(ctx, jobID)
 	if err != nil {
 		debug.Error("Failed to get task count for job %s: %v", jobID, err)
 		totalTasks = 0
 	}
-	
+
 	// Calculate metrics
 	var agentCount int
 	var totalSpeed int64
 	var crackedCount int
 	var keyspaceSearched int64
 	activeAgents := make(map[int]bool)
-	
+
 	for _, task := range tasks {
 		if task.Status == models.JobTaskStatusRunning {
 			if task.AgentID != nil {
@@ -596,7 +596,7 @@ func (h *UserJobsHandler) GetJobDetail(w http.ResponseWriter, r *http.Request) {
 		keyspaceSearched += task.KeyspaceProcessed
 	}
 	agentCount = len(activeAgents)
-	
+
 	// Calculate percentages
 	dispatchedPercent := 0.0
 	searchedPercent := 0.0
@@ -604,7 +604,7 @@ func (h *UserJobsHandler) GetJobDetail(w http.ResponseWriter, r *http.Request) {
 		dispatchedPercent = float64(job.ProcessedKeyspace) / float64(*job.TotalKeyspace) * 100
 		searchedPercent = float64(keyspaceSearched) / float64(*job.TotalKeyspace) * 100
 	}
-	
+
 	// Prepare task summaries
 	taskSummaries := make([]map[string]interface{}, 0, len(tasks))
 	for _, task := range tasks {
@@ -620,7 +620,7 @@ func (h *UserJobsHandler) GetJobDetail(w http.ResponseWriter, r *http.Request) {
 			"error_message":      task.ErrorMessage,
 			"created_at":         task.CreatedAt.Format(time.RFC3339),
 		}
-		
+
 		if task.StartedAt != nil {
 			taskSummary["started_at"] = task.StartedAt.Format(time.RFC3339)
 		}
@@ -630,29 +630,29 @@ func (h *UserJobsHandler) GetJobDetail(w http.ResponseWriter, r *http.Request) {
 		if task.BenchmarkSpeed != nil {
 			taskSummary["benchmark_speed"] = *task.BenchmarkSpeed
 		}
-		
+
 		taskSummaries = append(taskSummaries, taskSummary)
 	}
-	
+
 	// Prepare response
 	response := map[string]interface{}{
-		"id":                jobID.String(),
-		"name":              getJobName(*job, hashlist),
-		"hashlist_id":       job.HashlistID,
-		"hashlist_name":     hashlist.Name,
-		"status":            string(job.Status),
-		"priority":          job.Priority,
-		"max_agents":        job.MaxAgents,
-		"attack_mode":       job.AttackMode,
-		"total_keyspace":    job.TotalKeyspace,
+		"id":                 jobID.String(),
+		"name":               getJobName(*job, hashlist),
+		"hashlist_id":        job.HashlistID,
+		"hashlist_name":      hashlist.Name,
+		"status":             string(job.Status),
+		"priority":           job.Priority,
+		"max_agents":         job.MaxAgents,
+		"attack_mode":        job.AttackMode,
+		"total_keyspace":     job.TotalKeyspace,
 		"dispatched_percent": dispatchedPercent,
 		"searched_percent":   searchedPercent,
-		"cracked_count":     crackedCount,
-		"agent_count":       agentCount,
-		"total_speed":       totalSpeed,
-		"created_at":        job.CreatedAt.Format(time.RFC3339),
-		"updated_at":        job.UpdatedAt.Format(time.RFC3339),
-		"tasks":             taskSummaries,
+		"cracked_count":      crackedCount,
+		"agent_count":        agentCount,
+		"total_speed":        totalSpeed,
+		"created_at":         job.CreatedAt.Format(time.RFC3339),
+		"updated_at":         job.UpdatedAt.Format(time.RFC3339),
+		"tasks":              taskSummaries,
 		"task_pagination": map[string]interface{}{
 			"page":        page,
 			"page_size":   pageSize,
@@ -660,7 +660,7 @@ func (h *UserJobsHandler) GetJobDetail(w http.ResponseWriter, r *http.Request) {
 			"total_pages": (totalTasks + pageSize - 1) / pageSize,
 		},
 	}
-	
+
 	if job.StartedAt != nil {
 		response["started_at"] = job.StartedAt.Format(time.RFC3339)
 	}
@@ -670,7 +670,7 @@ func (h *UserJobsHandler) GetJobDetail(w http.ResponseWriter, r *http.Request) {
 	if job.ErrorMessage != nil {
 		response["error_message"] = *job.ErrorMessage
 	}
-	
+
 	// Add preset job details if available
 	if job.PresetJobID != uuid.Nil {
 		presetJob, err := h.presetJobRepo.GetByID(ctx, job.PresetJobID)
@@ -681,7 +681,7 @@ func (h *UserJobsHandler) GetJobDetail(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		debug.Error("Failed to encode response: %v", err)
@@ -693,23 +693,23 @@ func (h *UserJobsHandler) GetJobDetail(w http.ResponseWriter, r *http.Request) {
 func (h *UserJobsHandler) UpdateJob(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	vars := mux.Vars(r)
-	
+
 	jobID, err := uuid.Parse(vars["id"])
 	if err != nil {
 		http.Error(w, "Invalid job ID", http.StatusBadRequest)
 		return
 	}
-	
+
 	var update struct {
 		Priority  *int `json:"priority"`
 		MaxAgents *int `json:"max_agents"`
 	}
-	
+
 	if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	
+
 	// Update job execution
 	if update.Priority != nil {
 		if err := h.jobExecRepo.UpdatePriority(ctx, jobID, *update.Priority); err != nil {
@@ -718,7 +718,7 @@ func (h *UserJobsHandler) UpdateJob(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	
+
 	if update.MaxAgents != nil {
 		if err := h.jobExecRepo.UpdateMaxAgents(ctx, jobID, *update.MaxAgents); err != nil {
 			debug.Error("Failed to update job max agents: %v", err)
@@ -726,7 +726,7 @@ func (h *UserJobsHandler) UpdateJob(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	
+
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{
 		"message": "Job updated successfully",
@@ -737,13 +737,13 @@ func (h *UserJobsHandler) UpdateJob(w http.ResponseWriter, r *http.Request) {
 func (h *UserJobsHandler) RetryJob(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	vars := mux.Vars(r)
-	
+
 	jobID, err := uuid.Parse(vars["id"])
 	if err != nil {
 		http.Error(w, "Invalid job ID", http.StatusBadRequest)
 		return
 	}
-	
+
 	// Get the job
 	job, err := h.jobExecRepo.GetByID(ctx, jobID)
 	if err != nil {
@@ -751,27 +751,27 @@ func (h *UserJobsHandler) RetryJob(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Job not found", http.StatusNotFound)
 		return
 	}
-	
+
 	// Check if job can be retried
-	if job.Status != models.JobExecutionStatusFailed && 
-	   job.Status != models.JobExecutionStatusCancelled {
+	if job.Status != models.JobExecutionStatusFailed &&
+		job.Status != models.JobExecutionStatusCancelled {
 		http.Error(w, "Job can only be retried if it's failed or cancelled", http.StatusBadRequest)
 		return
 	}
-	
+
 	// Reset the job to pending status
 	if err := h.jobExecRepo.UpdateStatus(ctx, jobID, models.JobExecutionStatusPending); err != nil {
 		debug.Error("Failed to reset job status: %v", err)
 		http.Error(w, "Failed to retry job", http.StatusInternalServerError)
 		return
 	}
-	
+
 	// Clear error message
 	if err := h.jobExecRepo.ClearError(ctx, jobID); err != nil {
 		debug.Error("Failed to clear job error: %v", err)
 		// Don't fail the request, just log the error
 	}
-	
+
 	// Mark failed/cancelled tasks as pending so they can be retried
 	tasks, err := h.jobTaskRepo.GetTasksByJobExecution(ctx, jobID)
 	if err == nil {
@@ -783,7 +783,7 @@ func (h *UserJobsHandler) RetryJob(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	
+
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{
 		"message": "Job retry initiated successfully",
@@ -794,26 +794,26 @@ func (h *UserJobsHandler) RetryJob(w http.ResponseWriter, r *http.Request) {
 func (h *UserJobsHandler) DeleteJob(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	vars := mux.Vars(r)
-	
+
 	jobID, err := uuid.Parse(vars["id"])
 	if err != nil {
 		http.Error(w, "Invalid job ID", http.StatusBadRequest)
 		return
 	}
-	
+
 	// TODO: Implement job deletion with proper cleanup
 	// This should:
 	// 1. Stop all running tasks
 	// 2. Delete task records
 	// 3. Delete job execution record
 	// 4. Notify agents to stop work
-	
+
 	if err := h.jobExecRepo.Delete(ctx, jobID); err != nil {
 		debug.Error("Failed to delete job %s: %v", jobID, err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-	
+
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{
 		"message": "Job deleted successfully",
@@ -823,7 +823,7 @@ func (h *UserJobsHandler) DeleteJob(w http.ResponseWriter, r *http.Request) {
 // DeleteFinishedJobs handles DELETE /api/jobs/finished
 func (h *UserJobsHandler) DeleteFinishedJobs(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	
+
 	// Delete all completed jobs
 	deletedCount, err := h.jobExecRepo.DeleteFinished(ctx)
 	if err != nil {
@@ -831,10 +831,10 @@ func (h *UserJobsHandler) DeleteFinishedJobs(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"message": "Finished jobs deleted successfully",
+		"message":       "Finished jobs deleted successfully",
 		"deleted_count": deletedCount,
 	})
 }
@@ -843,13 +843,13 @@ func (h *UserJobsHandler) DeleteFinishedJobs(w http.ResponseWriter, r *http.Requ
 func (h *UserJobsHandler) GetAvailablePresetJobs(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	vars := mux.Vars(r)
-	
+
 	hashlistID, err := strconv.ParseInt(vars["id"], 10, 64)
 	if err != nil {
 		http.Error(w, "Invalid hashlist ID", http.StatusBadRequest)
 		return
 	}
-	
+
 	// Verify the hashlist exists
 	_, err = h.hashlistRepo.GetByID(ctx, hashlistID)
 	if err != nil {
@@ -857,7 +857,7 @@ func (h *UserJobsHandler) GetAvailablePresetJobs(w http.ResponseWriter, r *http.
 		http.Error(w, "Hashlist not found", http.StatusNotFound)
 		return
 	}
-	
+
 	// Get all preset jobs
 	presetJobs, err := h.presetJobRepo.List(ctx)
 	if err != nil {
@@ -865,7 +865,7 @@ func (h *UserJobsHandler) GetAvailablePresetJobs(w http.ResponseWriter, r *http.
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-	
+
 	// Get all workflows
 	workflows, err := h.workflowRepo.ListWorkflows(ctx)
 	if err != nil {
@@ -873,40 +873,40 @@ func (h *UserJobsHandler) GetAvailablePresetJobs(w http.ResponseWriter, r *http.
 		// Don't fail, just log and continue with empty workflows
 		workflows = []models.JobWorkflow{}
 	}
-	
+
 	// Get wordlists, rules, and binary versions for form data
 	wordlists, err := h.wordlistStore.ListWordlists(ctx, map[string]interface{}{})
 	if err != nil {
 		debug.Error("Failed to list wordlists: %v", err)
 		wordlists = []*models.Wordlist{}
 	}
-	
+
 	rules, err := h.ruleStore.ListRules(ctx, nil)
 	if err != nil {
 		debug.Error("Failed to list rules: %v", err)
 		rules = []*models.Rule{}
 	}
-	
+
 	binaries, err := h.binaryStore.ListVersions(ctx, map[string]interface{}{"is_active": true})
 	if err != nil {
 		debug.Error("Failed to list binaries: %v", err)
 		binaries = []*binary.BinaryVersion{}
 	}
-	
+
 	// Format preset jobs
 	availableJobs := make([]map[string]interface{}, 0)
 	for _, job := range presetJobs {
 		availableJobs = append(availableJobs, map[string]interface{}{
-			"id":          job.ID.String(),
-			"name":        job.Name,
-			"priority":    job.Priority,
-			"attack_mode": job.AttackMode,
+			"id":           job.ID.String(),
+			"name":         job.Name,
+			"priority":     job.Priority,
+			"attack_mode":  job.AttackMode,
 			"wordlist_ids": job.WordlistIDs,
-			"rule_ids":    job.RuleIDs,
-			"mask":        job.Mask,
+			"rule_ids":     job.RuleIDs,
+			"mask":         job.Mask,
 		})
 	}
-	
+
 	// Format workflows with their steps
 	formattedWorkflows := make([]map[string]interface{}, 0)
 	for _, workflow := range workflows {
@@ -916,7 +916,7 @@ func (h *UserJobsHandler) GetAvailablePresetJobs(w http.ResponseWriter, r *http.
 			debug.Error("Failed to get workflow steps for %s: %v", workflow.ID, err)
 			steps = []models.JobWorkflowStep{}
 		}
-		
+
 		// Format steps with preset job names
 		formattedSteps := make([]map[string]interface{}, 0)
 		for _, step := range steps {
@@ -932,28 +932,28 @@ func (h *UserJobsHandler) GetAvailablePresetJobs(w http.ResponseWriter, r *http.
 			}
 			formattedSteps = append(formattedSteps, stepData)
 		}
-		
+
 		formattedWorkflows = append(formattedWorkflows, map[string]interface{}{
-			"id":          workflow.ID.String(),
-			"name":        workflow.Name,
-			"steps":       formattedSteps,
+			"id":    workflow.ID.String(),
+			"name":  workflow.Name,
+			"steps": formattedSteps,
 		})
 	}
-	
+
 	// Format form data
 	formData := map[string]interface{}{
-		"wordlists": formatWordlists(wordlists),
-		"rules":     formatRules(rules),
+		"wordlists":       formatWordlists(wordlists),
+		"rules":           formatRules(rules),
 		"binary_versions": formatBinaries(binaries),
 	}
-	
+
 	// Return the expected structure
 	response := map[string]interface{}{
 		"preset_jobs": availableJobs,
 		"workflows":   formattedWorkflows,
 		"form_data":   formData,
 	}
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
 }
@@ -998,30 +998,30 @@ func formatBinaries(binaries []*binary.BinaryVersion) []map[string]interface{} {
 // ListUserJobs handles GET /api/user/jobs with pagination and filtering (filtered by authenticated user)
 func (h *UserJobsHandler) ListUserJobs(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	
+
 	// Get user ID from context
 	userID, ok := ctx.Value("user_id").(string)
 	if !ok {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
-	
+
 	// Parse query parameters
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 	if page < 1 {
 		page = 1
 	}
-	
+
 	pageSize, _ := strconv.Atoi(r.URL.Query().Get("page_size"))
 	if pageSize < 1 || pageSize > 200 {
 		pageSize = 25
 	}
-	
+
 	// Parse filters
 	status := r.URL.Query().Get("status")
 	priorityStr := r.URL.Query().Get("priority")
 	search := r.URL.Query().Get("search")
-	
+
 	var priority *int
 	if priorityStr != "" {
 		p, err := strconv.Atoi(priorityStr)
@@ -1029,7 +1029,7 @@ func (h *UserJobsHandler) ListUserJobs(w http.ResponseWriter, r *http.Request) {
 			priority = &p
 		}
 	}
-	
+
 	// Create filter with user ID
 	filter := repository.JobFilter{
 		Status:   &status,
@@ -1037,7 +1037,7 @@ func (h *UserJobsHandler) ListUserJobs(w http.ResponseWriter, r *http.Request) {
 		Search:   &search,
 		UserID:   &userID,
 	}
-	
+
 	// Get jobs with filters and user information
 	jobsWithUser, err := h.jobExecRepo.ListWithFiltersAndUser(ctx, pageSize, (page-1)*pageSize, filter)
 	if err != nil {
@@ -1045,7 +1045,7 @@ func (h *UserJobsHandler) ListUserJobs(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-	
+
 	// Get total count with filters
 	total, err := h.jobExecRepo.GetFilteredCount(ctx, filter)
 	if err != nil {
@@ -1053,7 +1053,7 @@ func (h *UserJobsHandler) ListUserJobs(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-	
+
 	// Get status counts for this user
 	statusCounts, err := h.jobExecRepo.GetStatusCountsForUser(ctx, userID)
 	if err != nil {
@@ -1061,7 +1061,7 @@ func (h *UserJobsHandler) ListUserJobs(w http.ResponseWriter, r *http.Request) {
 		// Don't fail the request, just log the error
 		statusCounts = make(map[string]int)
 	}
-	
+
 	// Convert to job summaries (reuse the same logic as ListJobs)
 	summaries := make([]JobSummary, 0, len(jobsWithUser))
 	for _, jobWithUser := range jobsWithUser {
@@ -1072,21 +1072,21 @@ func (h *UserJobsHandler) ListUserJobs(w http.ResponseWriter, r *http.Request) {
 			debug.Error("Failed to get hashlist %d: %v", job.HashlistID, err)
 			continue
 		}
-		
+
 		// Get task statistics
 		tasks, err := h.jobTaskRepo.GetTasksByJobExecution(ctx, job.ID)
 		if err != nil {
 			debug.Error("Failed to get tasks for job %s: %v", job.ID, err)
 			tasks = []models.JobTask{}
 		}
-		
+
 		// Calculate metrics
 		var agentCount int
 		var totalSpeed int64
 		var crackedCount int
 		var keyspaceSearched int64
 		var keyspaceDispatched int64
-		
+
 		for _, task := range tasks {
 			if task.Status == models.JobTaskStatusRunning {
 				agentCount++
@@ -1096,7 +1096,7 @@ func (h *UserJobsHandler) ListUserJobs(w http.ResponseWriter, r *http.Request) {
 			}
 			crackedCount += task.CrackCount
 			keyspaceSearched += task.KeyspaceProcessed
-			
+
 			// Calculate dispatched keyspace (assigned to tasks)
 			if task.Status != models.JobTaskStatusPending {
 				// Task has been dispatched if it's not pending
@@ -1104,12 +1104,12 @@ func (h *UserJobsHandler) ListUserJobs(w http.ResponseWriter, r *http.Request) {
 				keyspaceDispatched += taskKeyspace
 			}
 		}
-		
+
 		// Calculate percentages using effective keyspace when available
 		dispatchedPercent := 0.0
 		searchedPercent := 0.0
 		overallProgressPercent := 0.0
-		
+
 		// Use effective keyspace if available, otherwise fall back to total keyspace
 		var keyspaceForProgress int64
 		if job.EffectiveKeyspace != nil && *job.EffectiveKeyspace > 0 {
@@ -1119,7 +1119,7 @@ func (h *UserJobsHandler) ListUserJobs(w http.ResponseWriter, r *http.Request) {
 		} else {
 			keyspaceForProgress = 0
 		}
-		
+
 		if keyspaceForProgress > 0 {
 			// For dispatched percentage, we need to consider rule splitting
 			if job.UsesRuleSplitting {
@@ -1127,11 +1127,11 @@ func (h *UserJobsHandler) ListUserJobs(w http.ResponseWriter, r *http.Request) {
 				dispatchedChunks := 0
 				totalProgress := 0.0
 				chunksWithProgress := 0
-				
+
 				for _, task := range tasks {
 					if task.Status != models.JobTaskStatusPending {
 						dispatchedChunks++
-						
+
 						// Calculate searched percentage from task progress
 						if task.ProgressPercent > 0 {
 							totalProgress += task.ProgressPercent
@@ -1139,7 +1139,7 @@ func (h *UserJobsHandler) ListUserJobs(w http.ResponseWriter, r *http.Request) {
 						}
 					}
 				}
-				
+
 				if job.RuleSplitCount > 0 {
 					dispatchedPercent = float64(dispatchedChunks) / float64(job.RuleSplitCount) * 100
 					// For rule-split jobs, searched % is the average progress of all dispatched chunks
@@ -1152,7 +1152,7 @@ func (h *UserJobsHandler) ListUserJobs(w http.ResponseWriter, r *http.Request) {
 				dispatchedPercent = float64(keyspaceDispatched) / float64(keyspaceForProgress) * 100
 				searchedPercent = float64(job.ProcessedKeyspace) / float64(keyspaceForProgress) * 100
 			}
-			
+
 			// Cap percentages at 100%
 			if dispatchedPercent > 100 {
 				dispatchedPercent = 100
@@ -1160,18 +1160,18 @@ func (h *UserJobsHandler) ListUserJobs(w http.ResponseWriter, r *http.Request) {
 			if searchedPercent > 100 {
 				searchedPercent = 100
 			}
-			
+
 			// Overall progress is the searched percentage
 			overallProgressPercent = searchedPercent
 		}
-		
+
 		// Use the backend-calculated overall progress if available and more accurate
 		if job.OverallProgressPercent > 0 {
 			overallProgressPercent = job.OverallProgressPercent
 			// For consistency, use this for searched percentage too
 			searchedPercent = overallProgressPercent
 		}
-		
+
 		// Get preset job name
 		presetJobName := "Custom Job"
 		if job.PresetJobID != uuid.Nil {
@@ -1180,41 +1180,41 @@ func (h *UserJobsHandler) ListUserJobs(w http.ResponseWriter, r *http.Request) {
 				presetJobName = presetJob.Name
 			}
 		}
-		
+
 		summary := JobSummary{
-			ID:                job.ID.String(),
-			Name:              presetJobName,
-			HashlistID:        job.HashlistID,
-			HashlistName:      hashlist.Name,
-			Status:            string(job.Status),
-			Priority:          job.Priority,
-			MaxAgents:         job.MaxAgents,
-			DispatchedPercent: dispatchedPercent,
-			SearchedPercent:   searchedPercent,
-			CrackedCount:      crackedCount,
-			AgentCount:        agentCount,
-			TotalSpeed:        totalSpeed,
-			CreatedAt:         job.CreatedAt.Format(time.RFC3339),
-			UpdatedAt:         job.UpdatedAt.Format(time.RFC3339),
-			ErrorMessage:      job.ErrorMessage,
-			CreatedByUsername: jobWithUser.CreatedByUsername,
-			TotalKeyspace:        job.TotalKeyspace,
-			EffectiveKeyspace:    job.EffectiveKeyspace,
-			MultiplicationFactor: job.MultiplicationFactor,
-			UsesRuleSplitting:    job.UsesRuleSplitting,
-			ProcessedKeyspace:    &job.ProcessedKeyspace,
+			ID:                     job.ID.String(),
+			Name:                   presetJobName,
+			HashlistID:             job.HashlistID,
+			HashlistName:           hashlist.Name,
+			Status:                 string(job.Status),
+			Priority:               job.Priority,
+			MaxAgents:              job.MaxAgents,
+			DispatchedPercent:      dispatchedPercent,
+			SearchedPercent:        searchedPercent,
+			CrackedCount:           crackedCount,
+			AgentCount:             agentCount,
+			TotalSpeed:             totalSpeed,
+			CreatedAt:              job.CreatedAt.Format(time.RFC3339),
+			UpdatedAt:              job.UpdatedAt.Format(time.RFC3339),
+			ErrorMessage:           job.ErrorMessage,
+			CreatedByUsername:      jobWithUser.CreatedByUsername,
+			TotalKeyspace:          job.TotalKeyspace,
+			EffectiveKeyspace:      job.EffectiveKeyspace,
+			MultiplicationFactor:   job.MultiplicationFactor,
+			UsesRuleSplitting:      job.UsesRuleSplitting,
+			ProcessedKeyspace:      &job.ProcessedKeyspace,
 			OverallProgressPercent: overallProgressPercent,
 		}
-		
+
 		// Add completed time if present
 		if job.CompletedAt != nil {
 			completedAtStr := job.CompletedAt.Format(time.RFC3339)
 			summary.CompletedAt = &completedAtStr
 		}
-		
+
 		summaries = append(summaries, summary)
 	}
-	
+
 	// Create response
 	response := map[string]interface{}{
 		"jobs":          summaries,
@@ -1224,7 +1224,7 @@ func (h *UserJobsHandler) ListUserJobs(w http.ResponseWriter, r *http.Request) {
 		"total_pages":   (total + pageSize - 1) / pageSize,
 		"status_counts": statusCounts,
 	}
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		debug.Error("Failed to encode response: %v", err)

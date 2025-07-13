@@ -31,16 +31,16 @@ type manager struct {
 // NewManager creates a new binary manager instance
 func NewManager(store Store, config Config) (Manager, error) {
 	debug.Info("NewManager called with DataDir: %s", config.DataDir)
-	
+
 	// The data directory should already exist from config initialization
 	// Just ensure the local subdirectory exists
 	localDir := filepath.Join(config.DataDir, "local")
 	if err := os.MkdirAll(localDir, 0750); err != nil {
 		return nil, fmt.Errorf("failed to create local directory: %w", err)
 	}
-	
+
 	debug.Info("Binary manager initialized with data directory: %s", config.DataDir)
-	
+
 	return &manager{
 		store:  store,
 		config: config,
@@ -250,7 +250,7 @@ func (m *manager) DownloadBinary(ctx context.Context, version *BinaryVersion) er
 	// Check if file already exists
 	filePath := m.getBinaryPath(version)
 	debug.Info("Downloading binary to path: %s (DataDir: %s)", filePath, m.config.DataDir)
-	
+
 	if _, err := os.Stat(filePath); err == nil {
 		debug.Info("Binary file already exists at %s, skipping download", filePath)
 		return nil
@@ -359,7 +359,7 @@ func (m *manager) GetLatestActive(ctx context.Context, binaryType BinaryType) (*
 // getBinaryPath returns the full path for a binary version
 func (m *manager) getBinaryPath(version *BinaryVersion) string {
 	path := filepath.Join(m.config.DataDir, fmt.Sprintf("%d", version.ID), version.FileName)
-	debug.Debug("getBinaryPath: DataDir=%s, ID=%d, FileName=%s, Result=%s", 
+	debug.Debug("getBinaryPath: DataDir=%s, ID=%d, FileName=%s, Result=%s",
 		m.config.DataDir, version.ID, version.FileName, path)
 	return path
 }
@@ -415,7 +415,7 @@ func (m *manager) ExtractBinary(ctx context.Context, id int64) error {
 	if _, err := os.Stat(hashcatPath); err != nil {
 		return fmt.Errorf("hashcat binary not found after extraction at %s: %w", hashcatPath, err)
 	}
-	
+
 	// Ensure hashcat binary is executable
 	if err := os.Chmod(hashcatPath, 0750); err != nil {
 		debug.Warning("Failed to set executable permissions on %s: %v", hashcatPath, err)
@@ -435,24 +435,24 @@ func (m *manager) GetLocalBinaryPath(ctx context.Context, id int64) (string, err
 
 	// Get the local directory
 	localDir := m.getLocalBinaryDir(version)
-	
+
 	// Check if already extracted
 	hashcatPath := m.getHashcatExecutablePath(localDir)
 	if _, err := os.Stat(hashcatPath); err == nil {
 		return hashcatPath, nil
 	}
-	
+
 	// Not found, try to extract it
 	if extractErr := m.ExtractBinary(ctx, id); extractErr != nil {
 		return "", fmt.Errorf("binary not extracted and extraction failed: %w", extractErr)
 	}
-	
+
 	// After extraction, the binary should be there
 	hashcatPath = m.getHashcatExecutablePath(localDir)
 	if _, err := os.Stat(hashcatPath); err != nil {
 		return "", fmt.Errorf("binary not found after extraction: %w", err)
 	}
-	
+
 	return hashcatPath, nil
 }
 
@@ -484,32 +484,32 @@ func (m *manager) extract7z(ctx context.Context, archivePath, destDir string) er
 		return fmt.Errorf("failed to create temp directory: %w", err)
 	}
 	defer os.RemoveAll(tempDir) // Clean up temp dir
-	
+
 	// Extract to temporary directory
 	cmd := exec.CommandContext(ctx, "7z", "x", "-y", fmt.Sprintf("-o%s", tempDir), archivePath)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("7z extraction failed: %w\nOutput: %s", err, string(output))
 	}
-	
+
 	// Check what was extracted
 	entries, err := os.ReadDir(tempDir)
 	if err != nil {
 		return fmt.Errorf("failed to read temp directory: %w", err)
 	}
-	
+
 	// If there's only one directory in the temp dir, move its contents
 	if len(entries) == 1 && entries[0].IsDir() {
 		// All files were in a subdirectory, move them up
 		subDir := filepath.Join(tempDir, entries[0].Name())
 		debug.Info("Archive contains single directory %s, moving contents to target", entries[0].Name())
-		
+
 		// Move all files from subdir to destDir
 		subEntries, err := os.ReadDir(subDir)
 		if err != nil {
 			return fmt.Errorf("failed to read subdirectory: %w", err)
 		}
-		
+
 		for _, entry := range subEntries {
 			src := filepath.Join(subDir, entry.Name())
 			dst := filepath.Join(destDir, entry.Name())
@@ -533,7 +533,7 @@ func (m *manager) extract7z(ctx context.Context, archivePath, destDir string) er
 			}
 		}
 	}
-	
+
 	return nil
 }
 
@@ -543,17 +543,17 @@ func (m *manager) copyRecursive(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	
+
 	if info.IsDir() {
 		if err := os.MkdirAll(dst, info.Mode()); err != nil {
 			return err
 		}
-		
+
 		entries, err := os.ReadDir(src)
 		if err != nil {
 			return err
 		}
-		
+
 		for _, entry := range entries {
 			srcPath := filepath.Join(src, entry.Name())
 			dstPath := filepath.Join(dst, entry.Name())
@@ -563,24 +563,24 @@ func (m *manager) copyRecursive(src, dst string) error {
 		}
 		return nil
 	}
-	
+
 	// Copy file
 	srcFile, err := os.Open(src)
 	if err != nil {
 		return err
 	}
 	defer srcFile.Close()
-	
+
 	dstFile, err := os.Create(dst)
 	if err != nil {
 		return err
 	}
 	defer dstFile.Close()
-	
+
 	if _, err := io.Copy(dstFile, srcFile); err != nil {
 		return err
 	}
-	
+
 	return os.Chmod(dst, info.Mode())
 }
 
@@ -597,7 +597,7 @@ func (m *manager) extractZip(ctx context.Context, archivePath, destDir string) e
 // extractTar extracts a tar archive (supports gz and xz)
 func (m *manager) extractTar(ctx context.Context, archivePath, destDir string) error {
 	args := []string{"-xf", archivePath, "-C", destDir}
-	
+
 	// Auto-detect compression based on file extension
 	if strings.HasSuffix(archivePath, ".gz") {
 		args = append([]string{"-z"}, args...)

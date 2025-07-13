@@ -26,13 +26,13 @@ func (r *AgentDeviceRepository) GetByAgentID(agentID int) ([]models.AgentDevice,
 		FROM agent_devices
 		WHERE agent_id = $1
 		ORDER BY device_id`
-	
+
 	rows, err := r.db.Query(query, agentID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query devices for agent %d: %w", agentID, err)
 	}
 	defer rows.Close()
-	
+
 	var devices []models.AgentDevice
 	for rows.Next() {
 		var device models.AgentDevice
@@ -51,11 +51,11 @@ func (r *AgentDeviceRepository) GetByAgentID(agentID int) ([]models.AgentDevice,
 		}
 		devices = append(devices, device)
 	}
-	
+
 	if err = rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating device rows: %w", err)
 	}
-	
+
 	return devices, nil
 }
 
@@ -66,16 +66,16 @@ func (r *AgentDeviceRepository) UpsertDevices(agentID int, devices []models.Devi
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer tx.Rollback()
-	
+
 	// Delete existing devices that are not in the new list
 	deviceIDs := make([]int, len(devices))
 	for i, device := range devices {
 		deviceIDs[i] = device.ID
 	}
-	
+
 	query := `DELETE FROM agent_devices WHERE agent_id = $1`
 	args := []interface{}{agentID}
-	
+
 	if len(deviceIDs) > 0 {
 		query += ` AND device_id NOT IN (`
 		for i := range deviceIDs {
@@ -87,12 +87,12 @@ func (r *AgentDeviceRepository) UpsertDevices(agentID int, devices []models.Devi
 		}
 		query += `)`
 	}
-	
+
 	_, err = tx.Exec(query, args...)
 	if err != nil {
 		return fmt.Errorf("failed to delete removed devices: %w", err)
 	}
-	
+
 	// Upsert devices
 	for _, device := range devices {
 		upsertQuery := `
@@ -103,13 +103,13 @@ func (r *AgentDeviceRepository) UpsertDevices(agentID int, devices []models.Devi
 				device_name = EXCLUDED.device_name,
 				device_type = EXCLUDED.device_type,
 				updated_at = EXCLUDED.updated_at`
-		
+
 		_, err = tx.Exec(upsertQuery, agentID, device.ID, device.Name, device.Type, device.Enabled, time.Now())
 		if err != nil {
 			return fmt.Errorf("failed to upsert device %d: %w", device.ID, err)
 		}
 	}
-	
+
 	return tx.Commit()
 }
 
@@ -119,21 +119,21 @@ func (r *AgentDeviceRepository) UpdateDeviceStatus(agentID int, deviceID int, en
 		UPDATE agent_devices 
 		SET enabled = $1, updated_at = $2
 		WHERE agent_id = $3 AND device_id = $4`
-	
+
 	result, err := r.db.Exec(query, enabled, time.Now(), agentID, deviceID)
 	if err != nil {
 		return fmt.Errorf("failed to update device status: %w", err)
 	}
-	
+
 	rows, err := result.RowsAffected()
 	if err != nil {
 		return fmt.Errorf("failed to get rows affected: %w", err)
 	}
-	
+
 	if rows == 0 {
 		return fmt.Errorf("device not found")
 	}
-	
+
 	return nil
 }
 
@@ -144,13 +144,13 @@ func (r *AgentDeviceRepository) GetEnabledDevicesByAgentID(agentID int) ([]model
 		FROM agent_devices
 		WHERE agent_id = $1 AND enabled = true
 		ORDER BY device_id`
-	
+
 	rows, err := r.db.Query(query, agentID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query enabled devices for agent %d: %w", agentID, err)
 	}
 	defer rows.Close()
-	
+
 	var devices []models.AgentDevice
 	for rows.Next() {
 		var device models.AgentDevice
@@ -169,11 +169,11 @@ func (r *AgentDeviceRepository) GetEnabledDevicesByAgentID(agentID int) ([]model
 		}
 		devices = append(devices, device)
 	}
-	
+
 	if err = rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating enabled device rows: %w", err)
 	}
-	
+
 	return devices, nil
 }
 
@@ -184,12 +184,12 @@ func (r *AgentDeviceRepository) HasEnabledDevices(agentID int) (bool, error) {
 		SELECT COUNT(*) 
 		FROM agent_devices 
 		WHERE agent_id = $1 AND enabled = true`
-	
+
 	err := r.db.QueryRow(query, agentID).Scan(&count)
 	if err != nil {
 		return false, fmt.Errorf("failed to count enabled devices: %w", err)
 	}
-	
+
 	return count > 0, nil
 }
 
@@ -202,16 +202,16 @@ func (r *AgentDeviceRepository) UpdateAgentDeviceDetectionStatus(agentID int, st
 		    device_detection_at = $3,
 		    updated_at = $4
 		WHERE id = $5`
-	
+
 	var errorValue sql.NullString
 	if errorMsg != nil {
 		errorValue = sql.NullString{String: *errorMsg, Valid: true}
 	}
-	
+
 	_, err := r.db.Exec(query, status, errorValue, time.Now(), time.Now(), agentID)
 	if err != nil {
 		return fmt.Errorf("failed to update device detection status: %w", err)
 	}
-	
+
 	return nil
 }

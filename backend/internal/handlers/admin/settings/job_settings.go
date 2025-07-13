@@ -24,20 +24,20 @@ func NewJobSettingsHandler(systemSettingsRepo *repository.SystemSettingsReposito
 
 // JobExecutionSettings represents all job execution related settings
 type JobExecutionSettings struct {
-	DefaultChunkDuration         int     `json:"default_chunk_duration"`
-	ChunkFluctuationPercentage   int     `json:"chunk_fluctuation_percentage"`
-	AgentHashlistRetentionHours  int     `json:"agent_hashlist_retention_hours"`
-	ProgressReportingInterval    int     `json:"progress_reporting_interval"`
-	MaxConcurrentJobsPerAgent    int     `json:"max_concurrent_jobs_per_agent"`
-	JobInterruptionEnabled       bool    `json:"job_interruption_enabled"`
-	BenchmarkCacheDurationHours  int     `json:"benchmark_cache_duration_hours"`
+	DefaultChunkDuration             int  `json:"default_chunk_duration"`
+	ChunkFluctuationPercentage       int  `json:"chunk_fluctuation_percentage"`
+	AgentHashlistRetentionHours      int  `json:"agent_hashlist_retention_hours"`
+	ProgressReportingInterval        int  `json:"progress_reporting_interval"`
+	MaxConcurrentJobsPerAgent        int  `json:"max_concurrent_jobs_per_agent"`
+	JobInterruptionEnabled           bool `json:"job_interruption_enabled"`
+	BenchmarkCacheDurationHours      int  `json:"benchmark_cache_duration_hours"`
 	EnableRealtimeCrackNotifications bool `json:"enable_realtime_crack_notifications"`
-	MetricsRetentionRealtimeDays int     `json:"metrics_retention_realtime_days"`
-	MetricsRetentionDailyDays    int     `json:"metrics_retention_daily_days"`
-	MetricsRetentionWeeklyDays   int     `json:"metrics_retention_weekly_days"`
-	JobRefreshIntervalSeconds    int     `json:"job_refresh_interval_seconds"`
-	MaxChunkRetryAttempts        int     `json:"max_chunk_retry_attempts"`
-	JobsPerPageDefault           int     `json:"jobs_per_page_default"`
+	MetricsRetentionRealtimeDays     int  `json:"metrics_retention_realtime_days"`
+	MetricsRetentionDailyDays        int  `json:"metrics_retention_daily_days"`
+	MetricsRetentionWeeklyDays       int  `json:"metrics_retention_weekly_days"`
+	JobRefreshIntervalSeconds        int  `json:"job_refresh_interval_seconds"`
+	MaxChunkRetryAttempts            int  `json:"max_chunk_retry_attempts"`
+	JobsPerPageDefault               int  `json:"jobs_per_page_default"`
 	// Rule splitting settings
 	RuleSplitEnabled   bool    `json:"rule_split_enabled"`
 	RuleSplitThreshold float64 `json:"rule_split_threshold"`
@@ -77,20 +77,20 @@ func (h *JobSettingsHandler) GetJobExecutionSettings(w http.ResponseWriter, r *h
 
 	settings := JobExecutionSettings{
 		// Set defaults in case settings don't exist
-		DefaultChunkDuration:         1200, // 20 minutes
-		ChunkFluctuationPercentage:   20,
-		AgentHashlistRetentionHours:  24,
-		ProgressReportingInterval:    5,
-		MaxConcurrentJobsPerAgent:    1,
-		JobInterruptionEnabled:       true,
-		BenchmarkCacheDurationHours:  168, // 7 days
+		DefaultChunkDuration:             1200, // 20 minutes
+		ChunkFluctuationPercentage:       20,
+		AgentHashlistRetentionHours:      24,
+		ProgressReportingInterval:        5,
+		MaxConcurrentJobsPerAgent:        1,
+		JobInterruptionEnabled:           true,
+		BenchmarkCacheDurationHours:      168, // 7 days
 		EnableRealtimeCrackNotifications: true,
-		MetricsRetentionRealtimeDays: 7,
-		MetricsRetentionDailyDays:    30,
-		MetricsRetentionWeeklyDays:   365,
-		JobRefreshIntervalSeconds:    5,
-		MaxChunkRetryAttempts:        3,
-		JobsPerPageDefault:           25,
+		MetricsRetentionRealtimeDays:     7,
+		MetricsRetentionDailyDays:        30,
+		MetricsRetentionWeeklyDays:       365,
+		JobRefreshIntervalSeconds:        5,
+		MaxChunkRetryAttempts:            3,
+		JobsPerPageDefault:               25,
 		// Rule splitting defaults
 		RuleSplitEnabled:   true,
 		RuleSplitThreshold: 2.0,
@@ -201,26 +201,26 @@ func (h *JobSettingsHandler) UpdateJobExecutionSettings(w http.ResponseWriter, r
 
 	// Update each setting
 	updates := map[string]string{
-		"default_chunk_duration":               strconv.Itoa(settings.DefaultChunkDuration),
-		"chunk_fluctuation_percentage":         strconv.Itoa(settings.ChunkFluctuationPercentage),
-		"agent_hashlist_retention_hours":       strconv.Itoa(settings.AgentHashlistRetentionHours),
-		"progress_reporting_interval":          strconv.Itoa(settings.ProgressReportingInterval),
-		"max_concurrent_jobs_per_agent":        strconv.Itoa(settings.MaxConcurrentJobsPerAgent),
-		"job_interruption_enabled":             strconv.FormatBool(settings.JobInterruptionEnabled),
-		"benchmark_cache_duration_hours":       strconv.Itoa(settings.BenchmarkCacheDurationHours),
-		"enable_realtime_crack_notifications":  strconv.FormatBool(settings.EnableRealtimeCrackNotifications),
-		"metrics_retention_realtime_days":      strconv.Itoa(settings.MetricsRetentionRealtimeDays),
-		"metrics_retention_daily_days":         strconv.Itoa(settings.MetricsRetentionDailyDays),
-		"metrics_retention_weekly_days":        strconv.Itoa(settings.MetricsRetentionWeeklyDays),
-		"job_refresh_interval_seconds":         strconv.Itoa(settings.JobRefreshIntervalSeconds),
-		"max_chunk_retry_attempts":             strconv.Itoa(settings.MaxChunkRetryAttempts),
-		"jobs_per_page_default":                strconv.Itoa(settings.JobsPerPageDefault),
+		"default_chunk_duration":              strconv.Itoa(settings.DefaultChunkDuration),
+		"chunk_fluctuation_percentage":        strconv.Itoa(settings.ChunkFluctuationPercentage),
+		"agent_hashlist_retention_hours":      strconv.Itoa(settings.AgentHashlistRetentionHours),
+		"progress_reporting_interval":         strconv.Itoa(settings.ProgressReportingInterval),
+		"max_concurrent_jobs_per_agent":       strconv.Itoa(settings.MaxConcurrentJobsPerAgent),
+		"job_interruption_enabled":            strconv.FormatBool(settings.JobInterruptionEnabled),
+		"benchmark_cache_duration_hours":      strconv.Itoa(settings.BenchmarkCacheDurationHours),
+		"enable_realtime_crack_notifications": strconv.FormatBool(settings.EnableRealtimeCrackNotifications),
+		"metrics_retention_realtime_days":     strconv.Itoa(settings.MetricsRetentionRealtimeDays),
+		"metrics_retention_daily_days":        strconv.Itoa(settings.MetricsRetentionDailyDays),
+		"metrics_retention_weekly_days":       strconv.Itoa(settings.MetricsRetentionWeeklyDays),
+		"job_refresh_interval_seconds":        strconv.Itoa(settings.JobRefreshIntervalSeconds),
+		"max_chunk_retry_attempts":            strconv.Itoa(settings.MaxChunkRetryAttempts),
+		"jobs_per_page_default":               strconv.Itoa(settings.JobsPerPageDefault),
 		// Rule splitting settings
-		"rule_split_enabled":                   strconv.FormatBool(settings.RuleSplitEnabled),
-		"rule_split_threshold":                 strconv.FormatFloat(settings.RuleSplitThreshold, 'f', 1, 64),
-		"rule_split_min_rules":                 strconv.Itoa(settings.RuleSplitMinRules),
-		"rule_split_max_chunks":                strconv.Itoa(settings.RuleSplitMaxChunks),
-		"rule_chunk_temp_dir":                  settings.RuleChunkTempDir,
+		"rule_split_enabled":    strconv.FormatBool(settings.RuleSplitEnabled),
+		"rule_split_threshold":  strconv.FormatFloat(settings.RuleSplitThreshold, 'f', 1, 64),
+		"rule_split_min_rules":  strconv.Itoa(settings.RuleSplitMinRules),
+		"rule_split_max_chunks": strconv.Itoa(settings.RuleSplitMaxChunks),
+		"rule_chunk_temp_dir":   settings.RuleChunkTempDir,
 	}
 
 	for key, value := range updates {

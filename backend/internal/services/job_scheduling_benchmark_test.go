@@ -29,10 +29,10 @@ func (m *MockJobWebSocketIntegration) RequestAgentBenchmark(ctx context.Context,
 func TestBenchmarkRequestFlow(t *testing.T) {
 	// This test demonstrates how the benchmark request flow works
 	// when an agent needs a benchmark before receiving work
-	
+
 	ctx := context.Background()
 	mockWS := new(MockJobWebSocketIntegration)
-	
+
 	// Test data
 	agentID := 1
 	jobExecution := &models.JobExecution{
@@ -41,13 +41,13 @@ func TestBenchmarkRequestFlow(t *testing.T) {
 		HashlistID:  100,
 		AttackMode:  models.AttackModeStraight,
 	}
-	
+
 	// Set up expectation for benchmark request
 	mockWS.On("RequestAgentBenchmark", ctx, agentID, jobExecution).Return(nil)
-	
+
 	// Call the method
 	err := mockWS.RequestAgentBenchmark(ctx, agentID, jobExecution)
-	
+
 	// Verify
 	assert.NoError(t, err)
 	mockWS.AssertExpectations(t)
@@ -57,10 +57,10 @@ func TestBenchmarkRequestFlow(t *testing.T) {
 func TestJobAssignmentWithBenchmark(t *testing.T) {
 	// This test demonstrates how job assignment works
 	// after a valid benchmark is available
-	
+
 	ctx := context.Background()
 	mockWS := new(MockJobWebSocketIntegration)
-	
+
 	// Test data
 	task := &models.JobTask{
 		ID:             uuid.New(),
@@ -70,20 +70,20 @@ func TestJobAssignmentWithBenchmark(t *testing.T) {
 		KeyspaceEnd:    1000000,
 		Status:         models.JobTaskStatusAssigned,
 	}
-	
+
 	jobExecution := &models.JobExecution{
 		ID:          task.JobExecutionID,
 		PresetJobID: uuid.New(),
 		HashlistID:  100,
 		AttackMode:  models.AttackModeStraight,
 	}
-	
+
 	// Set up expectation for job assignment
 	mockWS.On("SendJobAssignment", ctx, task, jobExecution).Return(nil)
-	
+
 	// Call the method
 	err := mockWS.SendJobAssignment(ctx, task, jobExecution)
-	
+
 	// Verify
 	assert.NoError(t, err)
 	mockWS.AssertExpectations(t)

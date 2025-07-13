@@ -18,6 +18,7 @@ import (
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/models"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/rule"
 	"github.com/ZerkerEOD/krakenhashes/backend/pkg/debug"
+	"github.com/ZerkerEOD/krakenhashes/backend/pkg/fsutil"
 	"github.com/ZerkerEOD/krakenhashes/backend/pkg/httputil"
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
@@ -204,7 +205,9 @@ func (h *Handler) HandleAddRule(w http.ResponseWriter, r *http.Request) {
 	// Get the rule name from the form
 	ruleName := r.FormValue("name")
 	if ruleName == "" {
-		ruleName = strings.TrimSuffix(header.Filename, filepath.Ext(header.Filename))
+		// Use the base filename without any extensions
+		// Convert to lowercase to match what the monitor does
+		ruleName = strings.ToLower(fsutil.ExtractBaseNameWithoutExt(header.Filename))
 	}
 
 	description := r.FormValue("description")
@@ -253,6 +256,29 @@ func (h *Handler) HandleAddRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	md5Hash := fmt.Sprintf("%x", hash.Sum(nil))
+	debug.Info("HandleAddRule: Checking for duplicate rule with MD5 hash: %s", md5Hash)
+
+	// Check if a rule with the same MD5 hash already exists
+	existingRule, err := h.manager.GetRuleByMD5Hash(ctx, md5Hash)
+	if err != nil {
+		debug.Error("Failed to check for duplicate rule: %v", err)
+		httputil.RespondWithError(w, http.StatusInternalServerError, "Failed to check for duplicate rule")
+		return
+	}
+
+	if existingRule != nil {
+		debug.Info("HandleAddRule: Duplicate rule detected with MD5 hash: %s", md5Hash)
+		httputil.RespondWithJSON(w, http.StatusOK, map[string]interface{}{
+			"id":        existingRule.ID,
+			"name":      existingRule.Name,
+			"message":   "Rule already exists",
+			"duplicate": true,
+			"success":   true,
+		})
+		return
+	}
+
+	debug.Info("HandleAddRule: No duplicate rule found, proceeding with upload")
 
 	// Get file size
 	fileInfo, err := tempFile.Stat()
@@ -279,15 +305,12 @@ func (h *Handler) HandleAddRule(w http.ResponseWriter, r *http.Request) {
 		// Continue with ruleCount = 0
 	}
 
-	// Use the original filename instead of generating a random one
-	// Just sanitize it to remove problematic characters
-	fileName := header.Filename
-	// Sanitize the filename to remove any potentially problematic characters
-	fileName = strings.ReplaceAll(fileName, " ", "_")
-	fileName = strings.ReplaceAll(fileName, "/", "_")
-	fileName = strings.ReplaceAll(fileName, "\\", "_")
-	fileName = strings.ToLower(fileName)
-	debug.Info("HandleAddRule: Using sanitized original filename: %s", fileName)
+	// Use the original filename but sanitize it
+	baseFileName := fsutil.SanitizeFilename(header.Filename)
+
+	// Create the relative path with subdirectory (matching what the monitor would create)
+	fileName := filepath.Join(ruleType, baseFileName)
+	debug.Info("HandleAddRule: Using sanitized filename with subdirectory: %s", fileName)
 
 	// Check if a file with the same name already exists
 	existingRuleByName, err := h.manager.GetRuleByFilename(ctx, fileName)
@@ -361,7 +384,7 @@ func (h *Handler) HandleAddRule(w http.ResponseWriter, r *http.Request) {
 	// Save the file to the rules directory
 	destPath := h.manager.GetRulePath(fileName, ruleType)
 	debug.Info("HandleAddRule: Saving rule file to: %s", destPath)
-	
+
 	// Create directory if it doesn't exist
 	destDir := filepath.Dir(destPath)
 	if err := os.MkdirAll(destDir, 0755); err != nil {
@@ -369,10 +392,10 @@ func (h *Handler) HandleAddRule(w http.ResponseWriter, r *http.Request) {
 		httputil.RespondWithError(w, http.StatusInternalServerError, "Failed to save rule file")
 		return
 	}
-	
+
 	// Open the temp file for reading
 	tempFile.Seek(0, 0)
-	
+
 	// Create the destination file
 	destFile, err := os.Create(destPath)
 	if err != nil {
@@ -381,14 +404,14 @@ func (h *Handler) HandleAddRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer destFile.Close()
-	
+
 	// Copy the file
 	if _, err := io.Copy(destFile, tempFile); err != nil {
 		debug.Error("Failed to copy rule file: %v", err)
 		httputil.RespondWithError(w, http.StatusInternalServerError, "Failed to save rule file")
 		return
 	}
-	
+
 	debug.Info("HandleAddRule: Successfully saved rule file to: %s", destPath)
 
 	// For large files (over 10MB), perform verification asynchronously
@@ -607,7 +630,9 @@ func (h *Handler) HandleUploadRule(w http.ResponseWriter, r *http.Request) {
 	// Get form values
 	ruleName := r.FormValue("name")
 	if ruleName == "" {
-		ruleName = strings.TrimSuffix(header.Filename, filepath.Ext(header.Filename))
+		// Use the base filename without any extensions
+		// Convert to lowercase to match what the monitor does
+		ruleName = strings.ToLower(fsutil.ExtractBaseNameWithoutExt(header.Filename))
 	}
 
 	description := r.FormValue("description")
@@ -659,11 +684,34 @@ func (h *Handler) HandleUploadRule(w http.ResponseWriter, r *http.Request) {
 	// Calculate MD5 hash
 	hash := md5.New()
 	if _, err := io.Copy(hash, tempFile); err != nil {
-		debug.Error("HandleAddRule: Failed to calculate MD5: %v", err)
+		debug.Error("HandleUploadRule: Failed to calculate MD5: %v", err)
 		httputil.RespondWithError(w, http.StatusInternalServerError, "Failed to process file")
 		return
 	}
 	md5Hash := fmt.Sprintf("%x", hash.Sum(nil))
+	debug.Info("HandleUploadRule: Checking for duplicate rule with MD5 hash: %s", md5Hash)
+
+	// Check if a rule with the same MD5 hash already exists
+	existingRule, err := h.manager.GetRuleByMD5Hash(ctx, md5Hash)
+	if err != nil {
+		debug.Error("Failed to check for duplicate rule: %v", err)
+		httputil.RespondWithError(w, http.StatusInternalServerError, "Failed to check for duplicate rule")
+		return
+	}
+
+	if existingRule != nil {
+		debug.Info("HandleUploadRule: Duplicate rule detected with MD5 hash: %s", md5Hash)
+		httputil.RespondWithJSON(w, http.StatusOK, map[string]interface{}{
+			"id":        existingRule.ID,
+			"name":      existingRule.Name,
+			"message":   "Rule already exists",
+			"duplicate": true,
+			"success":   true,
+		})
+		return
+	}
+
+	debug.Info("HandleUploadRule: No duplicate rule found, proceeding with upload")
 
 	// Count the number of rules in the file
 	tempFile.Seek(0, 0)
@@ -680,15 +728,12 @@ func (h *Handler) HandleUploadRule(w http.ResponseWriter, r *http.Request) {
 		// Continue with ruleCount = 0
 	}
 
-	// Use the original filename instead of generating a random one
-	// Just sanitize it to remove problematic characters
-	fileName := header.Filename
-	// Sanitize the filename to remove any potentially problematic characters
-	fileName = strings.ReplaceAll(fileName, " ", "_")
-	fileName = strings.ReplaceAll(fileName, "/", "_")
-	fileName = strings.ReplaceAll(fileName, "\\", "_")
-	fileName = strings.ToLower(fileName)
-	debug.Info("HandleAddRule: Using sanitized original filename: %s", fileName)
+	// Use the original filename but sanitize it
+	baseFileName := fsutil.SanitizeFilename(header.Filename)
+
+	// Create the relative path with subdirectory (matching what the monitor would create)
+	fileName := filepath.Join(ruleType, baseFileName)
+	debug.Info("HandleAddRule: Using sanitized filename with subdirectory: %s", fileName)
 
 	// Check if a file with the same name already exists
 	existingRuleByName, err := h.manager.GetRuleByFilename(ctx, fileName)
@@ -762,7 +807,7 @@ func (h *Handler) HandleUploadRule(w http.ResponseWriter, r *http.Request) {
 	// Save the file to the rules directory
 	destPath := h.manager.GetRulePath(fileName, ruleType)
 	debug.Info("HandleAddRule: Saving rule file to: %s", destPath)
-	
+
 	// Create directory if it doesn't exist
 	destDir := filepath.Dir(destPath)
 	if err := os.MkdirAll(destDir, 0755); err != nil {
@@ -770,10 +815,10 @@ func (h *Handler) HandleUploadRule(w http.ResponseWriter, r *http.Request) {
 		httputil.RespondWithError(w, http.StatusInternalServerError, "Failed to save rule file")
 		return
 	}
-	
+
 	// Open the temp file for reading
 	tempFile.Seek(0, 0)
-	
+
 	// Create the destination file
 	destFile, err := os.Create(destPath)
 	if err != nil {
@@ -782,14 +827,14 @@ func (h *Handler) HandleUploadRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer destFile.Close()
-	
+
 	// Copy the file
 	if _, err := io.Copy(destFile, tempFile); err != nil {
 		debug.Error("Failed to copy rule file: %v", err)
 		httputil.RespondWithError(w, http.StatusInternalServerError, "Failed to save rule file")
 		return
 	}
-	
+
 	debug.Info("HandleAddRule: Successfully saved rule file to: %s", destPath)
 
 	// For large files (over 10MB), perform verification asynchronously

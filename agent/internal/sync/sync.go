@@ -428,9 +428,16 @@ func (fs *FileSync) DownloadFileWithInfoRetry(ctx context.Context, fileInfo *Fil
 		
 		// If we have an explicit category field, it takes precedence
 		if fileInfo.Category != "" {
-			// Use category field and append the name (which may include subdirectories)
-			finalPath = filepath.Join(targetDir, fileInfo.Category, fileInfo.Name)
-			debug.Info("Rule download - Using category field: %s/%s -> %s", fileInfo.Category, fileInfo.Name, finalPath)
+			// Check if the name already starts with the category to avoid double directories
+			if strings.HasPrefix(fileInfo.Name, fileInfo.Category+"/") {
+				// Name already includes the category prefix, use as-is
+				finalPath = filepath.Join(targetDir, fileInfo.Name)
+				debug.Info("Rule download - Name already has category prefix: %s -> %s", fileInfo.Name, finalPath)
+			} else {
+				// Use category field and append the name (which may include subdirectories)
+				finalPath = filepath.Join(targetDir, fileInfo.Category, fileInfo.Name)
+				debug.Info("Rule download - Using category field: %s/%s -> %s", fileInfo.Category, fileInfo.Name, finalPath)
+			}
 		} else if strings.Contains(fileInfo.Name, "/") {
 			// Name includes category path, use it as-is
 			finalPath = filepath.Join(targetDir, fileInfo.Name)
@@ -757,7 +764,9 @@ func (fs *FileSync) ExtractBinary7z(archivePath, targetDir string) error {
 		// Gather all directory names
 		var dirNames []string
 		for _, file := range sz.File {
-			dirPath := filepath.Dir(file.Name)
+			// Normalize path separators to forward slashes for consistent processing
+			normalizedName := strings.ReplaceAll(file.Name, "\\", "/")
+			dirPath := filepath.ToSlash(filepath.Dir(normalizedName))
 			if dirPath != "." {
 				dirNames = append(dirNames, dirPath)
 			}
@@ -765,13 +774,14 @@ func (fs *FileSync) ExtractBinary7z(archivePath, targetDir string) error {
 
 		// Check if all files share the same top-level directory
 		if len(dirNames) > 0 {
-			parts := strings.Split(dirNames[0], string(filepath.Separator))
+			// Use forward slashes for splitting to ensure consistency across platforms
+			parts := strings.Split(dirNames[0], "/")
 			if len(parts) > 0 {
 				topDir := parts[0]
 				allInSameDir := true
 
 				for _, dirName := range dirNames {
-					parts := strings.Split(dirName, string(filepath.Separator))
+					parts := strings.Split(dirName, "/")
 					if len(parts) == 0 || parts[0] != topDir {
 						allInSameDir = false
 						break
@@ -797,12 +807,18 @@ func (fs *FileSync) ExtractBinary7z(archivePath, targetDir string) error {
 		// Create output path, stripping common prefix if needed
 		var outPath string
 		if hasCommonPrefix {
+			// Normalize the file name to use forward slashes for consistent prefix stripping
+			normalizedName := strings.ReplaceAll(file.Name, "\\", "/")
+			
 			// Strip the common directory prefix if present
-			relativePath := file.Name
-			if strings.HasPrefix(relativePath, commonPrefix+string(filepath.Separator)) {
+			relativePath := normalizedName
+			if strings.HasPrefix(relativePath, commonPrefix+"/") {
 				relativePath = relativePath[len(commonPrefix)+1:]
 				debug.Info("Stripping prefix from %s: result is %s", file.Name, relativePath)
 			}
+			
+			// Convert back to platform-specific path separators
+			relativePath = filepath.FromSlash(relativePath)
 			outPath = filepath.Join(targetDir, relativePath)
 		} else {
 			outPath = filepath.Join(targetDir, file.Name)

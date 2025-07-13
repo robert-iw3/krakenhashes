@@ -21,24 +21,24 @@ const (
 
 // Agent represents a registered agent in the system
 type Agent struct {
-	ID              int               `json:"id"`
-	Name            string            `json:"name"`
-	Status          string            `json:"status"`
-	LastError       sql.NullString    `json:"lastError"`
-	LastSeen        time.Time         `json:"lastSeen"`
-	LastHeartbeat   time.Time         `json:"lastHeartbeat"`
-	Version         string            `json:"version"`
-	Hardware        Hardware          `json:"hardware"`
-	OSInfo          json.RawMessage   `json:"os_info"`
-	CreatedByID     uuid.UUID         `json:"createdById"`
-	CreatedBy       *User             `json:"createdBy,omitempty"`
-	Teams           []Team            `json:"teams,omitempty"`
-	CreatedAt       time.Time         `json:"createdAt"`
-	UpdatedAt       time.Time         `json:"updatedAt"`
-	APIKey          sql.NullString    `json:"-"`
-	APIKeyCreatedAt sql.NullTime      `json:"-"`
-	APIKeyLastUsed  sql.NullTime      `json:"-"`
-	Metadata        map[string]string `json:"metadata,omitempty"`
+	ID                  int               `json:"id"`
+	Name                string            `json:"name"`
+	Status              string            `json:"status"`
+	LastError           sql.NullString    `json:"lastError"`
+	LastSeen            time.Time         `json:"lastSeen"`
+	LastHeartbeat       time.Time         `json:"lastHeartbeat"`
+	Version             string            `json:"version"`
+	Hardware            Hardware          `json:"hardware"`
+	OSInfo              json.RawMessage   `json:"os_info"`
+	CreatedByID         uuid.UUID         `json:"createdById"`
+	CreatedBy           *User             `json:"createdBy,omitempty"`
+	Teams               []Team            `json:"teams,omitempty"`
+	CreatedAt           time.Time         `json:"createdAt"`
+	UpdatedAt           time.Time         `json:"updatedAt"`
+	APIKey              sql.NullString    `json:"-"`
+	APIKeyCreatedAt     sql.NullTime      `json:"-"`
+	APIKeyLastUsed      sql.NullTime      `json:"-"`
+	Metadata            map[string]string `json:"metadata,omitempty"`
 	OwnerID             *uuid.UUID        `json:"ownerId,omitempty"`
 	ExtraParameters     string            `json:"extraParameters"`
 	IsEnabled           bool              `json:"isEnabled"`

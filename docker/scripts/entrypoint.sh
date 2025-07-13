@@ -1,22 +1,57 @@
 #!/bin/sh
 set -e
 
+# Set default PUID/PGID if not provided
+PUID=${PUID:-1000}
+PGID=${PGID:-1000}
+
+echo "Starting with UID: $PUID and GID: $PGID"
+
+# Update krakenhashes user and group IDs
+if [ "$PUID" != "1000" ] || [ "$PGID" != "1000" ]; then
+    echo "Updating krakenhashes user/group to UID: $PUID, GID: $PGID"
+    
+    # Update group ID
+    if [ "$PGID" != "1000" ]; then
+        groupmod -g "$PGID" krakenhashes
+    fi
+    
+    # Update user ID
+    if [ "$PUID" != "1000" ]; then
+        usermod -u "$PUID" krakenhashes
+    fi
+fi
+
+# Fix ownership of directories that krakenhashes user needs to access
+echo "Fixing ownership of directories..."
+chown -R krakenhashes:krakenhashes /var/lib/krakenhashes || true
+chown -R krakenhashes:krakenhashes /var/log/krakenhashes/backend || true
+chown -R krakenhashes:krakenhashes /home/krakenhashes || true
+
+# Fix ownership of config directory but keep certs readable
+chown -R krakenhashes:krakenhashes /etc/krakenhashes || true
+# Ensure the certificates directory exists and has proper permissions
+mkdir -p /etc/krakenhashes/certs
+chown krakenhashes:krakenhashes /etc/krakenhashes/certs
+chmod 755 /etc/krakenhashes/certs
+
+# If certificates already exist, ensure they are readable
+if [ -n "$(ls -A /etc/krakenhashes/certs 2>/dev/null)" ]; then
+    echo "Making existing certificates readable..."
+    find /etc/krakenhashes/certs -type f -exec chmod 644 {} \;
+    find /etc/krakenhashes/certs -type f -exec chown krakenhashes:krakenhashes {} \;
+fi
+
 # Create required log directories
 for dir in postgres backend nginx; do
     mkdir -p "/var/log/krakenhashes/$dir"
 done
 
-# Create required config directories
-mkdir -p "/etc/krakenhashes/certs"
-
-# Set permissions for log paths
-chown -R root:root "/var/log/krakenhashes"
+# Set permissions for log paths (but keep backend owned by krakenhashes)
 chmod -R 755 "/var/log/krakenhashes"
-
-# Set permissions for config paths
-chown -R root:root "/etc/krakenhashes"
-chmod -R 755 "/etc/krakenhashes"
-chmod 700 "/etc/krakenhashes/certs"
+chown -R postgres:postgres "/var/log/krakenhashes/postgres"
+chown -R nginx:nginx "/var/log/krakenhashes/nginx"
+# Backend logs should remain owned by krakenhashes (already set above)
 
 # Create backend .env file
 cat > /etc/krakenhashes/.env << EOF
@@ -56,6 +91,10 @@ LOG_LEVEL=${LOG_LEVEL:-DEBUG}
 # Version Information
 VERSION=${VERSION}
 EOF
+
+# Make sure the .env file is readable by krakenhashes
+chown krakenhashes:krakenhashes /etc/krakenhashes/.env
+chmod 644 /etc/krakenhashes/.env
 
 # Start PostgreSQL
 echo "Starting PostgreSQL..."

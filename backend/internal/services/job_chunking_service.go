@@ -10,7 +10,6 @@ import (
 	"github.com/ZerkerEOD/krakenhashes/backend/pkg/debug"
 )
 
-
 // JobChunkingService handles job chunking based on time and agent performance
 type JobChunkingService struct {
 	benchmarkRepo      *repository.BenchmarkRepository
@@ -82,9 +81,9 @@ func (s *JobChunkingService) CalculateNextChunk(ctx context.Context, req ChunkCa
 	remainingKeyspace := totalKeyspace - keyspaceStart
 
 	debug.Log("Calculated remaining keyspace", map[string]interface{}{
-		"job_execution_id":  req.JobExecution.ID,
-		"total_keyspace":    totalKeyspace,
-		"keyspace_start":    keyspaceStart,
+		"job_execution_id":   req.JobExecution.ID,
+		"total_keyspace":     totalKeyspace,
+		"keyspace_start":     keyspaceStart,
 		"remaining_keyspace": remainingKeyspace,
 	})
 
@@ -100,7 +99,7 @@ func (s *JobChunkingService) CalculateNextChunk(ctx context.Context, req ChunkCa
 
 	// Calculate chunk size based on benchmark and desired duration
 	desiredChunkSize := int64(req.ChunkDuration) * benchmarkSpeed
-	
+
 	// Get fluctuation percentage setting
 	fluctuationSetting, err := s.systemSettingsRepo.GetSetting(ctx, "chunk_fluctuation_percentage")
 	if err != nil {
@@ -130,18 +129,18 @@ func (s *JobChunkingService) CalculateNextChunk(ctx context.Context, req ChunkCa
 		// Check if the remaining keyspace after this chunk would be too small
 		remainingAfterChunk := totalKeyspace - keyspaceEnd
 		fluctuationThreshold := int64(float64(desiredChunkSize) * float64(fluctuationPercentage) / 100.0)
-		
+
 		if remainingAfterChunk <= fluctuationThreshold {
 			// Merge the final small chunk into this one
 			keyspaceEnd = totalKeyspace
 			isLastChunk = true
 			actualDuration = int((totalKeyspace - keyspaceStart) / benchmarkSpeed)
-			
+
 			debug.Log("Merging final chunk to avoid small remainder", map[string]interface{}{
-				"remaining_after_chunk":   remainingAfterChunk,
-				"fluctuation_threshold":   fluctuationThreshold,
-				"adjusted_keyspace_end":   keyspaceEnd,
-				"adjusted_duration":       actualDuration,
+				"remaining_after_chunk": remainingAfterChunk,
+				"fluctuation_threshold": fluctuationThreshold,
+				"adjusted_keyspace_end": keyspaceEnd,
+				"adjusted_duration":     actualDuration,
 			})
 		}
 	}
@@ -155,11 +154,11 @@ func (s *JobChunkingService) CalculateNextChunk(ctx context.Context, req ChunkCa
 	}
 
 	debug.Log("Chunk calculated", map[string]interface{}{
-		"keyspace_start":   keyspaceStart,
-		"keyspace_end":     keyspaceEnd,
-		"benchmark_speed":  benchmarkSpeed,
-		"actual_duration":  actualDuration,
-		"is_last_chunk":    isLastChunk,
+		"keyspace_start":  keyspaceStart,
+		"keyspace_end":    keyspaceEnd,
+		"benchmark_speed": benchmarkSpeed,
+		"actual_duration": actualDuration,
+		"is_last_chunk":   isLastChunk,
 	})
 
 	return result, nil
@@ -217,18 +216,18 @@ func (s *JobChunkingService) getOrEstimateBenchmark(ctx context.Context, agentID
 	}
 
 	averageSpeed := totalSpeed / int64(count)
-	
+
 	// Apply attack mode modifier to the average
 	modifier := s.getAttackModeSpeedModifier(attackMode)
 	estimatedSpeed := int64(float64(averageSpeed) * modifier)
 
 	debug.Log("Estimated benchmark speed", map[string]interface{}{
-		"agent_id":         agentID,
-		"attack_mode":      attackMode,
-		"hash_type":        hashType,
-		"average_speed":    averageSpeed,
-		"modifier":         modifier,
-		"estimated_speed":  estimatedSpeed,
+		"agent_id":        agentID,
+		"attack_mode":     attackMode,
+		"hash_type":       hashType,
+		"average_speed":   averageSpeed,
+		"modifier":        modifier,
+		"estimated_speed": estimatedSpeed,
 	})
 
 	return estimatedSpeed, nil
@@ -243,7 +242,7 @@ func (s *JobChunkingService) getDefaultBenchmarkEstimate(attackMode models.Attac
 	case models.AttackModeStraight:
 		return baseSpeed * 2 // Dictionary attacks are typically faster
 	case models.AttackModeCombination:
-		return baseSpeed     // Combination attacks are moderate
+		return baseSpeed // Combination attacks are moderate
 	case models.AttackModeBruteForce:
 		return baseSpeed / 2 // Brute force is slower
 	case models.AttackModeHybridWordlistMask, models.AttackModeHybridMaskWordlist:
@@ -325,7 +324,7 @@ func parseIntValue(value string) (int, error) {
 	if value == "" {
 		return 0, fmt.Errorf("empty value")
 	}
-	
+
 	result := 0
 	for _, char := range value {
 		if char < '0' || char > '9' {
@@ -340,23 +339,23 @@ func parseIntValue(value string) (int, error) {
 // This method handles rule splitting integration when needed
 func (s *JobChunkingService) CreateInitialChunks(ctx context.Context, job *models.JobExecution, presetJob *models.PresetJob, jobExecService *JobExecutionService) error {
 	debug.Log("Creating initial chunks for job", map[string]interface{}{
-		"job_execution_id": job.ID,
+		"job_execution_id":    job.ID,
 		"uses_rule_splitting": job.UsesRuleSplitting,
 	})
-	
+
 	// Get available agents
 	availableAgents, err := jobExecService.GetAvailableAgents(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get available agents: %w", err)
 	}
-	
+
 	if len(availableAgents) == 0 {
 		debug.Log("No available agents for job", map[string]interface{}{
 			"job_execution_id": job.ID,
 		})
 		return nil
 	}
-	
+
 	// Get benchmark speed estimate for the first available agent
 	// In production, we might want to get speeds for all agents
 	agent := availableAgents[0]
@@ -364,7 +363,7 @@ func (s *JobChunkingService) CreateInitialChunks(ctx context.Context, job *model
 	if presetJob != nil {
 		hashType = presetJob.HashType
 	}
-	
+
 	benchmarkSpeed, err := s.getOrEstimateBenchmark(ctx, agent.ID, job.AttackMode, hashType)
 	if err != nil {
 		debug.Log("Failed to get benchmark, using default", map[string]interface{}{
@@ -372,20 +371,20 @@ func (s *JobChunkingService) CreateInitialChunks(ctx context.Context, job *model
 		})
 		benchmarkSpeed = 1000000 // 1M H/s default
 	}
-	
+
 	// Check if we should use rule splitting
 	decision, err := jobExecService.analyzeForRuleSplitting(ctx, job, presetJob, float64(benchmarkSpeed))
 	if err != nil {
 		return fmt.Errorf("failed to analyze for rule splitting: %w", err)
 	}
-	
+
 	if decision.ShouldSplit {
 		debug.Log("Using rule splitting for job", map[string]interface{}{
 			"job_execution_id": job.ID,
-			"num_splits": decision.NumSplits,
-			"total_rules": decision.TotalRules,
+			"num_splits":       decision.NumSplits,
+			"total_rules":      decision.TotalRules,
 		})
-		
+
 		// Create tasks with rule splitting
 		err = jobExecService.createJobTasksWithRuleSplitting(ctx, job, presetJob, decision)
 		if err != nil {
@@ -395,10 +394,10 @@ func (s *JobChunkingService) CreateInitialChunks(ctx context.Context, job *model
 		debug.Log("Using standard chunking for job", map[string]interface{}{
 			"job_execution_id": job.ID,
 		})
-		
+
 		// Standard chunking - this will be handled by the existing chunking logic
 		// The job scheduling service will create chunks as agents become available
 	}
-	
+
 	return nil
 }

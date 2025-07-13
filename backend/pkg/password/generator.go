@@ -17,24 +17,24 @@ const (
 func GenerateTemporaryPassword() string {
 	// Use all character sets for temporary passwords
 	allChars := lowercaseLetters + uppercaseLetters + digits + specialChars
-	
+
 	// Generate 12-character password
 	password := make([]byte, 12)
-	
+
 	// Ensure at least one character from each set
 	password[0] = randomChar(lowercaseLetters)
 	password[1] = randomChar(uppercaseLetters)
 	password[2] = randomChar(digits)
 	password[3] = randomChar(specialChars)
-	
+
 	// Fill the rest with random characters
 	for i := 4; i < 12; i++ {
 		password[i] = randomChar(allChars)
 	}
-	
+
 	// Shuffle the password to avoid predictable patterns
 	shuffleBytes(password)
-	
+
 	return string(password)
 }
 

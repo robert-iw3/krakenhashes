@@ -336,6 +336,9 @@ func (jm *JobManager) monitorJobProgress(ctx context.Context, jobExecution *JobE
 		jm.mutex.Unlock()
 	}()
 
+	// Track retry attempts for "already running" errors
+	retryCount := 0
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -349,6 +352,54 @@ func (jm *JobManager) monitorJobProgress(ctx context.Context, jobExecution *JobE
 
 			if progress != nil {
 				jobExecution.LastProgress = progress
+				
+				// Check if this is a failure due to "already running" error
+				if progress.Status == "failed" && jobExecution.Process.AlreadyRunningError && retryCount < MaxHashcatRetries {
+					retryCount++
+					log.Printf("Task %s failed with 'already running' error, attempting retry %d/%d", 
+						progress.TaskID, retryCount, MaxHashcatRetries)
+					
+					// Remove from active jobs
+					jm.mutex.Lock()
+					delete(jm.activeJobs, jobExecution.Assignment.TaskID)
+					jm.mutex.Unlock()
+					
+					// Wait before retry
+					select {
+					case <-ctx.Done():
+						return
+					case <-time.After(HashcatRetryDelay):
+						// Continue with retry
+					}
+					
+					// Attempt to restart the job
+					newProcess, err := jm.executor.ExecuteTask(ctx, jobExecution.Assignment)
+					if err != nil {
+						log.Printf("Failed to restart task %s on retry %d: %v", 
+							jobExecution.Assignment.TaskID, retryCount, err)
+						// Send final error to backend
+						if jm.progressCallback != nil {
+							errorProgress := &JobProgress{
+								TaskID:       jobExecution.Assignment.TaskID,
+								Status:       "failed",
+								ErrorMessage: fmt.Sprintf("Failed to restart after %d retries: %v", retryCount, err),
+							}
+							jm.progressCallback(errorProgress)
+						}
+						return
+					}
+					
+					// Update the job execution with new process
+					jobExecution.Process = newProcess
+					
+					// Re-add to active jobs
+					jm.mutex.Lock()
+					jm.activeJobs[jobExecution.Assignment.TaskID] = jobExecution
+					jm.mutex.Unlock()
+					
+					// Continue monitoring the new process
+					continue
+				}
 				
 				// Send progress to backend via callback
 				if jm.progressCallback != nil {
@@ -364,6 +415,11 @@ func (jm *JobManager) monitorJobProgress(ctx context.Context, jobExecution *JobE
 				// Log any cracked hashes
 				if progress.CrackedCount > 0 {
 					log.Printf("Task %s cracked %d hashes in this update", progress.TaskID, progress.CrackedCount)
+				}
+				
+				// If this was a final status (completed or failed), exit monitoring
+				if progress.Status == "completed" || progress.Status == "failed" {
+					return
 				}
 			}
 		}

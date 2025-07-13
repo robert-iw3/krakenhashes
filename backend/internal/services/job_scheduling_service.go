@@ -13,7 +13,6 @@ import (
 	"github.com/google/uuid"
 )
 
-
 // JobWebSocketIntegration interface for WebSocket integration
 type JobWebSocketIntegration interface {
 	SendJobAssignment(ctx context.Context, task *models.JobTask, jobExecution *models.JobExecution) error
@@ -28,7 +27,7 @@ type JobSchedulingService struct {
 	agentRepo           *repository.AgentRepository
 	systemSettingsRepo  *repository.SystemSettingsRepository
 	wsIntegration       JobWebSocketIntegration
-	
+
 	// Scheduling state
 	schedulingMutex sync.Mutex
 	isScheduling    bool
@@ -148,11 +147,11 @@ func (s *JobSchedulingService) assignWorkToAgent(ctx context.Context, agent *mod
 	nextJob := &nextJobWithWork.JobExecution
 
 	debug.Log("Found pending job for agent", map[string]interface{}{
-		"agent_id":          agent.ID,
-		"job_execution_id":  nextJob.ID,
-		"job_priority":      nextJob.Priority,
-		"preset_job_name":   nextJob.PresetJobName,
-		"hashlist_name":     nextJob.HashlistName,
+		"agent_id":         agent.ID,
+		"job_execution_id": nextJob.ID,
+		"job_priority":     nextJob.Priority,
+		"preset_job_name":  nextJob.PresetJobName,
+		"hashlist_name":    nextJob.HashlistName,
 	})
 
 	// Check if we need to interrupt any running jobs for higher priority
@@ -201,7 +200,7 @@ func (s *JobSchedulingService) assignWorkToAgent(ctx context.Context, agent *mod
 	// Check if agent has a benchmark for this attack mode and hash type
 	benchmark, err := s.jobExecutionService.benchmarkRepo.GetAgentBenchmark(ctx, agent.ID, nextJob.AttackMode, hashlist.HashTypeID)
 	needsBenchmark := err != nil || benchmark == nil
-	
+
 	// If recent benchmark check is needed, check if it's still valid
 	if !needsBenchmark && benchmark != nil {
 		cacheDuration := 168 * time.Hour // Default 7 days
@@ -210,7 +209,7 @@ func (s *JobSchedulingService) assignWorkToAgent(ctx context.Context, agent *mod
 				cacheDuration = time.Duration(hours) * time.Hour
 			}
 		}
-		
+
 		isRecent, err := s.jobExecutionService.benchmarkRepo.IsRecentBenchmark(ctx, agent.ID, nextJob.AttackMode, hashlist.HashTypeID, cacheDuration)
 		needsBenchmark = err != nil || !isRecent
 	}
@@ -234,15 +233,15 @@ func (s *JobSchedulingService) assignWorkToAgent(ctx context.Context, agent *mod
 			}
 
 			debug.Log("Benchmark requested from agent, deferring job assignment", map[string]interface{}{
-				"agent_id":    agent.ID,
-				"job_id":      nextJob.ID,
+				"agent_id": agent.ID,
+				"job_id":   nextJob.ID,
 			})
-			
+
 			// Return without assigning work - the agent will be available for assignment
 			// once the benchmark completes
 			return nil, interruptedJobs, nil
 		}
-		
+
 		// If no WebSocket integration, we can't request benchmarks
 		return nil, interruptedJobs, fmt.Errorf("benchmark required but WebSocket integration not available")
 	}
@@ -254,28 +253,28 @@ func (s *JobSchedulingService) assignWorkToAgent(ctx context.Context, agent *mod
 		if err != nil {
 			return nil, interruptedJobs, fmt.Errorf("failed to get task count: %w", err)
 		}
-		
+
 		debug.Log("Checking rule splitting initialization", map[string]interface{}{
-			"job_id": nextJob.ID,
-			"rule_split_count": nextJob.RuleSplitCount,
-			"existing_tasks": taskCount,
+			"job_id":             nextJob.ID,
+			"rule_split_count":   nextJob.RuleSplitCount,
+			"existing_tasks":     taskCount,
 			"processed_keyspace": nextJob.ProcessedKeyspace,
 		})
-		
+
 		if taskCount == 0 {
 			// This is the first time, need to initialize rule splitting
 			debug.Log("Initializing rule splitting for job", map[string]interface{}{
-				"job_id": nextJob.ID,
+				"job_id":           nextJob.ID,
 				"rule_split_count": nextJob.RuleSplitCount,
 			})
-			
+
 			// Let the job execution service handle rule splitting
 			err = s.jobExecutionService.InitializeRuleSplitting(ctx, nextJob)
 			if err != nil {
 				debug.Error("Failed to initialize rule splitting: %v", err)
 				return nil, interruptedJobs, fmt.Errorf("failed to initialize rule splitting: %w", err)
 			}
-			
+
 			debug.Log("Rule splitting initialized successfully", map[string]interface{}{
 				"job_id": nextJob.ID,
 			})
@@ -307,10 +306,10 @@ func (s *JobSchedulingService) assignWorkToAgent(ctx context.Context, agent *mod
 	if nextJob.UsesRuleSplitting {
 		// Get the next available rule chunk task
 		debug.Log("Getting next rule split task", map[string]interface{}{
-			"job_id": nextJob.ID,
+			"job_id":   nextJob.ID,
 			"agent_id": agent.ID,
 		})
-		
+
 		jobTask, err = s.jobExecutionService.GetNextRuleSplitTask(ctx, nextJob, agent)
 		if err != nil {
 			return nil, interruptedJobs, fmt.Errorf("failed to get rule split task: %w", err)
@@ -322,11 +321,11 @@ func (s *JobSchedulingService) assignWorkToAgent(ctx context.Context, agent *mod
 			})
 			return nil, interruptedJobs, nil
 		}
-		
+
 		debug.Log("Got rule split task", map[string]interface{}{
-			"task_id": jobTask.ID,
+			"task_id":            jobTask.ID,
 			"is_rule_split_task": jobTask.IsRuleSplitTask,
-			"rule_chunk_path": jobTask.RuleChunkPath,
+			"rule_chunk_path":    jobTask.RuleChunkPath,
 		})
 	} else {
 		// Regular chunking
@@ -397,11 +396,11 @@ func (s *JobSchedulingService) assignWorkToAgent(ctx context.Context, agent *mod
 	}
 
 	debug.Log("Work assigned to agent", map[string]interface{}{
-		"agent_id":        agent.ID,
-		"job_task_id":     jobTask.ID,
+		"agent_id":         agent.ID,
+		"job_task_id":      jobTask.ID,
 		"job_execution_id": nextJob.ID,
-		"keyspace_start":  jobTask.KeyspaceStart,
-		"keyspace_end":    jobTask.KeyspaceEnd,
+		"keyspace_start":   jobTask.KeyspaceStart,
+		"keyspace_end":     jobTask.KeyspaceEnd,
 	})
 
 	return jobTask, interruptedJobs, nil
@@ -476,7 +475,7 @@ func (s *JobSchedulingService) StartScheduler(ctx context.Context, interval time
 	debug.Log("Job scheduler started", map[string]interface{}{
 		"interval": interval,
 	})
-	
+
 	// Recover stale jobs on startup
 	if err := s.RecoverStaleJobs(ctx); err != nil {
 		debug.Log("Failed to recover stale jobs on startup", map[string]interface{}{
@@ -629,23 +628,23 @@ func (s *JobSchedulingService) StopJob(ctx context.Context, jobExecutionID uuid.
 // RecoverStaleJobs recovers jobs that were assigned but not completed when server restarts
 func (s *JobSchedulingService) RecoverStaleJobs(ctx context.Context) error {
 	debug.Log("Starting stale job recovery", nil)
-	
+
 	// Get all tasks that are in 'assigned' or 'running' state
 	staleStatuses := []string{"assigned", "running"}
 	staleTasks, err := s.jobExecutionService.jobTaskRepo.GetTasksByStatuses(ctx, staleStatuses)
 	if err != nil {
 		return fmt.Errorf("failed to get stale tasks: %w", err)
 	}
-	
+
 	if len(staleTasks) == 0 {
 		debug.Log("No stale tasks found", nil)
 		return nil
 	}
-	
+
 	debug.Log("Found stale tasks to recover", map[string]interface{}{
 		"task_count": len(staleTasks),
 	})
-	
+
 	// Reset each stale task back to pending
 	for _, task := range staleTasks {
 		// Check if the agent is currently connected
@@ -660,7 +659,7 @@ func (s *JobSchedulingService) RecoverStaleJobs(ctx context.Context) error {
 			}
 			continue
 		}
-		
+
 		agent, err := s.agentRepo.GetByID(ctx, *task.AgentID)
 		if err != nil {
 			debug.Log("Failed to get agent for stale task", map[string]interface{}{
@@ -670,7 +669,7 @@ func (s *JobSchedulingService) RecoverStaleJobs(ctx context.Context) error {
 			})
 			continue
 		}
-		
+
 		// If agent is active and connected, we'll wait for it to report progress
 		if agent.Status == "active" {
 			// Check last checkpoint time
@@ -679,14 +678,14 @@ func (s *JobSchedulingService) RecoverStaleJobs(ctx context.Context) error {
 				// If checkpoint is recent (within 5 minutes), assume task is still running
 				if timeSinceCheckpoint < 5*time.Minute {
 					debug.Log("Task has recent checkpoint, assuming still running", map[string]interface{}{
-						"task_id":             task.ID,
+						"task_id":               task.ID,
 						"time_since_checkpoint": timeSinceCheckpoint,
 					})
 					continue
 				}
 			}
 		}
-		
+
 		// Reset task to pending for reassignment
 		err = s.jobExecutionService.jobTaskRepo.ResetTaskForRetry(ctx, task.ID)
 		if err != nil {
@@ -696,13 +695,13 @@ func (s *JobSchedulingService) RecoverStaleJobs(ctx context.Context) error {
 			})
 			continue
 		}
-		
+
 		debug.Log("Reset stale task to pending", map[string]interface{}{
-			"task_id":         task.ID,
+			"task_id":          task.ID,
 			"job_execution_id": task.JobExecutionID,
-			"agent_id":        task.AgentID,
+			"agent_id":         task.AgentID,
 		})
-		
+
 		// Also update the job execution status if needed
 		jobExec, err := s.jobExecutionService.jobExecRepo.GetByID(ctx, task.JobExecutionID)
 		if err == nil && jobExec.Status == models.JobExecutionStatusRunning {
@@ -720,10 +719,10 @@ func (s *JobSchedulingService) RecoverStaleJobs(ctx context.Context) error {
 			}
 		}
 	}
-	
+
 	debug.Log("Stale job recovery completed", map[string]interface{}{
 		"total_tasks_recovered": len(staleTasks),
 	})
-	
+
 	return nil
 }

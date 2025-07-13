@@ -57,7 +57,7 @@ func (r *JobTaskRepository) GetTasksByStatuses(ctx context.Context, statuses []s
 	if len(statuses) == 0 {
 		return []models.JobTask{}, nil
 	}
-	
+
 	// Build placeholders for IN clause
 	placeholders := ""
 	args := make([]interface{}, len(statuses))
@@ -68,11 +68,11 @@ func (r *JobTaskRepository) GetTasksByStatuses(ctx context.Context, statuses []s
 		placeholders += fmt.Sprintf("$%d", i+1)
 		args[i] = status
 	}
-	
+
 	query := fmt.Sprintf(`
-		SELECT 
+		SELECT
 			id, job_execution_id, agent_id, status, keyspace_start, keyspace_end,
-			keyspace_processed, benchmark_speed, chunk_duration, 
+			keyspace_processed, benchmark_speed, chunk_duration,
 			COALESCE(crack_count, 0) as crack_count,
 			COALESCE(detailed_status, 'pending') as detailed_status,
 			COALESCE(retry_count, 0) as retry_count,
@@ -82,13 +82,13 @@ func (r *JobTaskRepository) GetTasksByStatuses(ctx context.Context, statuses []s
 		FROM job_tasks
 		WHERE status IN (%s)
 		ORDER BY created_at ASC`, placeholders)
-	
+
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get tasks by statuses: %w", err)
 	}
 	defer rows.Close()
-	
+
 	var tasks []models.JobTask
 	for rows.Next() {
 		var task models.JobTask
@@ -106,7 +106,7 @@ func (r *JobTaskRepository) GetTasksByStatuses(ctx context.Context, statuses []s
 		}
 		tasks = append(tasks, task)
 	}
-	
+
 	return tasks, nil
 }
 */
@@ -120,13 +120,13 @@ func (r *JobTaskRepository) GetActiveTasksCount(ctx context.Context, jobExecutio
 		FROM job_tasks
 		WHERE job_execution_id = $1
 		AND status IN ('assigned', 'running')`
-	
+
 	var count int
 	err := r.db.QueryRowContext(ctx, query, jobExecutionID).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get active tasks count: %w", err)
 	}
-	
+
 	return count, nil
 }
 */
@@ -154,7 +154,7 @@ func (r *JobTaskRepository) AreAllTasksComplete(ctx context.Context, jobExecutio
 		AND status NOT IN ($2, $3, $4, $5)`
 
 	var allComplete bool
-	err := r.db.QueryRowContext(ctx, query, 
+	err := r.db.QueryRowContext(ctx, query,
 		jobExecutionID,
 		models.JobTaskStatusCompleted,
 		models.JobTaskStatusFailed,

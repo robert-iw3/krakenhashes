@@ -137,7 +137,7 @@ func (r *AgentHashlistRepository) UpdateLastUsed(ctx context.Context, agentID in
 // CleanupOldHashlists removes hashlists that haven't been used within the retention period
 func (r *AgentHashlistRepository) CleanupOldHashlists(ctx context.Context, retentionPeriod time.Duration) ([]models.AgentHashlist, error) {
 	cutoffTime := time.Now().Add(-retentionPeriod)
-	
+
 	// First, get the records to be deleted for cleanup purposes
 	selectQuery := `
 		SELECT id, agent_id, hashlist_id, file_path, downloaded_at, last_used_at, file_hash
@@ -229,7 +229,7 @@ func (r *AgentHashlistRepository) IsHashlistCurrentForAgent(ctx context.Context,
 
 	var agentFileHash *string
 	err := r.db.QueryRowContext(ctx, query, agentID, hashlistID).Scan(&agentFileHash)
-	
+
 	if err == sql.ErrNoRows {
 		return false, nil // Agent doesn't have this hashlist
 	}

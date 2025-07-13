@@ -15,6 +15,9 @@ Thumbs.db
 .env.local
 .env.*.local
 
+# Development files
+test_*.txt
+
 # Cursor
 .cursorignore
 .cursorrules

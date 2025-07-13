@@ -15,6 +15,7 @@ import (
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/models"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/wordlist"
 	"github.com/ZerkerEOD/krakenhashes/backend/pkg/debug"
+	"github.com/ZerkerEOD/krakenhashes/backend/pkg/fsutil"
 	"github.com/ZerkerEOD/krakenhashes/backend/pkg/httputil"
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
@@ -230,15 +231,18 @@ func (h *Handler) HandleAddWordlist(w http.ResponseWriter, r *http.Request) {
 
 	debug.Info("HandleAddWordlist: No duplicate wordlist found, proceeding with upload")
 
-	// Use the original filename instead of generating a random one
-	// Just sanitize it to remove problematic characters
-	fileName := header.Filename
-	// Sanitize the filename to remove any potentially problematic characters
-	fileName = strings.ReplaceAll(fileName, " ", "-")
-	fileName = strings.ReplaceAll(fileName, "/", "-")
-	fileName = strings.ReplaceAll(fileName, "\\", "-")
-	fileName = strings.ToLower(fileName)
-	debug.Info("HandleAddWordlist: Using sanitized original filename: %s", fileName)
+	// Use the original filename but sanitize it
+	baseFileName := fsutil.SanitizeFilename(header.Filename)
+
+	// If name is not provided, use the base filename without extension
+	if name == "" {
+		// Convert to lowercase to match what the monitor does
+		name = strings.ToLower(fsutil.ExtractBaseNameWithoutExt(header.Filename))
+	}
+
+	// Create the relative path with subdirectory (matching what the monitor would create)
+	fileName := filepath.Join(wordlistType, baseFileName)
+	debug.Info("HandleAddWordlist: Using sanitized filename with subdirectory: %s", fileName)
 
 	// Check if a file with the same name already exists
 	existingWordlistByName, err := h.manager.GetWordlistByFilename(ctx, fileName)

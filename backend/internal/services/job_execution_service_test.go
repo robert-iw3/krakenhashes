@@ -121,12 +121,12 @@ func TestJobExecutionService_CreateJobExecution(t *testing.T) {
 	// Test data
 	presetJobID := uuid.New()
 	hashlistID := uuid.New()
-	
+
 	presetJob := &models.PresetJob{
-		ID:         presetJobID,
-		Name:       "Test Preset Job",
-		AttackMode: models.AttackModeStraight,
-		Priority:   100,
+		ID:          presetJobID,
+		Name:        "Test Preset Job",
+		AttackMode:  models.AttackModeStraight,
+		Priority:    100,
 		WordlistIDs: models.IDArray{"1", "2"},
 		RuleIDs:     models.IDArray{"1"},
 	}
@@ -174,7 +174,7 @@ func TestJobExecutionService_GetNextPendingJob(t *testing.T) {
 	// Test data
 	jobID1 := uuid.New()
 	jobID2 := uuid.New()
-	
+
 	pendingJobs := []models.JobExecution{
 		{
 			ID:       jobID1,

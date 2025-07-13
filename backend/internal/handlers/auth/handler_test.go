@@ -132,7 +132,7 @@ func TestLoginHandlerWithMFA(t *testing.T) {
 
 	// Create test user with MFA enabled
 	testUser := testutil.CreateTestUser(t, db, "mfauser", "mfa@example.com", testutil.DefaultTestPassword, "user")
-	
+
 	// Enable email MFA for the user
 	err := db.EnableMFA(testUser.ID.String(), "email", "")
 	require.NoError(t, err)
@@ -164,7 +164,7 @@ func TestLoginHandlerWithMFA(t *testing.T) {
 		// Enable authenticator MFA
 		err := db.EnableMFA(testUser.ID.String(), "authenticator", testutil.ValidTOTPSecret)
 		require.NoError(t, err)
-		
+
 		// Set authenticator as preferred
 		err = db.SetPreferredMFAMethod(testUser.ID.String(), "authenticator")
 		require.NoError(t, err)
@@ -203,7 +203,7 @@ func TestLogoutHandler(t *testing.T) {
 	testUser := testutil.CreateTestUser(t, db, "testuser", "test@example.com", testutil.DefaultTestPassword, "user")
 	token, err := handler.generateAuthToken(testUser)
 	require.NoError(t, err)
-	
+
 	// Store token in database
 	err = db.StoreToken(testUser.ID.String(), token)
 	require.NoError(t, err)
@@ -267,10 +267,10 @@ func TestCheckAuthHandler(t *testing.T) {
 	require.NoError(t, err)
 
 	tests := []struct {
-		name          string
-		token         string
-		expectedAuth  bool
-		expectedRole  string
+		name         string
+		token        string
+		expectedAuth bool
+		expectedRole string
 	}{
 		{
 			name:         "valid admin token",
@@ -315,7 +315,7 @@ func TestCheckAuthHandler(t *testing.T) {
 			testutil.AssertJSONResponse(t, rr, http.StatusOK, &resp)
 
 			assert.Equal(t, tt.expectedAuth, resp["authenticated"])
-			
+
 			if tt.expectedRole != "" {
 				assert.Equal(t, tt.expectedRole, resp["role"])
 			} else {

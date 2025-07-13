@@ -19,7 +19,7 @@ func GlobalCORSMiddleware(next http.Handler) http.Handler {
 		// Handle preflight OPTIONS requests
 		if r.Method == "OPTIONS" {
 			debug.Info("Handling OPTIONS request for: %s", r.URL.Path)
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, X-API-Key, X-Agent-ID, Origin, Cookie")
 			w.Header().Set("Access-Control-Max-Age", "3600")
 			w.WriteHeader(http.StatusOK)

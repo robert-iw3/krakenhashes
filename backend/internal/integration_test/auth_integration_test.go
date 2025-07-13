@@ -470,7 +470,7 @@ func TestSecurityScenarios(t *testing.T) {
 			Name:  "token",
 			Value: token,
 		})
-		req.RemoteAddr = "192.168.1.100:12345"  // Different IP
+		req.RemoteAddr = "192.168.1.100:12345" // Different IP
 		rr := httptest.NewRecorder()
 
 		authHandler.CheckAuthHandler(rr, req)

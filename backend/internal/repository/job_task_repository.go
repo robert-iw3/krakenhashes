@@ -57,9 +57,9 @@ func (r *JobTaskRepository) Create(ctx context.Context, task *models.JobTask) er
 	}
 
 	debug.Log("Created job task", map[string]interface{}{
-		"task_id": task.ID,
-		"job_execution_id": task.JobExecutionID,
-		"status": task.Status,
+		"task_id":            task.ID,
+		"job_execution_id":   task.JobExecutionID,
+		"status":             task.Status,
 		"is_rule_split_task": task.IsRuleSplitTask,
 	})
 
@@ -328,14 +328,14 @@ func (r *JobTaskRepository) UpdateStatus(ctx context.Context, id uuid.UUID, stat
 	if rowsAffected == 0 {
 		debug.Error("Task not found when updating status", map[string]interface{}{
 			"task_id": id,
-			"status": status,
+			"status":  status,
 		})
 		return ErrNotFound
 	}
 
 	debug.Log("Updated task status", map[string]interface{}{
-		"task_id": id,
-		"status": status,
+		"task_id":       id,
+		"status":        status,
 		"rows_affected": rowsAffected,
 	})
 
@@ -370,7 +370,7 @@ func (r *JobTaskRepository) UpdateProgress(ctx context.Context, id uuid.UUID, ke
 		UPDATE job_tasks 
 		SET keyspace_processed = $1, benchmark_speed = $2, last_checkpoint = $3, progress_percent = $4
 		WHERE id = $5`
-	
+
 	result, err := r.db.ExecContext(ctx, query, keyspaceProcessed, benchmarkSpeed, now, progressPercent, id)
 	if err != nil {
 		return fmt.Errorf("failed to update job task progress: %w", err)
@@ -601,7 +601,7 @@ func (r *JobTaskRepository) UpdateCrackCount(ctx context.Context, id uuid.UUID, 
 	if additionalCracks <= 0 {
 		return nil // Nothing to update
 	}
-	
+
 	query := `
 		UPDATE job_tasks 
 		SET 
@@ -628,13 +628,13 @@ func (r *JobTaskRepository) GetActiveAgentCountByJob(ctx context.Context, jobExe
 		WHERE job_execution_id = $1 
 		  AND status IN ('running', 'assigned')
 		  AND agent_id IS NOT NULL`
-	
+
 	var count int
 	err := r.db.QueryRowContext(ctx, query, jobExecutionID).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get active agent count: %w", err)
 	}
-	
+
 	return count, nil
 }
 
@@ -644,13 +644,13 @@ func (r *JobTaskRepository) GetTaskCountByJobExecution(ctx context.Context, jobE
 		SELECT COUNT(*) 
 		FROM job_tasks 
 		WHERE job_execution_id = $1`
-	
+
 	var count int
 	err := r.db.QueryRowContext(ctx, query, jobExecutionID).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get task count: %w", err)
 	}
-	
+
 	return count, nil
 }
 
@@ -661,13 +661,13 @@ func (r *JobTaskRepository) GetActiveTasksCount(ctx context.Context, jobExecutio
 		FROM job_tasks 
 		WHERE job_execution_id = $1 
 		  AND status IN ('running', 'assigned')`
-	
+
 	var count int
 	err := r.db.QueryRowContext(ctx, query, jobExecutionID).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get active tasks count: %w", err)
 	}
-	
+
 	return count, nil
 }
 
@@ -676,7 +676,7 @@ func (r *JobTaskRepository) GetTasksByStatuses(ctx context.Context, statuses []s
 	if len(statuses) == 0 {
 		return []models.JobTask{}, nil
 	}
-	
+
 	// Build placeholders for IN clause
 	placeholders := make([]string, len(statuses))
 	args := make([]interface{}, len(statuses))
@@ -684,7 +684,7 @@ func (r *JobTaskRepository) GetTasksByStatuses(ctx context.Context, statuses []s
 		placeholders[i] = fmt.Sprintf("$%d", i+1)
 		args[i] = status
 	}
-	
+
 	query := fmt.Sprintf(`
 		SELECT 
 			id, job_execution_id, agent_id, status,
@@ -695,13 +695,13 @@ func (r *JobTaskRepository) GetTasksByStatuses(ctx context.Context, statuses []s
 		FROM job_tasks
 		WHERE status IN (%s)
 		ORDER BY created_at ASC`, strings.Join(placeholders, ", "))
-	
+
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get tasks by statuses: %w", err)
 	}
 	defer rows.Close()
-	
+
 	var tasks []models.JobTask
 	for rows.Next() {
 		var task models.JobTask
@@ -717,6 +717,6 @@ func (r *JobTaskRepository) GetTasksByStatuses(ctx context.Context, statuses []s
 		}
 		tasks = append(tasks, task)
 	}
-	
+
 	return tasks, nil
 }

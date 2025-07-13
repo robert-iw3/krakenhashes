@@ -15,7 +15,8 @@ import {
   Security as SecurityIcon,
   Download as DownloadIcon,
   Refresh as RefreshIcon,
-  CheckCircle as CheckCircleIcon
+  CheckCircle as CheckCircleIcon,
+  ContentCopy as ContentCopyIcon
 } from '@mui/icons-material';
 
 interface CertificateCheckProps {
@@ -89,53 +90,41 @@ const CertificateCheck: React.FC<CertificateCheckProps> = ({ onCertVerified }) =
     }
   }, [onCertVerified]);
 
-  const downloadCertificates = async () => {
+  const copyDownloadUrl = async () => {
     try {
       setError(null);
-      /* TODO: Use httpApiUrl for configurable API endpoints once environment configuration is complete
-       * Currently using window.location.hostname directly for development
-       * const httpApiUrl = process.env.REACT_APP_HTTP_API_URL || 'http://localhost:1337';
-       */
-
-      // Determine protocol and port based on current page
-      const protocol = window.location.protocol.slice(0, -1); // 'http' or 'https'
-      const port = protocol === 'https' ? 31337 : 1337;
       
-      // Download CA certificate
-      const caResponse = await fetch(`${protocol}://${window.location.hostname}:${port}/ca.crt`, {
-        method: 'GET',
-        credentials: 'include',
-        mode: 'cors',
-        headers: {
-          'Accept': 'application/x-x509-ca-cert'
-        }
-      });
+      // Always use HTTP for CA certificate download to avoid chicken-and-egg problem
+      const httpPort = 1337;
+      const downloadUrl = `http://${window.location.hostname}:${httpPort}/ca.crt`;
+      
+      // Copy to clipboard
+      await navigator.clipboard.writeText(downloadUrl);
+      
+      // Show success message with instructions
+      setError(`Certificate download URL copied to clipboard!
 
-      if (!caResponse.ok) {
-        throw new Error(`Failed to download CA certificate: ${caResponse.statusText}`);
-      }
-
-      const caBlob = await caResponse.blob();
-      const caUrl = window.URL.createObjectURL(caBlob);
-      const caLink = document.createElement('a');
-      caLink.href = caUrl;
-      caLink.download = 'krakenhashes-ca.crt';
-      document.body.appendChild(caLink);
-      caLink.click();
-      window.URL.revokeObjectURL(caUrl);
-      document.body.removeChild(caLink);
-
-      // After downloading, show instructions for installation
-      setError(`Please follow these steps:
-1. Open the downloaded certificate (krakenhashes-ca.crt)
-2. When prompted, select "Trust this CA to identify websites"
-3. Complete the installation
-4. Restart your browser
-5. Click Verify to check the installation`);
+Please follow these steps:
+1. Open a new browser tab
+2. Paste the URL (${downloadUrl}) and press Enter
+3. Save the file as 'krakenhashes-ca.crt'
+4. Install the certificate according to your operating system:
+   • Windows: Double-click and install to "Trusted Root Certification Authorities"
+   • macOS: Double-click and add to System keychain, then trust it
+   • Linux: See documentation for your distribution
+5. Restart your browser
+6. Click "Verify Certificate" below to check the installation`);
 
     } catch (error) {
-      console.error('Failed to download certificates:', error);
-      setError('Failed to download certificates. Please try again or contact support.');
+      console.error('Failed to copy URL:', error);
+      // Fallback: show the URL for manual copying
+      const httpPort = 1337;
+      const downloadUrl = `http://${window.location.hostname}:${httpPort}/ca.crt`;
+      setError(`Could not copy to clipboard. Please manually copy this URL:
+
+${downloadUrl}
+
+Then paste it in a new browser tab to download the certificate.`);
     }
   };
 
@@ -186,17 +175,29 @@ const CertificateCheck: React.FC<CertificateCheckProps> = ({ onCertVerified }) =
 
             <Typography>
               To ensure secure communication with KrakenHashes, you need to install our certificate authority (CA) certificate.
-              Please follow these steps:
+            </Typography>
+
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              Note: Since the HTTPS certificate is not yet trusted, you need to download the CA certificate via HTTP first.
             </Typography>
 
             <List>
+              <ListItem>
+                <ListItemIcon>
+                  <ContentCopyIcon />
+                </ListItemIcon>
+                <ListItemText 
+                  primary="Copy Download URL"
+                  secondary="Click the button below to copy the certificate download URL to your clipboard"
+                />
+              </ListItem>
               <ListItem>
                 <ListItemIcon>
                   <DownloadIcon />
                 </ListItemIcon>
                 <ListItemText 
                   primary="Download CA Certificate"
-                  secondary="Click the button below to download our CA certificate"
+                  secondary="Open a new tab, paste the URL, and download the krakenhashes-ca.crt file"
                 />
               </ListItem>
               <ListItem>
@@ -205,7 +206,7 @@ const CertificateCheck: React.FC<CertificateCheckProps> = ({ onCertVerified }) =
                 </ListItemIcon>
                 <ListItemText 
                   primary="Install CA Certificate"
-                  secondary="Import the CA certificate (krakenhashes-ca.crt) into your browser's trusted certificate authorities"
+                  secondary="Install the certificate as a trusted root CA (see instructions after copying URL)"
                 />
               </ListItem>
               <ListItem>
@@ -213,28 +214,34 @@ const CertificateCheck: React.FC<CertificateCheckProps> = ({ onCertVerified }) =
                   <RefreshIcon />
                 </ListItemIcon>
                 <ListItemText 
-                  primary="Verify Installation"
-                  secondary="Click verify below after installing the certificate"
+                  primary="Restart Browser & Verify"
+                  secondary="Restart your browser, then click Verify to check the installation"
                 />
               </ListItem>
             </List>
 
-            <Box display="flex" gap={2}>
+            <Box display="flex" gap={2} flexWrap="wrap">
               <Button
                 variant="contained"
-                startIcon={<DownloadIcon />}
-                onClick={downloadCertificates}
+                startIcon={<ContentCopyIcon />}
+                onClick={copyDownloadUrl}
+                size="large"
               >
-                Download CA Certificate
+                Copy Certificate URL
               </Button>
               <Button
                 variant="outlined"
                 startIcon={<RefreshIcon />}
                 onClick={checkCertificate}
+                size="large"
               >
                 Verify Certificate
               </Button>
             </Box>
+            
+            <Typography variant="caption" color="text.secondary" sx={{ mt: 2, textAlign: 'center' }}>
+              For detailed installation instructions, see the SSL/TLS documentation.
+            </Typography>
           </Box>
         </Paper>
       </Box>

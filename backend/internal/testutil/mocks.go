@@ -8,12 +8,12 @@ import (
 
 // MockEmailService is a mock implementation of the email service
 type MockEmailService struct {
-	mu             sync.Mutex
-	SentCodes      map[string]string // email -> code mapping
-	SendError      error             // Error to return from SendMFACode
-	CallCount      int
-	LastRecipient  string
-	LastCode       string
+	mu            sync.Mutex
+	SentCodes     map[string]string // email -> code mapping
+	SendError     error             // Error to return from SendMFACode
+	CallCount     int
+	LastRecipient string
+	LastCode      string
 }
 
 // NewMockEmailService creates a new mock email service

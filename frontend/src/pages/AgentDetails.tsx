@@ -132,10 +132,10 @@ const AgentDetails: React.FC = () => {
       setOwnerId(agentData.ownerId || '');
       setExtraParameters(agentData.extraParameters || '');
       
-      // Initialize device states
+      // Initialize device states using device_id as the key
       const initialDeviceStates: { [key: number]: boolean } = {};
       devicesData.forEach((device: AgentDevice) => {
-        initialDeviceStates[device.id] = device.enabled;
+        initialDeviceStates[device.device_id] = device.enabled;
       });
       setDeviceStates(initialDeviceStates);
       
@@ -350,8 +350,8 @@ const AgentDetails: React.FC = () => {
                         <TableCell>{device.device_name}</TableCell>
                         <TableCell>
                           <Switch
-                            checked={deviceStates[device.id] || false}
-                            onChange={() => handleToggleDevice(device.id)}
+                            checked={deviceStates[device.device_id] || false}
+                            onChange={() => handleToggleDevice(device.device_id)}
                             color="primary"
                           />
                         </TableCell>

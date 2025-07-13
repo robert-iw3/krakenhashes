@@ -5,7 +5,9 @@ Welcome to the KrakenHashes documentation. This guide covers installation, confi
 ## Documentation Structure
 
 ### 🚀 Getting Started
-- [Docker Initialization](docker/initialization.md) - Setting up KrakenHashes with Docker
+- [Quick Start Guide](quick-start.md) - Get up and running in 5 minutes
+- [Installation Guide](installation.md) - Complete installation guide for production and development
+- [Docker Initialization](docker/initialization.md) - Legacy Docker setup documentation
 
 ### 👤 User Documentation
 - [Understanding Jobs and Workflows](user/understanding_jobs_and_workflows.md) - How preset jobs and workflows optimize password cracking
@@ -32,12 +34,17 @@ Welcome to the KrakenHashes documentation. This guide covers installation, confi
 
 ## Quick Links
 
+### 🆕 New to KrakenHashes?
+1. Start with the [Quick Start Guide](quick-start.md) - Running in 5 minutes
+2. Review [Installation Guide](installation.md) for production deployment options
+3. Understand [Jobs and Workflows](user/understanding_jobs_and_workflows.md)
+
 ### For Users
 1. Start with [Understanding Jobs and Workflows](user/understanding_jobs_and_workflows.md) to learn how KrakenHashes automates password auditing
 2. Review [Wordlists and Rules](user/wordlists_and_rules.md) to understand available attack resources
 
 ### For Administrators
-1. Begin with [Docker Initialization](docker/initialization.md) for installation
+1. Begin with [Installation Guide](installation.md) for production deployment
 2. Configure [Authentication Settings](admin/authentication_settings.md) for security
 3. Set up [Preset Jobs and Workflows](admin/preset_jobs_and_workflows.md) for your organization
 4. Manage [Clients](admin/client-management.md) and [Data Retention](admin/data-retention.md)

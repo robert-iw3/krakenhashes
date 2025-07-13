@@ -44,15 +44,15 @@ func setAuthCookie(w http.ResponseWriter, r *http.Request, token string, maxAge 
 
 	// Check if this is a development environment
 	isDevelopment := strings.Contains(r.Host, "localhost") || strings.Contains(r.Host, "127.0.0.1")
-	
+
 	// For cross-port development (frontend:3000, backend:31337) we need special handling
 	var sameSite http.SameSite
 	var secure bool
-	
+
 	if isDevelopment {
 		// For localhost development with HTTPS, use Lax for better compatibility
 		sameSite = http.SameSiteLaxMode
-		secure = true  // We're using HTTPS even in development
+		secure = true // We're using HTTPS even in development
 		debug.Info("[COOKIE] Development environment: using SameSite=Lax, Secure=true for HTTPS localhost")
 	} else {
 		// Production settings

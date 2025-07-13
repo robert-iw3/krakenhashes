@@ -182,7 +182,9 @@ Instructions for setting up and running each component can be found in their res
 ### Documentation
 
 -   [ ] API documentation
--   [ ] Deployment guides
+-   [x] Deployment guides
+    -   [x] Docker installation
+    -   [x] Certbot/Let's Encrypt setup
 -   [ ] User manual
     -   [ ] Priority system guidelines
     -   [x] Hash type reference

@@ -25,7 +25,9 @@ import (
 
 // JobWebSocketIntegration handles the integration between job scheduling and WebSocket communication
 type JobWebSocketIntegration struct {
-	wsHandler           interface{ SendMessage(agentID int, msg *wsservice.Message) error }
+	wsHandler interface {
+		SendMessage(agentID int, msg *wsservice.Message) error
+	}
 	jobSchedulingService *services.JobSchedulingService
 	jobExecutionService  *services.JobExecutionService
 	hashlistSyncService  *services.HashlistSyncService
@@ -36,19 +38,22 @@ type JobWebSocketIntegration struct {
 	jobTaskRepo          *repository.JobTaskRepository
 	agentRepo            *repository.AgentRepository
 	deviceRepo           *repository.AgentDeviceRepository
+	systemSettingsRepo   *repository.SystemSettingsRepository
 	db                   *sql.DB
 	wordlistManager      wordlist.Manager
 	ruleManager          rule.Manager
 	binaryManager        binary.Manager
-	
+
 	// Progress tracking
-	progressMutex    sync.RWMutex
-	taskProgressMap  map[string]*models.JobProgress // TaskID -> Progress
+	progressMutex   sync.RWMutex
+	taskProgressMap map[string]*models.JobProgress // TaskID -> Progress
 }
 
 // NewJobWebSocketIntegration creates a new job WebSocket integration service
 func NewJobWebSocketIntegration(
-	wsHandler interface{ SendMessage(agentID int, msg *wsservice.Message) error },
+	wsHandler interface {
+		SendMessage(agentID int, msg *wsservice.Message) error
+	},
 	jobSchedulingService *services.JobSchedulingService,
 	jobExecutionService *services.JobExecutionService,
 	hashlistSyncService *services.HashlistSyncService,
@@ -59,6 +64,7 @@ func NewJobWebSocketIntegration(
 	jobTaskRepo *repository.JobTaskRepository,
 	agentRepo *repository.AgentRepository,
 	deviceRepo *repository.AgentDeviceRepository,
+	systemSettingsRepo *repository.SystemSettingsRepository,
 	db *sql.DB,
 	wordlistManager wordlist.Manager,
 	ruleManager rule.Manager,
@@ -76,6 +82,7 @@ func NewJobWebSocketIntegration(
 		jobTaskRepo:          jobTaskRepo,
 		agentRepo:            agentRepo,
 		deviceRepo:           deviceRepo,
+		systemSettingsRepo:   systemSettingsRepo,
 		db:                   db,
 		wordlistManager:      wordlistManager,
 		ruleManager:          ruleManager,
@@ -87,9 +94,9 @@ func NewJobWebSocketIntegration(
 // SendJobAssignment sends a job task assignment to an agent via WebSocket
 func (s *JobWebSocketIntegration) SendJobAssignment(ctx context.Context, task *models.JobTask, jobExecution *models.JobExecution) error {
 	debug.Log("Sending job assignment to agent", map[string]interface{}{
-		"task_id":   task.ID,
-		"agent_id":  task.AgentID,
-		"job_id":    jobExecution.ID,
+		"task_id":  task.ID,
+		"agent_id": task.AgentID,
+		"job_id":   jobExecution.ID,
 	})
 
 	// Get preset job details
@@ -121,7 +128,7 @@ func (s *JobWebSocketIntegration) SendJobAssignment(ctx context.Context, task *m
 		if err != nil {
 			return fmt.Errorf("invalid wordlist ID %s: %w", wordlistIDStr, err)
 		}
-		
+
 		// Look up the actual wordlist file path
 		wordlist, err := s.wordlistManager.GetWordlist(ctx, wordlistID)
 		if err != nil {
@@ -130,7 +137,7 @@ func (s *JobWebSocketIntegration) SendJobAssignment(ctx context.Context, task *m
 		if wordlist == nil {
 			return fmt.Errorf("wordlist %d not found", wordlistID)
 		}
-		
+
 		// Use the actual file path from the database
 		wordlistPath := fmt.Sprintf("wordlists/%s", wordlist.FileName)
 		wordlistPaths = append(wordlistPaths, wordlistPath)
@@ -143,7 +150,7 @@ func (s *JobWebSocketIntegration) SendJobAssignment(ctx context.Context, task *m
 		pathParts := strings.Split(*task.RuleChunkPath, string(filepath.Separator))
 		var jobDirName string
 		chunkFilename := filepath.Base(*task.RuleChunkPath)
-		
+
 		// Find the job directory name
 		for i, part := range pathParts {
 			if strings.HasPrefix(part, "job_") && i < len(pathParts)-1 {
@@ -151,7 +158,7 @@ func (s *JobWebSocketIntegration) SendJobAssignment(ctx context.Context, task *m
 				break
 			}
 		}
-		
+
 		// Create the rule path with job directory
 		var rulePath string
 		if jobDirName != "" {
@@ -161,12 +168,12 @@ func (s *JobWebSocketIntegration) SendJobAssignment(ctx context.Context, task *m
 			rulePath = fmt.Sprintf("rules/chunks/%s", chunkFilename)
 		}
 		rulePaths = append(rulePaths, rulePath)
-		
+
 		debug.Log("Using rule chunk for task", map[string]interface{}{
-			"task_id":        task.ID,
-			"chunk_path":     *task.RuleChunkPath,
-			"agent_path":     rulePath,
-			"job_dir":        jobDirName,
+			"task_id":    task.ID,
+			"chunk_path": *task.RuleChunkPath,
+			"agent_path": rulePath,
+			"job_dir":    jobDirName,
 		})
 	} else {
 		// Standard rule processing
@@ -176,7 +183,7 @@ func (s *JobWebSocketIntegration) SendJobAssignment(ctx context.Context, task *m
 			if err != nil {
 				return fmt.Errorf("invalid rule ID %s: %w", ruleIDStr, err)
 			}
-			
+
 			// Look up the actual rule file path
 			rule, err := s.ruleManager.GetRule(ctx, ruleID)
 			if err != nil {
@@ -185,7 +192,7 @@ func (s *JobWebSocketIntegration) SendJobAssignment(ctx context.Context, task *m
 			if rule == nil {
 				return fmt.Errorf("rule %d not found", ruleID)
 			}
-			
+
 			// Use the actual file path from the database
 			rulePath := fmt.Sprintf("rules/%s", rule.FileName)
 			rulePaths = append(rulePaths, rulePath)
@@ -200,7 +207,7 @@ func (s *JobWebSocketIntegration) SendJobAssignment(ctx context.Context, task *m
 	if binaryVersion == nil {
 		return fmt.Errorf("binary version %d not found", presetJob.BinaryVersionID)
 	}
-	
+
 	// Use the actual binary path - the ID is used as the directory name
 	binaryPath := fmt.Sprintf("binaries/%d", binaryVersion.ID)
 
@@ -250,7 +257,7 @@ func (s *JobWebSocketIntegration) SendJobAssignment(ctx context.Context, task *m
 		BinaryPath:      binaryPath,
 		ChunkDuration:   task.ChunkDuration,
 		ReportInterval:  reportInterval,
-		OutputFormat:    "3", // hash:plain format
+		OutputFormat:    "3",                   // hash:plain format
 		ExtraParameters: agent.ExtraParameters, // Agent-specific hashcat parameters
 		EnabledDevices:  enabledDeviceIDs,      // Only populated if some devices are disabled
 	}
@@ -453,13 +460,13 @@ func (s *JobWebSocketIntegration) RequestAgentBenchmark(ctx context.Context, age
 		if err != nil {
 			continue // Skip invalid IDs
 		}
-		
+
 		// Look up the actual wordlist file path
 		wordlist, err := s.wordlistManager.GetWordlist(ctx, wordlistID)
 		if err != nil || wordlist == nil {
 			continue // Skip missing wordlists
 		}
-		
+
 		// Use the actual file path from the database
 		wordlistPath := fmt.Sprintf("wordlists/%s", wordlist.FileName)
 		wordlistPaths = append(wordlistPaths, wordlistPath)
@@ -472,13 +479,13 @@ func (s *JobWebSocketIntegration) RequestAgentBenchmark(ctx context.Context, age
 		if err != nil {
 			continue // Skip invalid IDs
 		}
-		
+
 		// Look up the actual rule file path
 		rule, err := s.ruleManager.GetRule(ctx, ruleID)
 		if err != nil || rule == nil {
 			continue // Skip missing rules
 		}
-		
+
 		// Use the actual file path from the database
 		rulePath := fmt.Sprintf("rules/%s", rule.FileName)
 		rulePaths = append(rulePaths, rulePath)
@@ -492,7 +499,7 @@ func (s *JobWebSocketIntegration) RequestAgentBenchmark(ctx context.Context, age
 	if binaryVersion == nil {
 		return fmt.Errorf("binary version %d not found", presetJob.BinaryVersionID)
 	}
-	
+
 	// Use the actual binary path - the ID is used as the directory name
 	binaryPath := fmt.Sprintf("binaries/%d", binaryVersion.ID)
 
@@ -531,6 +538,16 @@ func (s *JobWebSocketIntegration) RequestAgentBenchmark(ctx context.Context, age
 		"enabled_devices": enabledDeviceIDs,
 	})
 
+	// Get speedtest timeout from system settings
+	speedtestTimeout := 180 // Default to 3 minutes
+	if s.systemSettingsRepo != nil {
+		if setting, err := s.systemSettingsRepo.GetSetting(ctx, "speedtest_timeout_seconds"); err == nil && setting.Value != nil {
+			if timeout, err := strconv.Atoi(*setting.Value); err == nil && timeout > 0 {
+				speedtestTimeout = timeout
+			}
+		}
+	}
+
 	// Create enhanced benchmark request payload with job-specific configuration
 	benchmarkReq := wsservice.BenchmarkRequestPayload{
 		RequestID:       requestID,
@@ -543,7 +560,8 @@ func (s *JobWebSocketIntegration) RequestAgentBenchmark(ctx context.Context, age
 		WordlistPaths:   wordlistPaths,
 		RulePaths:       rulePaths,
 		Mask:            presetJob.Mask,
-		TestDuration:    30, // 30-second benchmark for accuracy
+		TestDuration:    30,                    // 30-second benchmark for accuracy
+		TimeoutDuration: speedtestTimeout,      // Configurable timeout for speedtest
 		ExtraParameters: agent.ExtraParameters, // Agent-specific hashcat parameters
 		EnabledDevices:  enabledDeviceIDs,      // Only populated if some devices are disabled
 	}
@@ -589,9 +607,9 @@ func (s *JobWebSocketIntegration) HandleJobProgress(ctx context.Context, agentID
 	if err != nil {
 		// Log and ignore progress updates for non-existent tasks (could be orphaned)
 		debug.Warning("Received progress for non-existent task (ignoring)", map[string]interface{}{
-			"task_id": progress.TaskID,
+			"task_id":  progress.TaskID,
 			"agent_id": agentID,
-			"error": err.Error(),
+			"error":    err.Error(),
 		})
 		// Don't return error - just ignore the update
 		return nil
@@ -600,9 +618,9 @@ func (s *JobWebSocketIntegration) HandleJobProgress(ctx context.Context, agentID
 	// Verify the task is assigned to this agent
 	if task.AgentID == nil || *task.AgentID != agentID {
 		debug.Error("Progress from wrong agent", map[string]interface{}{
-			"task_id": progress.TaskID,
+			"task_id":        progress.TaskID,
 			"expected_agent": task.AgentID,
-			"actual_agent": agentID,
+			"actual_agent":   agentID,
 		})
 		return fmt.Errorf("task not assigned to this agent")
 	}
@@ -642,13 +660,13 @@ func (s *JobWebSocketIntegration) HandleJobProgress(ctx context.Context, agentID
 			"task_id": progress.TaskID,
 			"error":   progress.ErrorMessage,
 		})
-		
+
 		// Update task status to failed
 		err := s.jobTaskRepo.UpdateTaskError(ctx, progress.TaskID, progress.ErrorMessage)
 		if err != nil {
 			debug.Error("Failed to update task error: %v", err)
 		}
-		
+
 		// Update job execution status to failed
 		// Wrap sql.DB in custom DB type
 		database := &db.DB{DB: s.db}
@@ -659,7 +677,7 @@ func (s *JobWebSocketIntegration) HandleJobProgress(ctx context.Context, agentID
 		if err := jobExecRepo.UpdateErrorMessage(ctx, task.JobExecutionID, progress.ErrorMessage); err != nil {
 			debug.Error("Failed to update job execution error message: %v", err)
 		}
-		
+
 		// Handle task failure cleanup
 		err = s.jobExecutionService.HandleTaskCompletion(ctx, progress.TaskID)
 		if err != nil {
@@ -668,23 +686,23 @@ func (s *JobWebSocketIntegration) HandleJobProgress(ctx context.Context, agentID
 				"error":   err.Error(),
 			})
 		}
-		
+
 		return nil
 	}
-	
+
 	// Check if this is a completion update
 	if progress.Status == "completed" {
 		debug.Log("Task completed", map[string]interface{}{
-			"task_id": progress.TaskID,
+			"task_id":          progress.TaskID,
 			"progress_percent": progress.ProgressPercent,
 		})
-		
+
 		// Update the final progress first
 		err := s.jobSchedulingService.ProcessTaskProgress(ctx, progress.TaskID, progress)
 		if err != nil {
 			debug.Error("Failed to process final task progress: %v", err)
 		}
-		
+
 		// Then mark task as complete
 		err = s.jobTaskRepo.CompleteTask(ctx, progress.TaskID)
 		if err != nil {
@@ -693,7 +711,7 @@ func (s *JobWebSocketIntegration) HandleJobProgress(ctx context.Context, agentID
 				"error":   err.Error(),
 			})
 		}
-		
+
 		// Reset consecutive failure counters on success
 		err = s.jobSchedulingService.HandleTaskSuccess(ctx, progress.TaskID)
 		if err != nil {
@@ -702,7 +720,7 @@ func (s *JobWebSocketIntegration) HandleJobProgress(ctx context.Context, agentID
 				"error":   err.Error(),
 			})
 		}
-		
+
 		// Handle task completion cleanup
 		err = s.jobExecutionService.HandleTaskCompletion(ctx, progress.TaskID)
 		if err != nil {
@@ -720,7 +738,7 @@ func (s *JobWebSocketIntegration) HandleJobProgress(ctx context.Context, agentID
 				"error":            err.Error(),
 			})
 		}
-		
+
 		return nil
 	}
 
@@ -856,7 +874,7 @@ func (s *JobWebSocketIntegration) processCrackedHashes(ctx context.Context, task
 		if err != nil {
 			return fmt.Errorf("failed to find hash: %w", err)
 		}
-		
+
 		if len(hashes) == 0 {
 			debug.Log("Hash not found in hashlist", map[string]interface{}{
 				"hash_value":  hashValue,
@@ -864,7 +882,7 @@ func (s *JobWebSocketIntegration) processCrackedHashes(ctx context.Context, task
 			})
 			continue
 		}
-		
+
 		// For now, we'll use the first hash found
 		// In a production system, we'd need to verify this hash belongs to the correct hashlist
 		// by checking the hashlist_hashes junction table
@@ -899,7 +917,7 @@ func (s *JobWebSocketIntegration) processCrackedHashes(ctx context.Context, task
 				"error":       err.Error(),
 			})
 		}
-		
+
 		// Update job task crack count
 		err = s.jobTaskRepo.UpdateCrackCount(ctx, taskID, crackedCount)
 		if err != nil {
@@ -923,7 +941,7 @@ func (s *JobWebSocketIntegration) processCrackedHashes(ctx context.Context, task
 		// Format as hash:plain for hashlist sync
 		crackedHashStrings = append(crackedHashStrings, fmt.Sprintf("%s:%s", cracked.Hash, cracked.Plain))
 	}
-	
+
 	err = s.hashlistSyncService.UpdateHashlistAfterCracks(ctx, jobExecution.HashlistID, crackedHashStrings)
 	if err != nil {
 		debug.Log("Failed to update hashlist file after cracks", map[string]interface{}{
@@ -939,7 +957,7 @@ func (s *JobWebSocketIntegration) processCrackedHashes(ctx context.Context, task
 func (s *JobWebSocketIntegration) GetTaskProgress(taskID string) *models.JobProgress {
 	s.progressMutex.RLock()
 	defer s.progressMutex.RUnlock()
-	
+
 	return s.taskProgressMap[taskID]
 }
 

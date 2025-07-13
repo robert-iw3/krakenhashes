@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ZerkerEOD/krakenhashes/agent/internal/agent"
+	"github.com/ZerkerEOD/krakenhashes/agent/internal/auth"
 	"github.com/ZerkerEOD/krakenhashes/agent/internal/config"
 	"github.com/ZerkerEOD/krakenhashes/agent/internal/jobs"
 	"github.com/ZerkerEOD/krakenhashes/agent/internal/metrics"
@@ -351,29 +352,45 @@ func main() {
 	agentID, cert, err := agent.LoadCredentials()
 	if err != nil {
 		debug.Error("Failed to load credentials: %v", err)
-		if cfg.claimCode == "" {
+		
+		// Check if we have an API key but missing certificates
+		apiKey, agentIDFromKey, keyErr := auth.LoadAgentKey(config.GetConfigDir())
+		if keyErr == nil && apiKey != "" && agentIDFromKey != "" {
+			debug.Info("Found API key but missing certificates - attempting certificate renewal")
+			if renewErr := agent.RenewCertificates(urlConfig); renewErr != nil {
+				debug.Error("Failed to renew certificates: %v", renewErr)
+				os.Exit(1)
+			}
+			// Reload credentials after renewal
+			agentID, cert, err = agent.LoadCredentials()
+			if err != nil {
+				debug.Error("Failed to load credentials after renewal: %v", err)
+				os.Exit(1)
+			}
+		} else if cfg.claimCode == "" {
 			debug.Error("Claim code required for first-time registration")
 			os.Exit(1)
-		}
-		debug.Info("Starting registration process with claim code")
+		} else {
+			debug.Info("Starting registration process with claim code")
 
-		// Attempt registration
-		if err := agent.RegisterAgent(cfg.claimCode, urlConfig); err != nil {
-			debug.Error("Failed to register agent: %v", err)
-			os.Exit(1)
-		}
+			// Attempt registration
+			if err := agent.RegisterAgent(cfg.claimCode, urlConfig); err != nil {
+				debug.Error("Failed to register agent: %v", err)
+				os.Exit(1)
+			}
 
-		// Reload credentials after registration
-		debug.Info("Reloading credentials after registration...")
-		agentID, cert, err = agent.LoadCredentials()
-		if err != nil {
-			debug.Error("Failed to load credentials after registration: %v", err)
-			os.Exit(1)
-		}
+			// Reload credentials after registration
+			debug.Info("Reloading credentials after registration...")
+			agentID, cert, err = agent.LoadCredentials()
+			if err != nil {
+				debug.Error("Failed to load credentials after registration: %v", err)
+				os.Exit(1)
+			}
 
-		// Comment out claim code after successful registration
-		if err := commentOutClaimCode(); err != nil {
-			debug.Warning("Failed to comment out claim code: %v", err)
+			// Comment out claim code after successful registration
+			if err := commentOutClaimCode(); err != nil {
+				debug.Warning("Failed to comment out claim code: %v", err)
+			}
 		}
 	} else if agentID == "" || cert == "" {
 		debug.Error("Loaded credentials are empty - Agent ID: %v, Certificate: %v", agentID != "", cert != "")

@@ -22,11 +22,8 @@ func NewProvider(config *ProviderConfig) (Provider, error) {
 		debug.Error("Failed to create provider: %v", err)
 		return nil, err
 	case ModeCertbot:
-		debug.Debug("Certbot certificate provider requested")
-		// TODO: Implement certbot provider
-		err := fmt.Errorf("certbot provider not implemented yet")
-		debug.Error("Failed to create provider: %v", err)
-		return nil, err
+		debug.Debug("Initializing certbot certificate provider")
+		return NewCertbotProvider(config), nil
 	default:
 		err := fmt.Errorf("unsupported TLS mode: %s", config.Mode)
 		debug.Error("Failed to create provider: %v", err)

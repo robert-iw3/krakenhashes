@@ -250,17 +250,17 @@ func TestGetUserRole(t *testing.T) {
 func TestGenerateSecureToken(t *testing.T) {
 	// Generate multiple tokens to ensure they're unique
 	tokens := make(map[string]bool)
-	
+
 	for i := 0; i < 100; i++ {
 		token := GenerateSecureToken()
-		
+
 		// Check token is not empty
 		assert.NotEmpty(t, token)
-		
+
 		// Check token is base64 encoded (shouldn't error on decode)
 		_, err := base64.URLEncoding.DecodeString(token)
 		assert.NoError(t, err)
-		
+
 		// Check uniqueness
 		assert.False(t, tokens[token], "Token should be unique")
 		tokens[token] = true

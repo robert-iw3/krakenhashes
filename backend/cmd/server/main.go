@@ -13,6 +13,7 @@ import (
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/config"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/database"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/db"
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/agent"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/tls"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/repository"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/routes"
@@ -206,7 +207,7 @@ func main() {
 	debug.Info("Configuring binary manager with DataDir: %s", binaryDataDir)
 	debug.Info("Current working directory: %s", cwd)
 	debug.Info("AppConfig.DataDir: %s", appConfig.DataDir)
-	
+
 	binaryConfig := binary.Config{
 		DataDir: binaryDataDir,
 	}
@@ -244,7 +245,7 @@ func main() {
 	} else {
 		debug.Info("All agents marked as inactive successfully")
 	}
-	
+
 	// Start periodic stale agent cleanup
 	go func() {
 		ticker := time.NewTicker(1 * time.Minute) // Check every minute
@@ -270,7 +271,7 @@ func main() {
 	} else {
 		debug.Info("Stale task cleanup completed successfully")
 	}
-	
+
 	// Start periodic stale task monitor
 	go jobCleanupService.MonitorStaleTasksPeriodically(context.Background(), 5*time.Minute)
 
@@ -328,7 +329,12 @@ func main() {
 	debug.Info("Setting up CA certificate route")
 	tlsHandler := tls.NewHandler(tlsProvider)
 	httpRouter.HandleFunc("/ca.crt", tlsHandler.ServeCACertificate).Methods("GET", "HEAD", "OPTIONS")
-	
+
+	// Setup certificate renewal route
+	debug.Info("Setting up certificate renewal route")
+	certRenewalHandler := agent.NewCertificateRenewalHandler(tlsProvider, agentRepo)
+	httpRouter.HandleFunc("/api/agent/renew-certificates", certRenewalHandler.HandleCertificateRenewal).Methods("POST", "OPTIONS")
+
 	// Also add CA certificate route to HTTPS router for secure access
 	httpsRouter.HandleFunc("/ca.crt", tlsHandler.ServeCACertificate).Methods("GET", "HEAD", "OPTIONS")
 

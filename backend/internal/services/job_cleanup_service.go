@@ -56,7 +56,7 @@ func (s *JobCleanupService) CleanupStaleTasksOnStartup(ctx context.Context) erro
 		if task.AgentID != nil {
 			agentID = *task.AgentID
 		}
-		debug.Info("Stale task found - ID: %s, Status: %s, Agent: %d, Job: %s", 
+		debug.Info("Stale task found - ID: %s, Status: %s, Agent: %d, Job: %s",
 			task.ID, task.Status, agentID, task.JobExecutionID)
 	}
 
@@ -137,7 +137,7 @@ func (s *JobCleanupService) checkForStaleTasks(ctx context.Context) {
 
 	// Find tasks that haven't been updated in the timeout period
 	cutoffTime := time.Now().Add(-taskTimeout)
-	
+
 	staleTasks, err := s.jobTaskRepo.GetTasksNotUpdatedSince(ctx, cutoffTime)
 	if err != nil {
 		debug.Log("Failed to check for stale tasks", map[string]interface{}{
@@ -178,7 +178,7 @@ func (s *JobCleanupService) checkForStaleTasks(ctx context.Context) {
 
 			// Update job's consecutive failures count
 			s.updateJobConsecutiveFailures(ctx, task.JobExecutionID, true)
-			
+
 			// Update agent's consecutive failures if assigned
 			if task.AgentID != nil {
 				s.updateAgentConsecutiveFailures(ctx, *task.AgentID, true)
@@ -215,11 +215,11 @@ func (s *JobCleanupService) checkForStaleTasks(ctx context.Context) {
 		if err != nil {
 			debug.Log("Failed to check tasks for job", map[string]interface{}{
 				"job_id": jobID,
-				"error": err.Error(),
+				"error":  err.Error(),
 			})
 			continue
 		}
-		
+
 		// Count active tasks (running or assigned)
 		activeTaskCount := 0
 		for _, task := range allTasks {
@@ -227,24 +227,24 @@ func (s *JobCleanupService) checkForStaleTasks(ctx context.Context) {
 				activeTaskCount++
 			}
 		}
-		
+
 		// If no active tasks, transition job to pending
 		if activeTaskCount == 0 {
 			job, err := s.jobExecutionRepo.GetByID(ctx, jobID)
 			if err != nil {
 				continue
 			}
-			
+
 			if job.Status == models.JobExecutionStatusRunning {
 				err = s.jobExecutionRepo.UpdateStatus(ctx, jobID, models.JobExecutionStatusPending)
 				if err != nil {
 					debug.Log("Failed to update job status to pending", map[string]interface{}{
 						"job_id": jobID,
-						"error": err.Error(),
+						"error":  err.Error(),
 					})
 					continue
 				}
-				
+
 				debug.Log("Updated job status to pending after all tasks timed out", map[string]interface{}{
 					"job_id": jobID,
 				})
@@ -252,7 +252,6 @@ func (s *JobCleanupService) checkForStaleTasks(ctx context.Context) {
 		}
 	}
 }
-
 
 // updateJobConsecutiveFailures updates the consecutive failure count for a job
 func (s *JobCleanupService) updateJobConsecutiveFailures(ctx context.Context, jobExecutionID uuid.UUID, failed bool) {

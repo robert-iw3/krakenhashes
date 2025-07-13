@@ -16,10 +16,10 @@ import (
 // SetTestJWTSecret sets the JWT_SECRET environment variable for testing
 func SetTestJWTSecret(t *testing.T) {
 	t.Helper()
-	
+
 	oldSecret := os.Getenv("JWT_SECRET")
 	os.Setenv("JWT_SECRET", TestJWTSecret)
-	
+
 	t.Cleanup(func() {
 		if oldSecret != "" {
 			os.Setenv("JWT_SECRET", oldSecret)

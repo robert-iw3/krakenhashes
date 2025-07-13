@@ -86,7 +86,7 @@ func NewConfig() *Config {
 			dataDir = filepath.Join(home, ".krakenhashes-data")
 		}
 	}
-	
+
 	// Convert to absolute path if it's relative
 	if !filepath.IsAbs(dataDir) {
 		absDataDir, err := filepath.Abs(dataDir)

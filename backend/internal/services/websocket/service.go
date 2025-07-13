@@ -38,7 +38,7 @@ const (
 	TypeDeviceUpdate    MessageType = "device_update"
 
 	// Server -> Agent messages
-	TypeTaskAssignment    MessageType = "task_assignment"
+	TypeTaskAssignment   MessageType = "task_assignment"
 	TypeJobStop          MessageType = "job_stop"
 	TypeBenchmarkRequest MessageType = "benchmark_request"
 	TypeAgentCommand     MessageType = "agent_command"
@@ -188,7 +188,7 @@ type TaskAssignmentPayload struct {
 type BenchmarkResultPayload struct {
 	AttackMode   int           `json:"attack_mode"`
 	HashType     int           `json:"hash_type"`
-	Speed        int64         `json:"speed"` // Total hashes per second
+	Speed        int64         `json:"speed"`                   // Total hashes per second
 	DeviceSpeeds []DeviceSpeed `json:"device_speeds,omitempty"` // Per-device speeds
 	Success      bool          `json:"success"`
 	Error        string        `json:"error,omitempty"`
@@ -203,17 +203,17 @@ type DeviceSpeed struct {
 
 // JobStopPayload represents a job stop command
 type JobStopPayload struct {
-	TaskID string `json:"task_id"`
+	TaskID         string `json:"task_id"`
 	JobExecutionID string `json:"job_execution_id"`
 	Reason         string `json:"reason"`
 }
 
 // BenchmarkRequestPayload represents a benchmark request sent to an agent
 type BenchmarkRequestPayload struct {
-	RequestID       string   `json:"request_id"`
-	AttackMode      int      `json:"attack_mode"`
-	HashType        int      `json:"hash_type"`
-	BinaryPath      string   `json:"binary_path"`
+	RequestID  string `json:"request_id"`
+	AttackMode int    `json:"attack_mode"`
+	HashType   int    `json:"hash_type"`
+	BinaryPath string `json:"binary_path"`
 	// Additional fields for real-world speed test
 	TaskID          string   `json:"task_id,omitempty"`
 	HashlistID      int64    `json:"hashlist_id,omitempty"`
@@ -221,9 +221,10 @@ type BenchmarkRequestPayload struct {
 	WordlistPaths   []string `json:"wordlist_paths,omitempty"`
 	RulePaths       []string `json:"rule_paths,omitempty"`
 	Mask            string   `json:"mask,omitempty"`
-	TestDuration    int      `json:"test_duration,omitempty"` // Duration in seconds for speed test
+	TestDuration    int      `json:"test_duration,omitempty"`    // Duration in seconds for speed test
+	TimeoutDuration int      `json:"timeout_duration,omitempty"` // Maximum time to wait for speedtest (seconds)
 	ExtraParameters string   `json:"extra_parameters,omitempty"` // Agent-specific hashcat parameters
-	EnabledDevices  []int    `json:"enabled_devices,omitempty"` // List of enabled device IDs
+	EnabledDevices  []int    `json:"enabled_devices,omitempty"`  // List of enabled device IDs
 }
 
 // Service handles WebSocket business logic
@@ -485,18 +486,18 @@ func (s *Service) handleJobProgress(ctx context.Context, agent *models.Agent, ms
 		fmt.Printf("Received job progress from agent %d but no job handler set\n", agent.ID)
 		return nil
 	}
-	
+
 	// Process job progress asynchronously to avoid blocking the read loop
 	go func() {
 		// Create a new context with timeout for the async operation
 		asyncCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		
+
 		if err := s.jobHandler.ProcessJobProgress(asyncCtx, agent.ID, msg.Payload); err != nil {
 			debug.Error("Failed to process job progress from agent %d: %v", agent.ID, err)
 		}
 	}()
-	
+
 	return nil
 }
 
@@ -507,7 +508,7 @@ func (s *Service) handleBenchmarkResult(ctx context.Context, agent *models.Agent
 		fmt.Printf("Received benchmark result from agent %d but no job handler set\n", agent.ID)
 		return nil
 	}
-	
+
 	// Forward to job handler
 	return s.jobHandler.ProcessBenchmarkResult(ctx, agent.ID, msg.Payload)
 }
@@ -536,6 +537,6 @@ func (s *Service) handleHashcatOutput(ctx context.Context, agent *models.Agent, 
 
 		// TODO: Store output in database or forward to interested parties via SSE
 	}()
-	
+
 	return nil
 }

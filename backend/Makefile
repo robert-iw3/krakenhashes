@@ -5,16 +5,16 @@ LDFLAGS := -X github.com/ZerkerEOD/krakenhashes/backend/internal/version.Version
 .PHONY: build
 build:
 	@echo "Building backend version $(VERSION)..."
-	go build -ldflags="$(LDFLAGS)" -o bin/krakenhashes-server ./cmd/server
+	go build -ldflags="$(LDFLAGS)" -o ../bin/server/krakenhashes-server ./cmd/server
 
 .PHONY: run
 run: build
 	@echo "Running backend version $(VERSION)..."
-	./bin/krakenhashes-server
+	../bin/server/krakenhashes-server
 
 .PHONY: clean
 clean:
-	rm -rf bin/
+	rm -rf ../bin/server/
 
 .PHONY: test
 test:
