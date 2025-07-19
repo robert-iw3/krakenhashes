@@ -57,6 +57,7 @@ func (r *JobExecutionRepository) GetByID(ctx context.Context, id uuid.UUID) (*mo
 			je.base_keyspace, je.effective_keyspace, je.multiplication_factor,
 			je.uses_rule_splitting, je.rule_split_count,
 			je.overall_progress_percent, je.last_progress_update,
+			je.dispatched_keyspace,
 			pj.name as preset_job_name,
 			h.name as hashlist_name,
 			h.total_hashes as total_hashes,
@@ -75,6 +76,7 @@ func (r *JobExecutionRepository) GetByID(ctx context.Context, id uuid.UUID) (*mo
 		&exec.BaseKeyspace, &exec.EffectiveKeyspace, &exec.MultiplicationFactor,
 		&exec.UsesRuleSplitting, &exec.RuleSplitCount,
 		&exec.OverallProgressPercent, &exec.LastProgressUpdate,
+		&exec.DispatchedKeyspace,
 		&exec.PresetJobName, &exec.HashlistName, &exec.TotalHashes, &exec.CrackedHashes,
 	)
 
@@ -477,6 +479,56 @@ func (r *JobExecutionRepository) UpdateConsecutiveFailures(ctx context.Context, 
 	result, err := r.db.ExecContext(ctx, query, count, id)
 	if err != nil {
 		return fmt.Errorf("failed to update job execution consecutive failures: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return ErrNotFound
+	}
+
+	return nil
+}
+
+// UpdateDispatchedKeyspace updates the dispatched keyspace for a job execution
+func (r *JobExecutionRepository) UpdateDispatchedKeyspace(ctx context.Context, id uuid.UUID, dispatchedKeyspace int64) error {
+	query := `
+		UPDATE job_executions 
+		SET dispatched_keyspace = $1,
+		    updated_at = CURRENT_TIMESTAMP
+		WHERE id = $2`
+	
+	result, err := r.db.ExecContext(ctx, query, dispatchedKeyspace, id)
+	if err != nil {
+		return fmt.Errorf("failed to update job execution dispatched keyspace: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return ErrNotFound
+	}
+
+	return nil
+}
+
+// IncrementDispatchedKeyspace atomically increments the dispatched keyspace by the given amount
+func (r *JobExecutionRepository) IncrementDispatchedKeyspace(ctx context.Context, id uuid.UUID, increment int64) error {
+	query := `
+		UPDATE job_executions 
+		SET dispatched_keyspace = dispatched_keyspace + $1,
+		    updated_at = CURRENT_TIMESTAMP
+		WHERE id = $2`
+	
+	result, err := r.db.ExecContext(ctx, query, increment, id)
+	if err != nil {
+		return fmt.Errorf("failed to increment job execution dispatched keyspace: %w", err)
 	}
 
 	rowsAffected, err := result.RowsAffected()

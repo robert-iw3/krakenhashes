@@ -525,3 +525,173 @@ func (r *HashRepository) DeleteHashByIDTx(tx *sql.Tx, hashID uuid.UUID) error {
 	}
 	return nil
 }
+
+// CrackedHashParams defines parameters for querying cracked hashes
+type CrackedHashParams struct {
+	Limit  int
+	Offset int
+}
+
+// GetCrackedHashes retrieves all cracked hashes with pagination
+func (r *HashRepository) GetCrackedHashes(ctx context.Context, params CrackedHashParams) ([]*models.Hash, int64, error) {
+	// First, get the total count
+	countQuery := `SELECT COUNT(*) FROM hashes WHERE is_cracked = true`
+	var totalCount int64
+	err := r.db.QueryRowContext(ctx, countQuery).Scan(&totalCount)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to count cracked hashes: %w", err)
+	}
+
+	// Then get the paginated results
+	query := `
+		SELECT id, hash_value, original_hash, username, hash_type_id, is_cracked, password, last_updated
+		FROM hashes
+		WHERE is_cracked = true
+		ORDER BY last_updated DESC
+		LIMIT $1 OFFSET $2
+	`
+	
+	rows, err := r.db.QueryContext(ctx, query, params.Limit, params.Offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to query cracked hashes: %w", err)
+	}
+	defer rows.Close()
+
+	var hashes []*models.Hash
+	for rows.Next() {
+		var hash models.Hash
+		if err := rows.Scan(
+			&hash.ID,
+			&hash.HashValue,
+			&hash.OriginalHash,
+			&hash.Username,
+			&hash.HashTypeID,
+			&hash.IsCracked,
+			&hash.Password,
+			&hash.LastUpdated,
+		); err != nil {
+			return nil, 0, fmt.Errorf("failed to scan cracked hash row: %w", err)
+		}
+		hashes = append(hashes, &hash)
+	}
+	
+	if err = rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("error iterating cracked hash rows: %w", err)
+	}
+
+	return hashes, totalCount, nil
+}
+
+// GetCrackedHashesByHashlist retrieves cracked hashes for a specific hashlist
+func (r *HashRepository) GetCrackedHashesByHashlist(ctx context.Context, hashlistID int64, params CrackedHashParams) ([]*models.Hash, int64, error) {
+	// First, get the total count
+	countQuery := `
+		SELECT COUNT(*)
+		FROM hashes h
+		JOIN hashlist_hashes hh ON h.id = hh.hash_id
+		WHERE hh.hashlist_id = $1 AND h.is_cracked = true
+	`
+	var totalCount int64
+	err := r.db.QueryRowContext(ctx, countQuery, hashlistID).Scan(&totalCount)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to count cracked hashes for hashlist %d: %w", hashlistID, err)
+	}
+
+	// Then get the paginated results
+	query := `
+		SELECT h.id, h.hash_value, h.original_hash, h.username, h.hash_type_id, h.is_cracked, h.password, h.last_updated
+		FROM hashes h
+		JOIN hashlist_hashes hh ON h.id = hh.hash_id
+		WHERE hh.hashlist_id = $1 AND h.is_cracked = true
+		ORDER BY h.last_updated DESC
+		LIMIT $2 OFFSET $3
+	`
+	
+	rows, err := r.db.QueryContext(ctx, query, hashlistID, params.Limit, params.Offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to query cracked hashes for hashlist %d: %w", hashlistID, err)
+	}
+	defer rows.Close()
+
+	var hashes []*models.Hash
+	for rows.Next() {
+		var hash models.Hash
+		if err := rows.Scan(
+			&hash.ID,
+			&hash.HashValue,
+			&hash.OriginalHash,
+			&hash.Username,
+			&hash.HashTypeID,
+			&hash.IsCracked,
+			&hash.Password,
+			&hash.LastUpdated,
+		); err != nil {
+			return nil, 0, fmt.Errorf("failed to scan cracked hash row for hashlist %d: %w", hashlistID, err)
+		}
+		hashes = append(hashes, &hash)
+	}
+	
+	if err = rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("error iterating cracked hash rows for hashlist %d: %w", hashlistID, err)
+	}
+
+	return hashes, totalCount, nil
+}
+
+// GetCrackedHashesByClient retrieves cracked hashes for a specific client
+func (r *HashRepository) GetCrackedHashesByClient(ctx context.Context, clientID uuid.UUID, params CrackedHashParams) ([]*models.Hash, int64, error) {
+	// First, get the total count
+	countQuery := `
+		SELECT COUNT(*)
+		FROM hashes h
+		JOIN hashlist_hashes hh ON h.id = hh.hash_id
+		JOIN hashlists hl ON hh.hashlist_id = hl.id
+		WHERE hl.client_id = $1 AND h.is_cracked = true
+	`
+	var totalCount int64
+	err := r.db.QueryRowContext(ctx, countQuery, clientID).Scan(&totalCount)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to count cracked hashes for client %s: %w", clientID, err)
+	}
+
+	// Then get the paginated results
+	query := `
+		SELECT h.id, h.hash_value, h.original_hash, h.username, h.hash_type_id, h.is_cracked, h.password, h.last_updated
+		FROM hashes h
+		JOIN hashlist_hashes hh ON h.id = hh.hash_id
+		JOIN hashlists hl ON hh.hashlist_id = hl.id
+		WHERE hl.client_id = $1 AND h.is_cracked = true
+		ORDER BY h.last_updated DESC
+		LIMIT $2 OFFSET $3
+	`
+	
+	rows, err := r.db.QueryContext(ctx, query, clientID, params.Limit, params.Offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to query cracked hashes for client %s: %w", clientID, err)
+	}
+	defer rows.Close()
+
+	var hashes []*models.Hash
+	for rows.Next() {
+		var hash models.Hash
+		if err := rows.Scan(
+			&hash.ID,
+			&hash.HashValue,
+			&hash.OriginalHash,
+			&hash.Username,
+			&hash.HashTypeID,
+			&hash.IsCracked,
+			&hash.Password,
+			&hash.LastUpdated,
+		); err != nil {
+			return nil, 0, fmt.Errorf("failed to scan cracked hash row for client %s: %w", clientID, err)
+		}
+		hashes = append(hashes, &hash)
+	}
+	
+	if err = rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("error iterating cracked hash rows for client %s: %w", clientID, err)
+	}
+
+	return hashes, totalCount, nil
+}

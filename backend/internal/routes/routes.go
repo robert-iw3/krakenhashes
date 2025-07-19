@@ -176,7 +176,10 @@ func SetupRoutes(r *mux.Router, sqlDB *sql.DB, tlsProvider tls.Provider, agentSe
 	systemSettingsRepo := repository.NewSystemSettingsRepository(database)
 	workflowRepo := repository.NewJobWorkflowRepository(sqlDB)
 	fileRepository := repository.NewFileRepository(database, appConfig.DataDir)
-	debug.Info("Initialized PresetJob, SystemSettings, JobWorkflow, and File repositories")
+	hashRepo := repository.NewHashRepository(database)
+	hashlistRepo := repository.NewHashListRepository(database)
+	clientRepo := repository.NewClientRepository(database)
+	debug.Info("Initialized PresetJob, SystemSettings, JobWorkflow, File, Hash, Hashlist, and Client repositories")
 
 	// Initialize Services for preset jobs and workflows
 	presetJobService := services.NewAdminPresetJobService(presetJobRepo, systemSettingsRepo, binaryManager, fileRepository, appConfig.DataDir)
@@ -209,6 +212,7 @@ func SetupRoutes(r *mux.Router, sqlDB *sql.DB, tlsProvider tls.Provider, agentSe
 	// Note: Skipping SetupJobRoutes(jwtRouter) as it conflicts with SetupUserRoutes - the real job routes are in SetupUserRoutes
 	SetupAgentRoutes(jwtRouter, agentService)
 	SetupVoucherRoutes(jwtRouter, services.NewClaimVoucherService(repository.NewClaimVoucherRepository(database)))
+	SetupPotRoutes(jwtRouter, hashRepo, hashlistRepo, clientRepo)
 
 	// Add user accessible route for max priority (read-only)
 	jwtRouter.HandleFunc("/settings/max-priority", userSystemSettingsHandler.GetMaxPriorityForUsers).Methods(http.MethodGet, http.MethodOptions)
@@ -236,7 +240,8 @@ func SetupRoutes(r *mux.Router, sqlDB *sql.DB, tlsProvider tls.Provider, agentSe
 	// Setup WebSocket Routes
 	debug.Info("Setting up WebSocket routes...")
 	// Agent Update Handler (for cracked hashes)
-	updateHandler := websocket.NewAgentUpdateHandler(database, agentService, repository.NewHashRepository(database), repository.NewHashListRepository(database))
+	jobTaskRepo := repository.NewJobTaskRepository(database)
+	updateHandler := websocket.NewAgentUpdateHandler(database, agentService, repository.NewHashRepository(database), repository.NewHashListRepository(database), jobTaskRepo)
 	websocket.RegisterAgentUpdateRoutes(r, updateHandler)
 
 	debug.Info("Route configuration completed successfully")

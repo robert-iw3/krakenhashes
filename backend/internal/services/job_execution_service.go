@@ -865,12 +865,20 @@ func (s *JobExecutionService) CreateJobTask(ctx context.Context, jobExecution *m
 		return nil, fmt.Errorf("failed to create job task: %w", err)
 	}
 
+	// Update dispatched keyspace for the job execution
+	chunkSize := keyspaceEnd - keyspaceStart
+	if err := s.jobExecRepo.IncrementDispatchedKeyspace(ctx, jobExecution.ID, chunkSize); err != nil {
+		debug.Error("Failed to update dispatched keyspace for job %s: %v", jobExecution.ID, err)
+		// Continue processing - this is not a critical error
+	}
+
 	debug.Log("Job task created", map[string]interface{}{
 		"task_id":        jobTask.ID,
 		"agent_id":       agent.ID,
 		"keyspace_start": keyspaceStart,
 		"keyspace_end":   keyspaceEnd,
 		"chunk_duration": chunkDuration,
+		"chunk_size":     chunkSize,
 	})
 
 	return jobTask, nil
@@ -1686,6 +1694,13 @@ func (s *JobExecutionService) createJobTasksWithRuleSplitting(ctx context.Contex
 			return fmt.Errorf("failed to create task %d: %w", i, err)
 		}
 
+		// Update dispatched keyspace for the job execution
+		// For rule splitting, each task processes the full base keyspace with a subset of rules
+		if err := s.jobExecRepo.IncrementDispatchedKeyspace(ctx, job.ID, baseKeyspace); err != nil {
+			debug.Error("Failed to update dispatched keyspace for job %s: %v", job.ID, err)
+			// Continue processing - this is not a critical error
+		}
+
 		debug.Log("Created rule split task", map[string]interface{}{
 			"task_id":     task.ID,
 			"job_id":      job.ID,
@@ -1985,6 +2000,13 @@ func (s *JobExecutionService) InitializeRuleSplitting(ctx context.Context, job *
 			// Cleanup on error
 			s.ruleSplitManager.CleanupJobChunks(jobIDInt)
 			return fmt.Errorf("failed to create task for chunk %d: %w", i, err)
+		}
+
+		// Update dispatched keyspace for the job execution
+		// For rule splitting, each task processes the full base keyspace with a subset of rules
+		if err := s.jobExecRepo.IncrementDispatchedKeyspace(ctx, job.ID, baseKeyspace); err != nil {
+			debug.Error("Failed to update dispatched keyspace for job %s: %v", job.ID, err)
+			// Continue processing - this is not a critical error
 		}
 	}
 

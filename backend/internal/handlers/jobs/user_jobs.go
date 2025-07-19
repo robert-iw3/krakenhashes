@@ -600,9 +600,36 @@ func (h *UserJobsHandler) GetJobDetail(w http.ResponseWriter, r *http.Request) {
 	// Calculate percentages
 	dispatchedPercent := 0.0
 	searchedPercent := 0.0
-	if job.TotalKeyspace != nil && *job.TotalKeyspace > 0 {
-		dispatchedPercent = float64(job.ProcessedKeyspace) / float64(*job.TotalKeyspace) * 100
-		searchedPercent = float64(keyspaceSearched) / float64(*job.TotalKeyspace) * 100
+	
+	// For jobs with rules, use effective keyspace as the denominator
+	totalKeyspace := job.TotalKeyspace
+	if job.EffectiveKeyspace != nil && *job.EffectiveKeyspace > 0 {
+		totalKeyspace = job.EffectiveKeyspace
+	}
+	
+	if totalKeyspace != nil && *totalKeyspace > 0 {
+		// Dispatched: Use the tracked dispatched_keyspace field
+		dispatchedPercent = float64(job.DispatchedKeyspace) / float64(*totalKeyspace) * 100
+		// Searched: Use the processed_keyspace from the job execution
+		searchedPercent = float64(job.ProcessedKeyspace) / float64(*totalKeyspace) * 100
+		
+		// Validation: Log if searched exceeds dispatched
+		if searchedPercent > dispatchedPercent {
+			debug.Warning("Searched percentage (%.3f%%) exceeds dispatched percentage (%.3f%%) for job %s",
+				searchedPercent, dispatchedPercent, job.ID)
+		}
+		
+		// Cap percentages at 100%
+		if dispatchedPercent > 100 {
+			debug.Warning("Dispatched percentage exceeds 100%% (%.3f%%) for job %s, capping at 100%%",
+				dispatchedPercent, job.ID)
+			dispatchedPercent = 100
+		}
+		if searchedPercent > 100 {
+			debug.Warning("Searched percentage exceeds 100%% (%.3f%%) for job %s, capping at 100%%", 
+				searchedPercent, job.ID)
+			searchedPercent = 100
+		}
 	}
 
 	// Prepare task summaries

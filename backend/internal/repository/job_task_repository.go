@@ -145,6 +145,7 @@ func (r *JobTaskRepository) GetTasksByJobExecution(ctx context.Context, jobExecu
 			jt.keyspace_start, jt.keyspace_end, jt.keyspace_processed,
 			jt.benchmark_speed, jt.chunk_duration, jt.assigned_at,
 			jt.started_at, jt.completed_at, jt.last_checkpoint, jt.error_message,
+			jt.crack_count,
 			jt.rule_start_index, jt.rule_end_index, jt.rule_chunk_path, jt.is_rule_split_task,
 			jt.progress_percent,
 			a.name as agent_name
@@ -167,6 +168,7 @@ func (r *JobTaskRepository) GetTasksByJobExecution(ctx context.Context, jobExecu
 			&task.KeyspaceStart, &task.KeyspaceEnd, &task.KeyspaceProcessed,
 			&task.BenchmarkSpeed, &task.ChunkDuration, &task.AssignedAt,
 			&task.StartedAt, &task.CompletedAt, &task.LastCheckpoint, &task.ErrorMessage,
+			&task.CrackCount,
 			&task.RuleStartIndex, &task.RuleEndIndex, &task.RuleChunkPath, &task.IsRuleSplitTask,
 			&task.ProgressPercent,
 			&task.AgentName,
@@ -262,7 +264,7 @@ func (r *JobTaskRepository) GetTasksNotUpdatedSince(ctx context.Context, since t
 			keyspace_start, keyspace_end, keyspace_processed,
 			benchmark_speed, chunk_duration, assigned_at,
 			started_at, completed_at, last_checkpoint, error_message,
-			created_at, updated_at
+			crack_count, created_at, updated_at
 		FROM job_tasks
 		WHERE status IN ('assigned', 'running')
 		  AND (last_checkpoint IS NULL OR last_checkpoint < $1)
@@ -283,7 +285,7 @@ func (r *JobTaskRepository) GetTasksNotUpdatedSince(ctx context.Context, since t
 			&task.KeyspaceStart, &task.KeyspaceEnd, &task.KeyspaceProcessed,
 			&task.BenchmarkSpeed, &task.ChunkDuration, &task.AssignedAt,
 			&task.StartedAt, &task.CompletedAt, &task.LastCheckpoint, &task.ErrorMessage,
-			&task.CreatedAt, &task.UpdatedAt,
+			&task.CrackCount, &task.CreatedAt, &task.UpdatedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan job task: %w", err)
@@ -607,9 +609,10 @@ func (r *JobTaskRepository) UpdateCrackCount(ctx context.Context, id uuid.UUID, 
 		SET 
 			crack_count = COALESCE(crack_count, 0) + $2,
 			detailed_status = CASE 
-				WHEN COALESCE(crack_count, 0) + $2 > 0 THEN 'running_with_cracks'
+				WHEN COALESCE(crack_count, 0) + $2 > 0 THEN 'running'
 				ELSE detailed_status
-			END
+			END,
+			updated_at = CURRENT_TIMESTAMP
 		WHERE id = $1`
 
 	_, err := r.db.ExecContext(ctx, query, id, additionalCracks)
@@ -618,6 +621,111 @@ func (r *JobTaskRepository) UpdateCrackCount(ctx context.Context, id uuid.UUID, 
 	}
 
 	return nil
+}
+
+// UpdateCrackCountTx updates the crack count for a task within a transaction
+func (r *JobTaskRepository) UpdateCrackCountTx(tx *sql.Tx, id uuid.UUID, additionalCracks int) error {
+	if additionalCracks <= 0 {
+		return nil // Nothing to update
+	}
+
+	query := `
+		UPDATE job_tasks 
+		SET 
+			crack_count = COALESCE(crack_count, 0) + $2,
+			detailed_status = CASE 
+				WHEN COALESCE(crack_count, 0) + $2 > 0 THEN 'running'
+				ELSE detailed_status
+			END,
+			updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1`
+
+	_, err := tx.ExecContext(context.Background(), query, id, additionalCracks)
+	if err != nil {
+		return fmt.Errorf("failed to update crack count: %w", err)
+	}
+
+	return nil
+}
+
+// GetActiveTaskForAgentAndHashlist finds the active task for a specific agent and hashlist
+func (r *JobTaskRepository) GetActiveTaskForAgentAndHashlist(ctx context.Context, agentID int, hashlistID int64) (*models.JobTask, error) {
+	query := `
+		SELECT 
+			jt.id, jt.job_execution_id, jt.agent_id, jt.status, jt.priority,
+			jt.attack_cmd, jt.keyspace_start, jt.keyspace_end, jt.keyspace_processed,
+			jt.progress_percent, jt.benchmark_speed, jt.chunk_duration,
+			jt.created_at, jt.assigned_at, jt.started_at, jt.completed_at, jt.updated_at,
+			jt.last_checkpoint, jt.error_message, jt.crack_count, jt.detailed_status,
+			jt.retry_count, jt.rule_start_index, jt.rule_end_index, jt.rule_chunk_path,
+			jt.is_rule_split_task
+		FROM job_tasks jt
+		JOIN job_executions je ON jt.job_execution_id = je.id
+		WHERE jt.agent_id = $1 
+		  AND je.hashlist_id = $2
+		  AND jt.status IN ('running', 'assigned')
+		ORDER BY jt.assigned_at DESC
+		LIMIT 1`
+
+	var task models.JobTask
+	err := r.db.QueryRowContext(ctx, query, agentID, hashlistID).Scan(
+		&task.ID, &task.JobExecutionID, &task.AgentID, &task.Status, &task.Priority,
+		&task.AttackCmd, &task.KeyspaceStart, &task.KeyspaceEnd, &task.KeyspaceProcessed,
+		&task.ProgressPercent, &task.BenchmarkSpeed, &task.ChunkDuration,
+		&task.CreatedAt, &task.AssignedAt, &task.StartedAt, &task.CompletedAt, &task.UpdatedAt,
+		&task.LastCheckpoint, &task.ErrorMessage, &task.CrackCount, &task.DetailedStatus,
+		&task.RetryCount, &task.RuleStartIndex, &task.RuleEndIndex, &task.RuleChunkPath,
+		&task.IsRuleSplitTask,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, nil // No active task found
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get active task: %w", err)
+	}
+
+	return &task, nil
+}
+
+// GetActiveTaskForAgentAndHashlistTx finds the active task within a transaction
+func (r *JobTaskRepository) GetActiveTaskForAgentAndHashlistTx(tx *sql.Tx, agentID int, hashlistID int64) (*models.JobTask, error) {
+	query := `
+		SELECT 
+			jt.id, jt.job_execution_id, jt.agent_id, jt.status, jt.priority,
+			jt.attack_cmd, jt.keyspace_start, jt.keyspace_end, jt.keyspace_processed,
+			jt.progress_percent, jt.benchmark_speed, jt.chunk_duration,
+			jt.created_at, jt.assigned_at, jt.started_at, jt.completed_at, jt.updated_at,
+			jt.last_checkpoint, jt.error_message, jt.crack_count, jt.detailed_status,
+			jt.retry_count, jt.rule_start_index, jt.rule_end_index, jt.rule_chunk_path,
+			jt.is_rule_split_task
+		FROM job_tasks jt
+		JOIN job_executions je ON jt.job_execution_id = je.id
+		WHERE jt.agent_id = $1 
+		  AND je.hashlist_id = $2
+		  AND jt.status IN ('running', 'assigned')
+		ORDER BY jt.assigned_at DESC
+		LIMIT 1`
+
+	var task models.JobTask
+	err := tx.QueryRowContext(context.Background(), query, agentID, hashlistID).Scan(
+		&task.ID, &task.JobExecutionID, &task.AgentID, &task.Status, &task.Priority,
+		&task.AttackCmd, &task.KeyspaceStart, &task.KeyspaceEnd, &task.KeyspaceProcessed,
+		&task.ProgressPercent, &task.BenchmarkSpeed, &task.ChunkDuration,
+		&task.CreatedAt, &task.AssignedAt, &task.StartedAt, &task.CompletedAt, &task.UpdatedAt,
+		&task.LastCheckpoint, &task.ErrorMessage, &task.CrackCount, &task.DetailedStatus,
+		&task.RetryCount, &task.RuleStartIndex, &task.RuleEndIndex, &task.RuleChunkPath,
+		&task.IsRuleSplitTask,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, nil // No active task found
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get active task: %w", err)
+	}
+
+	return &task, nil
 }
 
 // GetActiveAgentCountByJob returns the number of agents actively working on a job

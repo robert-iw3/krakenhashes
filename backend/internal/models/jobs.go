@@ -155,6 +155,7 @@ type JobExecution struct {
 	// Progress tracking
 	OverallProgressPercent float64    `json:"overall_progress_percent" db:"overall_progress_percent"` // Overall job progress (0-100)
 	LastProgressUpdate     *time.Time `json:"last_progress_update" db:"last_progress_update"`         // Last time progress was updated
+	DispatchedKeyspace     int64      `json:"dispatched_keyspace" db:"dispatched_keyspace"`           // Total keyspace dispatched to tasks
 
 	// Populated fields from JOINs
 	PresetJobName string `json:"preset_job_name,omitempty" db:"preset_job_name"`

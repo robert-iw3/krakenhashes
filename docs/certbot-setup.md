@@ -4,7 +4,7 @@ This guide explains how to configure KrakenHashes to use Let's Encrypt certifica
 
 ## Prerequisites
 
-1. **Domain Name**: You need to own a domain (e.g., `bazerker.com`)
+1. **Domain Name**: You need to own a domain (e.g., `zerkersec.io`)
 2. **Cloudflare Account**: Your domain must be managed by Cloudflare
 3. **API Token**: Create a Cloudflare API token with proper permissions
 
@@ -14,10 +14,10 @@ This guide explains how to configure KrakenHashes to use Let's Encrypt certifica
 2. Go to **My Profile** → **API Tokens**
 3. Click **Create Token**
 4. Use the **Custom token** template with these permissions:
-   - **Zone** → **DNS** → **Edit**
-   - **Zone** → **Zone** → **Read** (optional but recommended)
+    - **Zone** → **DNS** → **Edit**
+    - **Zone** → **Zone** → **Read** (optional but recommended)
 5. Under **Zone Resources**, select:
-   - **Include** → **Specific zone** → Your domain (e.g., `bazerker.com`)
+    - **Include** → **Specific zone** → Your domain (e.g., `zerkersec.io`)
 6. Click **Continue to summary** and **Create Token**
 7. **Save the token securely** - you won't be able to see it again!
 
@@ -28,11 +28,11 @@ Create an A record for your subdomain:
 1. In Cloudflare dashboard, go to your domain
 2. Navigate to **DNS** → **Records**
 3. Add a new A record:
-   - **Type**: A
-   - **Name**: `kraken` (or your chosen subdomain)
-   - **IPv4 address**: Your internal IP (e.g., `10.0.0.100`)
-   - **Proxy status**: DNS only (gray cloud)
-   - **TTL**: Auto
+    - **Type**: A
+    - **Name**: `kraken` (or your chosen subdomain)
+    - **IPv4 address**: Your internal IP (e.g., `10.0.0.100`)
+    - **Proxy status**: DNS only (gray cloud)
+    - **TTL**: Auto
 
 **Note**: The IP address doesn't need to be publicly accessible. Certbot only needs to verify domain ownership via DNS TXT records.
 
@@ -45,8 +45,8 @@ Edit your `.env` file:
 KH_TLS_MODE=certbot
 
 # Certbot Configuration
-KH_CERTBOT_DOMAIN=kraken.bazerker.com    # Your full domain
-KH_CERTBOT_EMAIL=admin@bazerker.com      # Your email for Let's Encrypt
+KH_CERTBOT_DOMAIN=kraken.zerkersec.io    # Your full domain
+KH_CERTBOT_EMAIL=admin@zerkersec.io      # Your email for Let's Encrypt
 KH_CERTBOT_STAGING=true                  # Start with staging for testing!
 KH_CERTBOT_AUTO_RENEW=true               # Enable automatic renewal
 
@@ -54,11 +54,11 @@ KH_CERTBOT_AUTO_RENEW=true               # Enable automatic renewal
 CLOUDFLARE_API_TOKEN=your-token-here     # The token from Step 1
 
 # Update frontend URLs to use your domain
-REACT_APP_API_URL=https://kraken.bazerker.com:31337
-REACT_APP_WS_URL=wss://kraken.bazerker.com:31337
+REACT_APP_API_URL=https://kraken.zerkersec.io:31337
+REACT_APP_WS_URL=wss://kraken.zerkersec.io:31337
 
 # Update CORS to allow your domain
-CORS_ALLOWED_ORIGIN=https://kraken.bazerker.com
+CORS_ALLOWED_ORIGIN=https://kraken.zerkersec.io
 ```
 
 ## Step 4: Initial Setup with Staging
@@ -66,38 +66,43 @@ CORS_ALLOWED_ORIGIN=https://kraken.bazerker.com
 **Important**: Always test with Let's Encrypt staging environment first to avoid rate limits!
 
 1. Stop existing containers:
-   ```bash
-   docker-compose down
-   ```
+
+    ```bash
+    docker-compose down
+    ```
 
 2. Start with certbot mode:
-   ```bash
-   docker-compose up -d
-   ```
+
+    ```bash
+    docker-compose up -d
+    ```
 
 3. Monitor the logs:
-   ```bash
-   docker-compose logs -f krakenhashes
-   ```
+
+    ```bash
+    docker-compose logs -f krakenhashes
+    ```
 
 4. Look for messages indicating successful certificate generation:
-   ```
-   Obtaining certificates for domain: kraken.bazerker.com
-   Successfully obtained certificates
-   ```
+    ```
+    Obtaining certificates for domain: kraken.zerkersec.io
+    Successfully obtained certificates
+    ```
 
 ## Step 5: Verify Staging Certificates
 
 1. Check certificate files:
-   ```bash
-   ls -la kh-backend/config/certs/live/kraken.bazerker.com/
-   ```
+
+    ```bash
+    ls -la kh-backend/config/certs/live/kraken.zerkersec.io/
+    ```
 
 2. You should see:
-   - `fullchain.pem` - Certificate chain
-   - `privkey.pem` - Private key
-   - `chain.pem` - Intermediate certificates
-   - `cert.pem` - Domain certificate
+
+    - `fullchain.pem` - Certificate chain
+    - `privkey.pem` - Private key
+    - `chain.pem` - Intermediate certificates
+    - `cert.pem` - Domain certificate
 
 3. Test the application (you'll get a browser warning for staging certificates)
 
@@ -106,29 +111,32 @@ CORS_ALLOWED_ORIGIN=https://kraken.bazerker.com
 Once staging certificates work:
 
 1. Update `.env`:
-   ```bash
-   KH_CERTBOT_STAGING=false
-   ```
+
+    ```bash
+    KH_CERTBOT_STAGING=false
+    ```
 
 2. Remove staging certificates:
-   ```bash
-   rm -rf kh-backend/config/certs/live/*
-   rm -rf kh-backend/config/certs/archive/*
-   rm -rf kh-backend/config/certs/renewal/*
-   ```
+
+    ```bash
+    rm -rf kh-backend/config/certs/live/*
+    rm -rf kh-backend/config/certs/archive/*
+    rm -rf kh-backend/config/certs/renewal/*
+    ```
 
 3. Restart to get production certificates:
-   ```bash
-   docker-compose down
-   docker-compose up -d
-   ```
+    ```bash
+    docker-compose down
+    docker-compose up -d
+    ```
 
 ## Certificate Renewal
 
 Certificates are automatically renewed:
-- Renewal checks run twice daily (3 AM and 3 PM)
-- Certificates renew when less than 30 days remain
-- Services reload automatically after renewal
+
+-   Renewal checks run twice daily (3 AM and 3 PM)
+-   Certificates renew when less than 30 days remain
+-   Services reload automatically after renewal
 
 ### Manual Renewal
 
@@ -141,6 +149,7 @@ docker exec krakenhashes /usr/local/bin/certbot-renew.sh
 ### Monitor Renewal
 
 Check renewal logs:
+
 ```bash
 docker exec krakenhashes tail -f /var/log/krakenhashes/certbot-renew.log
 ```
@@ -150,27 +159,31 @@ docker exec krakenhashes tail -f /var/log/krakenhashes/certbot-renew.log
 ### Common Issues
 
 1. **"CLOUDFLARE_API_TOKEN environment variable is required"**
-   - Ensure the token is set in your `.env` file
-   - Token must have DNS:Edit permissions
+
+    - Ensure the token is set in your `.env` file
+    - Token must have DNS:Edit permissions
 
 2. **"Failed to obtain certificates"**
-   - Check Cloudflare API token permissions
-   - Verify domain ownership
-   - Check certbot logs: `docker exec krakenhashes cat /etc/krakenhashes/certs/logs/letsencrypt.log`
+
+    - Check Cloudflare API token permissions
+    - Verify domain ownership
+    - Check certbot logs: `docker exec krakenhashes cat /etc/krakenhashes/certs/logs/letsencrypt.log`
 
 3. **Browser still shows certificate warnings**
-   - Ensure you switched from staging to production
-   - Clear browser cache
-   - Verify certificates: `docker exec krakenhashes openssl x509 -in /etc/krakenhashes/certs/live/kraken.bazerker.com/cert.pem -text -noout`
+
+    - Ensure you switched from staging to production
+    - Clear browser cache
+    - Verify certificates: `docker exec krakenhashes openssl x509 -in /etc/krakenhashes/certs/live/kraken.zerkersec.io/cert.pem -text -noout`
 
 4. **Rate Limits**
-   - Let's Encrypt has rate limits (50 certificates per domain per week)
-   - Always test with staging first
-   - See: https://letsencrypt.org/docs/rate-limits/
+    - Let's Encrypt has rate limits (50 certificates per domain per week)
+    - Always test with staging first
+    - See: https://letsencrypt.org/docs/rate-limits/
 
 ### Debug Mode
 
 Enable debug logging:
+
 ```bash
 DEBUG=true
 LOG_LEVEL=DEBUG
@@ -179,12 +192,13 @@ LOG_LEVEL=DEBUG
 ### Certificate Information
 
 View certificate details:
+
 ```bash
 # Inside container
 docker exec krakenhashes certbot certificates --config-dir /etc/krakenhashes/certs
 
 # Certificate expiry
-docker exec krakenhashes openssl x509 -enddate -noout -in /etc/krakenhashes/certs/live/kraken.bazerker.com/cert.pem
+docker exec krakenhashes openssl x509 -enddate -noout -in /etc/krakenhashes/certs/live/kraken.zerkersec.io/cert.pem
 ```
 
 ## Security Notes
@@ -199,9 +213,10 @@ docker exec krakenhashes openssl x509 -enddate -noout -in /etc/krakenhashes/cert
 To add more domains/subdomains:
 
 1. Add them to `KH_ADDITIONAL_DNS_NAMES` in `.env`:
-   ```bash
-   KH_ADDITIONAL_DNS_NAMES=kraken.bazerker.com,api.bazerker.com,*.kraken.bazerker.com
-   ```
+
+    ```bash
+    KH_ADDITIONAL_DNS_NAMES=kraken.zerkersec.io,api.zerkersec.io,*.kraken.zerkersec.io
+    ```
 
 2. Ensure all domains are in Cloudflare and accessible by your API token
 

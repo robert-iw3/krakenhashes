@@ -888,6 +888,16 @@ func (s *JobWebSocketIntegration) processCrackedHashes(ctx context.Context, task
 		// by checking the hashlist_hashes junction table
 		hash := hashes[0]
 
+		// Check if hash is already cracked to prevent double counting
+		if hash.IsCracked {
+			debug.Log("Hash already cracked, skipping", map[string]interface{}{
+				"hash_id":     hash.ID,
+				"hash_value":  hashValue,
+				"hashlist_id": jobExecution.HashlistID,
+			})
+			continue
+		}
+
 		// Update crack status
 		err = s.hashRepo.UpdateCrackStatus(tx, hash.ID, password, crackedAt, nil)
 		if err != nil {

@@ -31,10 +31,11 @@ type AgentUpdateHandler struct {
 	agentService *services.AgentService
 	hashRepo     *repository.HashRepository
 	hashlistRepo *repository.HashListRepository
+	jobTaskRepo  *repository.JobTaskRepository
 	upgrader     websocket.Upgrader
 }
 
-func NewAgentUpdateHandler(database *db.DB, agentService *services.AgentService, hashRepo *repository.HashRepository, hashlistRepo *repository.HashListRepository) *AgentUpdateHandler {
+func NewAgentUpdateHandler(database *db.DB, agentService *services.AgentService, hashRepo *repository.HashRepository, hashlistRepo *repository.HashListRepository, jobTaskRepo *repository.JobTaskRepository) *AgentUpdateHandler {
 	// Configure the upgrader
 	upgrader := websocket.Upgrader{
 		ReadBufferSize:  1024,
@@ -54,6 +55,7 @@ func NewAgentUpdateHandler(database *db.DB, agentService *services.AgentService,
 		agentService: agentService,
 		hashRepo:     hashRepo,
 		hashlistRepo: hashlistRepo,
+		jobTaskRepo:  jobTaskRepo,
 		upgrader:     upgrader,
 	}
 }
@@ -149,7 +151,7 @@ func (h *AgentUpdateHandler) HandleUpdates(w http.ResponseWriter, r *http.Reques
 
 			// Process the crack update
 			debug.Debug("Received crack update from agent %d: %+v", authenticatedAgentID, updateMsg)
-			if err := h.processCrackUpdate(context.Background(), updateMsg); err != nil {
+			if err := h.processCrackUpdate(context.Background(), authenticatedAgentID, updateMsg); err != nil {
 				debug.Error("Agent %d: Failed to process crack update for hashlist %d, hash %s: %v", authenticatedAgentID, updateMsg.HashlistID, updateMsg.HashValue, err)
 			}
 		}
@@ -158,7 +160,7 @@ func (h *AgentUpdateHandler) HandleUpdates(w http.ResponseWriter, r *http.Reques
 }
 
 // processCrackUpdate handles the logic for updating the database based on a crack message.
-func (h *AgentUpdateHandler) processCrackUpdate(ctx context.Context, msg CrackUpdateMessage) error {
+func (h *AgentUpdateHandler) processCrackUpdate(ctx context.Context, agentID int, msg CrackUpdateMessage) error {
 	// Basic validation
 	if msg.HashlistID <= 0 || msg.HashValue == "" || msg.Password == "" { // Check for positive ID
 		return fmt.Errorf("invalid crack update message: missing required fields or invalid hashlist ID")
@@ -225,6 +227,24 @@ func (h *AgentUpdateHandler) processCrackUpdate(ctx context.Context, msg CrackUp
 		return fmt.Errorf("failed to increment hashlist count: %w", err)
 	}
 	debug.Debug("Incremented cracked count for hashlist %d", msg.HashlistID)
+
+	// 3c. Find and update the active task's crack count
+	activeTask, err := h.jobTaskRepo.GetActiveTaskForAgentAndHashlistTx(tx, agentID, msg.HashlistID)
+	if err != nil {
+		debug.Warning("Failed to find active task for agent %d and hashlist %d: %v", agentID, msg.HashlistID, err)
+		// Don't fail the entire transaction, just log the warning
+	} else if activeTask != nil {
+		// Update task crack count
+		err = h.jobTaskRepo.UpdateCrackCountTx(tx, activeTask.ID, 1)
+		if err != nil {
+			debug.Error("Failed to update task crack count for task %s: %v", activeTask.ID, err)
+			// Don't fail the entire transaction, just log the error
+		} else {
+			debug.Debug("Updated crack count for task %s", activeTask.ID)
+		}
+	} else {
+		debug.Debug("No active task found for agent %d and hashlist %d", agentID, msg.HashlistID)
+	}
 
 	// Commit the transaction
 	err = tx.Commit()
