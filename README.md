@@ -90,7 +90,10 @@ Instructions for setting up and running each component can be found in their res
 -   [x] Implement TLS support
     -   [x] Self-signed certificate support
     -   [x] User-provided certificate support (Not Tested - Should work)
-    -   [x] Certbot integration (Written but not tested - Please open an issue if you have issues)
+    -   [x] Certbot integration
+        -   ⚠️ **Note**: Certbot cannot add IP addresses as additional trusted hosts
+        -   Users must use internal DNS to point domain to local IP or expose publicly (not recommended)
+        -   **Recommendation**: Use self-signed certificates for internal deployments
 -   [x] Docker containerization
     -   [x] Environment variable configuration
     -   [x] Database initialization handling
@@ -107,6 +110,7 @@ Instructions for setting up and running each component can be found in their res
     -   [x] User groups (Admin/User roles)
     -   [x] MFA implementation
         -   [x] Email-based authentication
+        -   [x] TOTP/Authenticator app support
         -   [x] Backup codes (based on admin auth settings)
         -   [x] Admin MFA override capability
     -   [x] Password change functionality
@@ -114,19 +118,18 @@ Instructions for setting up and running each component can be found in their res
 
 ### Job Processing System
 
--   [ ] Hashlist management
+-   [x] Hashlist management
     -   [x] Comprehensive hashcat hash type support
-    -   [ ] Hash configuration database
-        -   [ ] Salt status tracking
-        -   [ ] Performance characteristics (slow/fast)
-    -   [ ] Agent-side validation with error parsing
--   [ ] Task management
+    -   [x] Hash configuration database
+        -   [x] Salt status tracking
+        -   [x] Performance characteristics (slow/fast)
+    -   [x] Agent-side validation with error parsing
+-   [x] Task management
     -   [x] Multi-level priority system
         -   [x] Priority-based execution (0-1000)
         -   [x] Pre-defined task templates (Preset Jobs & Workflows)
-    -   [ ] Intelligent job distribution
-        -   [x] Agent availability tracking
-        -   [ ] Owner priority handling
+    -   [x] Intelligent job distribution
+    -   [x] Agent availability tracking
     -   [x] Progress tracking
     -   [x] Result storage
 -   [x] Resource management
@@ -137,9 +140,10 @@ Instructions for setting up and running each component can be found in their res
 ### Agent Enhancements
 
 -   [ ] Job processing
-    -   [ ] Hashcat integration
+    -   [x] Hashcat integration
         -   [x] Command generation based on hash type
         -   [x] Error handling and reporting
+        -   [x] Hashcat execution implementation
     -   [ ] Benchmark system
         -   [ ] Device-specific benchmark metrics storage
         -   [x] Per-device speed tracking by hash type
@@ -156,9 +160,9 @@ Instructions for setting up and running each component can be found in their res
 ### Frontend Features
 
 -   [ ] Dashboard
-    -   [ ] User-specific job status
-    -   [ ] Performance statistics
-    -   [ ] System health indicators
+    -   [x] User-specific job status
+    -   [x] Performance statistics
+    -   [ ] System health indicators (active agents, activity feed)
 -   [x] Job management interface
     -   [x] Job creation/modification
     -   [x] Priority level assignment
@@ -169,22 +173,31 @@ Instructions for setting up and running each component can be found in their res
     -   [x] Wordlist management
     -   [x] Rules management
     -   [x] Tool configuration
--   [ ] Admin panel
-    -   [ ] System configuration
-    -   [ ] User management
-        -   [ ] MFA management
+-   [x] Admin panel
+    -   [x] System configuration
+    -   [x] User management
+        -   [x] MFA management
     -   [x] Security settings
 -   [x] Account management
     -   [x] Profile settings
     -   [x] Security settings
         -   [x] MFA setup/recovery
 
+### POT (Pot of Gold) - Cracked Hash Management
+
+-   [x] POT handler for viewing cracked hashes
+-   [x] POT pages for client-level views  
+-   [x] POT pages for hashlist-level views
+-   [x] Export functionality
+-   [ ] Statistics and analytics (move to v2.0)
+
 ### Documentation
 
--   [ ] API documentation
+-   [ ] API documentation (Pending user API section)
 -   [x] Deployment guides
     -   [x] Docker installation
-    -   [x] Certbot/Let's Encrypt setup
+    -   [x] SSL/TLS Setup Guide
+    -   [x] Certbot/Let's Encrypt setup (with caveats)
 -   [ ] User manual
     -   [ ] Priority system guidelines
     -   [x] Hash type reference
@@ -192,12 +205,18 @@ Instructions for setting up and running each component can be found in their res
 -   [ ] Administrator guide
     -   [ ] Security recommendations
 
+### Database Schema
+
+-   [x] Team database schema (tables created but not integrated)
+
 ### Version 2.0 Considerations
 
 -   [ ] Passkey support for MFA
 -   [ ] Additional authentication methods
--   [ ] Team resource quotas
 -   [ ] Advanced job dependencies
+-   [ ] Enhanced benchmarking with historical tracking
+-   [ ] Job queuing and scheduling improvements
+-   [ ] POT statistics and analytics
 -   [ ] Team system implementation
     -   [ ] Team management infrastructure
         -   [ ] Team manager roles
