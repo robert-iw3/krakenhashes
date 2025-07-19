@@ -58,6 +58,7 @@ interface Hashlist {
   cracked_hashes: number;
   createdAt: string;
   clientName?: string;
+  client_id?: string;
 }
 
 interface ApiHashlistResponse {
@@ -387,7 +388,24 @@ export default function HashlistsDashboard() {
                   </Typography>
                 </TableCell>
                 <TableCell>
-                  {hashlist.clientName || '-'}
+                  {hashlist.client_id && hashlist.clientName ? (
+                    <Typography
+                      component="a"
+                      sx={{
+                        cursor: 'pointer',
+                        color: 'primary.main',
+                        textDecoration: 'none',
+                        '&:hover': {
+                          textDecoration: 'underline'
+                        }
+                      }}
+                      onClick={() => navigate(`/pot/client/${hashlist.client_id}`)}
+                    >
+                      {hashlist.clientName}
+                    </Typography>
+                  ) : (
+                    hashlist.clientName || '-'
+                  )}
                 </TableCell>
                 <TableCell>
                   <Chip 
@@ -400,7 +418,22 @@ export default function HashlistsDashboard() {
                   />
                 </TableCell>
                 <TableCell>{hashlist.total_hashes.toLocaleString()}</TableCell>
-                <TableCell>{hashlist.cracked_hashes.toLocaleString()}</TableCell>
+                <TableCell>
+                  <Typography
+                    component="a"
+                    sx={{
+                      cursor: 'pointer',
+                      color: 'primary.main',
+                      textDecoration: 'none',
+                      '&:hover': {
+                        textDecoration: 'underline'
+                      }
+                    }}
+                    onClick={() => navigate(`/pot/hashlist/${hashlist.id}`)}
+                  >
+                    {hashlist.cracked_hashes.toLocaleString()}
+                  </Typography>
+                </TableCell>
                 <TableCell>
                   <Box sx={{ display: 'flex', alignItems: 'center' }}>
                     <Box sx={{ width: '70%', mr: 1 }}> {/* Adjust width as needed */}

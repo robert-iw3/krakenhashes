@@ -65,6 +65,9 @@ const HashlistDetailViewPage = lazy(() => import('./components/hashlist/Hashlist
 const AboutPage = lazy(() => import('./pages/About'));
 const ProfileSettingsPage = lazy(() => import('./pages/settings/ProfileSettings'));
 const AgentDetailsPage = lazy(() => import('./pages/AgentDetails'));
+const PotPage = lazy(() => import('./pages/Pot'));
+const PotHashlistPage = lazy(() => import('./pages/PotHashlist'));
+const PotClientPage = lazy(() => import('./pages/PotClient'));
 
 // Lazy load Admin Pages
 const PresetJobListPage = lazy(() => import('./pages/admin/PresetJobList'));
@@ -127,6 +130,9 @@ const App: React.FC = () => {
                     <Route path="/hashlists/:id" element={<HashlistDetailViewPage />} />
                     <Route path="/wordlists" element={<WordlistsManagementPage />} />
                     <Route path="/rules" element={<RulesManagementPage />} />
+                    <Route path="/pot" element={<PotPage />} />
+                    <Route path="/pot/hashlist/:id" element={<PotHashlistPage />} />
+                    <Route path="/pot/client/:id" element={<PotClientPage />} />
                     <Route path="/about" element={<AboutPage />} />
                     <Route path="/settings/profile" element={<ProfileSettingsPage />} />
 

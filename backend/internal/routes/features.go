@@ -7,7 +7,9 @@ import (
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/agent"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/dashboard"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/jobs"
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/pot"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/vouchers"
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/repository"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/services"
 	"github.com/ZerkerEOD/krakenhashes/backend/pkg/debug"
 	"github.com/gorilla/mux"
@@ -59,4 +61,34 @@ func SetupVoucherRoutes(jwtRouter *mux.Router, voucherService *services.ClaimVou
 	jwtRouter.HandleFunc("/vouchers", voucherHandler.ListVouchers).Methods("GET", "OPTIONS")
 	jwtRouter.HandleFunc("/vouchers/{code}/disable", voucherHandler.DeactivateVoucher).Methods("DELETE", "OPTIONS")
 	debug.Info("Configured voucher management endpoints: /vouchers")
+}
+
+// SetupPotRoutes configures pot (cracked hashes) routes
+func SetupPotRoutes(jwtRouter *mux.Router, hashRepo *repository.HashRepository, hashlistRepo *repository.HashListRepository, clientRepo *repository.ClientRepository) {
+	potHandler := pot.NewHandler(hashRepo, hashlistRepo, clientRepo)
+	
+	// List routes
+	jwtRouter.HandleFunc("/pot", potHandler.HandleListCrackedHashes).Methods("GET", "OPTIONS")
+	jwtRouter.HandleFunc("/pot/hashlist/{id}", potHandler.HandleListCrackedHashesByHashlist).Methods("GET", "OPTIONS")
+	jwtRouter.HandleFunc("/pot/client/{id}", potHandler.HandleListCrackedHashesByClient).Methods("GET", "OPTIONS")
+	
+	// Download routes for all cracked hashes
+	jwtRouter.HandleFunc("/pot/download/hash-pass", potHandler.HandleDownloadHashPass).Methods("GET", "OPTIONS")
+	jwtRouter.HandleFunc("/pot/download/user-pass", potHandler.HandleDownloadUserPass).Methods("GET", "OPTIONS")
+	jwtRouter.HandleFunc("/pot/download/user", potHandler.HandleDownloadUser).Methods("GET", "OPTIONS")
+	jwtRouter.HandleFunc("/pot/download/pass", potHandler.HandleDownloadPass).Methods("GET", "OPTIONS")
+	
+	// Download routes for hashlist-specific cracked hashes
+	jwtRouter.HandleFunc("/pot/hashlist/{id}/download/hash-pass", potHandler.HandleDownloadHashPassByHashlist).Methods("GET", "OPTIONS")
+	jwtRouter.HandleFunc("/pot/hashlist/{id}/download/user-pass", potHandler.HandleDownloadUserPassByHashlist).Methods("GET", "OPTIONS")
+	jwtRouter.HandleFunc("/pot/hashlist/{id}/download/user", potHandler.HandleDownloadUserByHashlist).Methods("GET", "OPTIONS")
+	jwtRouter.HandleFunc("/pot/hashlist/{id}/download/pass", potHandler.HandleDownloadPassByHashlist).Methods("GET", "OPTIONS")
+	
+	// Download routes for client-specific cracked hashes
+	jwtRouter.HandleFunc("/pot/client/{id}/download/hash-pass", potHandler.HandleDownloadHashPassByClient).Methods("GET", "OPTIONS")
+	jwtRouter.HandleFunc("/pot/client/{id}/download/user-pass", potHandler.HandleDownloadUserPassByClient).Methods("GET", "OPTIONS")
+	jwtRouter.HandleFunc("/pot/client/{id}/download/user", potHandler.HandleDownloadUserByClient).Methods("GET", "OPTIONS")
+	jwtRouter.HandleFunc("/pot/client/{id}/download/pass", potHandler.HandleDownloadPassByClient).Methods("GET", "OPTIONS")
+	
+	debug.Info("Configured pot endpoints: list and download routes for all/hashlist/client contexts")
 }
