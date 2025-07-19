@@ -24,7 +24,6 @@ type MessageType string
 const (
 	// Agent -> Server messages
 	TypeHeartbeat       MessageType = "heartbeat"
-	TypeMetrics         MessageType = "metrics"
 	TypeTaskStatus      MessageType = "task_status"
 	TypeJobProgress     MessageType = "job_progress"
 	TypeBenchmarkResult MessageType = "benchmark_result"
@@ -51,7 +50,6 @@ const (
 // Client represents a connected agent
 type Client struct {
 	LastSeen time.Time
-	Metrics  *MetricsPayload
 }
 
 // Message represents a WebSocket message
@@ -62,19 +60,6 @@ type Message struct {
 	OSInfo       json.RawMessage  `json:"os_info,omitempty"`
 }
 
-// MetricsPayload represents detailed metrics from agent
-type MetricsPayload struct {
-	AgentID        int       `json:"agent_id"`
-	CollectedAt    time.Time `json:"collected_at"`
-	CPUUsage       float64   `json:"cpu_usage"`
-	MemoryUsage    float64   `json:"memory_usage"`
-	DiskUsage      float64   `json:"disk_usage"`
-	GPUUtilization float64   `json:"gpu_utilization"`
-	GPUTemp        float64   `json:"gpu_temp"`
-	NetworkStats   any       `json:"network_stats"`
-	ProcessStats   any       `json:"process_stats"`
-	CustomMetrics  any       `json:"custom_metrics,omitempty"`
-}
 
 // HeartbeatPayload represents a heartbeat message from agent
 type HeartbeatPayload struct {
@@ -260,8 +245,6 @@ func (s *Service) HandleMessage(ctx context.Context, agent *models.Agent, msg *M
 	switch msg.Type {
 	case TypeHeartbeat:
 		return s.handleHeartbeat(ctx, agent, msg)
-	case TypeMetrics:
-		return s.handleMetrics(ctx, agent, msg)
 	case TypeTaskStatus:
 		return s.handleTaskStatus(ctx, agent, msg)
 	case TypeJobProgress:
@@ -320,37 +303,6 @@ func (s *Service) handleHeartbeat(ctx context.Context, agent *models.Agent, msg 
 	return nil
 }
 
-// handleMetrics processes metrics messages
-func (s *Service) handleMetrics(ctx context.Context, agent *models.Agent, msg *Message) error {
-	var payload MetricsPayload
-	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
-		return fmt.Errorf("failed to unmarshal metrics: %w", err)
-	}
-
-	// Store latest metrics with the client
-	s.mu.Lock()
-	if client, ok := s.clients[agent.ID]; ok {
-		client.Metrics = &payload
-	}
-	s.mu.Unlock()
-
-	// Convert and store metrics in database
-	metrics := &models.AgentMetrics{
-		AgentID:        agent.ID,
-		CPUUsage:       payload.CPUUsage,
-		MemoryUsage:    payload.MemoryUsage,
-		GPUUtilization: payload.GPUUtilization,
-		GPUTemp:        payload.GPUTemp,
-		GPUMetrics:     msg.Payload, // Store additional GPU metrics as JSON
-		Timestamp:      payload.CollectedAt,
-	}
-
-	if err := s.agentService.ProcessMetrics(ctx, agent.ID, metrics); err != nil {
-		return fmt.Errorf("failed to process metrics: %w", err)
-	}
-
-	return nil
-}
 
 // handleTaskStatus processes task status messages
 func (s *Service) handleTaskStatus(ctx context.Context, agent *models.Agent, msg *Message) error {

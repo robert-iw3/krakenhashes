@@ -262,6 +262,12 @@ type AgentPerformanceMetric struct {
 	AggregationLevel AggregationLevel `json:"aggregation_level" db:"aggregation_level"`
 	PeriodStart      *time.Time       `json:"period_start" db:"period_start"`
 	PeriodEnd        *time.Time       `json:"period_end" db:"period_end"`
+	
+	// Device tracking fields
+	DeviceID   *int       `json:"device_id" db:"device_id"`     // Device ID from hashcat
+	DeviceName *string    `json:"device_name" db:"device_name"` // Human-readable device name
+	TaskID     *uuid.UUID `json:"task_id" db:"task_id"`         // Link to job task
+	AttackMode *int       `json:"attack_mode" db:"attack_mode"` // Hashcat attack mode
 }
 
 // JobPerformanceMetric stores performance metrics for job executions
@@ -306,19 +312,30 @@ type JobTaskAssignment struct {
 	OutputFormat   string     `json:"output_format"`   // Hashcat output format
 }
 
+// DeviceMetric represents metrics for a single device
+type DeviceMetric struct {
+	DeviceID   int     `json:"device_id"`   // Device ID from hashcat
+	DeviceName string  `json:"device_name"` // Human-readable device name
+	Speed      int64   `json:"speed"`       // Hash rate for this device (H/s)
+	Temp       float64 `json:"temp"`        // Temperature in Celsius
+	Util       float64 `json:"util"`        // Utilization percentage (0-100)
+	FanSpeed   float64 `json:"fan_speed"`   // Fan speed percentage (0-100)
+}
+
 // JobProgress represents a progress update from an agent
 type JobProgress struct {
-	TaskID            uuid.UUID     `json:"task_id"`
-	KeyspaceProcessed int64         `json:"keyspace_processed"`      // Restore point (position in wordlist)
-	ProgressPercent   float64       `json:"progress_percent"`        // Actual progress percentage (0-100)
-	HashRate          int64         `json:"hash_rate"`               // Current hashes per second
-	Temperature       *float64      `json:"temperature"`             // GPU temperature
-	Utilization       *float64      `json:"utilization"`             // GPU utilization percentage
-	TimeRemaining     *int          `json:"time_remaining"`          // Estimated seconds remaining
-	CrackedCount      int           `json:"cracked_count"`           // Number of hashes cracked in this update
-	CrackedHashes     []CrackedHash `json:"cracked_hashes"`          // Detailed crack information
-	Status            string        `json:"status,omitempty"`        // Task status (running, completed, failed)
-	ErrorMessage      string        `json:"error_message,omitempty"` // Error message if status is failed
+	TaskID            uuid.UUID      `json:"task_id"`
+	KeyspaceProcessed int64          `json:"keyspace_processed"`      // Restore point (position in wordlist)
+	ProgressPercent   float64        `json:"progress_percent"`        // Actual progress percentage (0-100)
+	HashRate          int64          `json:"hash_rate"`               // Current hashes per second
+	Temperature       *float64       `json:"temperature"`             // GPU temperature (deprecated, use DeviceMetrics)
+	Utilization       *float64       `json:"utilization"`             // GPU utilization percentage (deprecated, use DeviceMetrics)
+	TimeRemaining     *int           `json:"time_remaining"`          // Estimated seconds remaining
+	CrackedCount      int            `json:"cracked_count"`           // Number of hashes cracked in this update
+	CrackedHashes     []CrackedHash  `json:"cracked_hashes"`          // Detailed crack information
+	Status            string         `json:"status,omitempty"`        // Task status (running, completed, failed)
+	ErrorMessage      string         `json:"error_message,omitempty"` // Error message if status is failed
+	DeviceMetrics     []DeviceMetric `json:"device_metrics,omitempty"` // Per-device metrics
 }
 
 // CrackedHash represents a cracked hash with all available information

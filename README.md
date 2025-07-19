@@ -148,10 +148,10 @@ Instructions for setting up and running each component can be found in their res
         -   [ ] Device-specific benchmark metrics storage
         -   [x] Per-device speed tracking by hash type
     -   [ ] Dynamic workload calculation
--   [ ] Advanced monitoring
-    -   [ ] GPU/CPU temperature tracking
-    -   [ ] Resource usage history
-    -   [ ] Performance metrics
+-   [x] Advanced monitoring
+    -   [x] GPU/CPU temperature tracking
+    -   [x] Resource usage history
+    -   [x] Performance metrics
 -   [ ] Scheduling system
     -   [ ] On/Off toggle
     -   [ ] Daily schedule configuration

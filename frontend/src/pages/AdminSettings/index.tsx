@@ -8,6 +8,7 @@ import BinaryManagement from '../../components/admin/BinaryManagement';
 import SystemSettings from '../../components/admin/SystemSettings';
 import { HashTypeManager } from '../../components/admin/HashTypeManager';
 import JobExecutionSettings from '../../components/admin/JobExecutionSettings';
+import MonitoringSettings from '../../components/admin/MonitoringSettings';
 import { useSnackbar } from 'notistack';
 import { updateAuthSettings } from '../../services/auth';
 import { getDefaultClientRetentionSetting, updateDefaultClientRetentionSetting } from '../../services/api';
@@ -193,6 +194,7 @@ export const AdminSettings = () => {
             <Tab label="Client Settings" />
             <Tab label="Hash Types" />
             <Tab label="Job Execution" />
+            <Tab label="Monitoring" />
           </Tabs>
         </Box>
 
@@ -231,6 +233,9 @@ export const AdminSettings = () => {
         </TabPanel>
         <TabPanel value={currentTab} index={6}>
           <JobExecutionSettings />
+        </TabPanel>
+        <TabPanel value={currentTab} index={7}>
+          <MonitoringSettings />
         </TabPanel>
       </Paper>
     </Box>

@@ -11,7 +11,7 @@
  * @packageDocumentation
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Box,
@@ -37,6 +37,8 @@ import {
   Alert,
   IconButton,
   Chip,
+  Card,
+  CardContent,
 } from '@mui/material';
 import {
   CheckCircle as CheckCircleIcon,
@@ -46,6 +48,7 @@ import {
 } from '@mui/icons-material';
 import { api } from '../services/api';
 import { formatDistanceToNow } from 'date-fns';
+import DeviceMetricsChart from '../components/agent/DeviceMetricsChart';
 
 interface Agent {
   id: number;
@@ -92,6 +95,17 @@ interface User {
   role: string;
 }
 
+interface DeviceData {
+  deviceId: number;
+  deviceName: string;
+  metrics: {
+    [metricType: string]: Array<{
+      timestamp: number;
+      value: number;
+    }>;
+  };
+}
+
 const AgentDetails: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -103,6 +117,16 @@ const AgentDetails: React.FC = () => {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   
+  // Monitoring state
+  const [deviceMetrics, setDeviceMetrics] = useState<DeviceData[]>([]);
+  const [metricsLoading, setMetricsLoading] = useState(false);
+  const [timeRange, setTimeRange] = useState('10m');
+  const [metricsInterval, setMetricsInterval] = useState<NodeJS.Timeout | null>(null);
+  
+  // Use ref to store all metrics data to avoid re-renders
+  const metricsDataRef = useRef<Map<number, DeviceData>>(new Map());
+  const lastFetchTimeRef = useRef<number>(0);
+  
   // Form state
   const [isEnabled, setIsEnabled] = useState(true);
   const [ownerId, setOwnerId] = useState('');
@@ -113,6 +137,33 @@ const AgentDetails: React.FC = () => {
     fetchAgentDetails();
     fetchUsers();
   }, [id]);
+  
+  // Fetch device metrics periodically
+  useEffect(() => {
+    if (agent && devices.length > 0) {
+      // Clear data when time range changes
+      metricsDataRef.current.clear();
+      lastFetchTimeRef.current = 0;
+      
+      // Initial fetch
+      fetchDeviceMetrics(true);
+      
+      // Set up interval for updates every 5 seconds
+      const interval = setInterval(() => {
+        fetchDeviceMetrics(false);
+      }, 5000);
+      
+      setMetricsInterval(interval);
+      
+      // Cleanup on unmount or when dependencies change
+      return () => {
+        if (interval) {
+          clearInterval(interval);
+        }
+      };
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agent, devices, timeRange]);
 
   const fetchAgentDetails = async () => {
     try {
@@ -154,6 +205,88 @@ const AgentDetails: React.FC = () => {
       console.error('Failed to fetch users:', err);
     }
   };
+  
+  // Helper to get time range in milliseconds
+  const getTimeRangeMs = useCallback(() => {
+    switch (timeRange) {
+      case '10m': return 10 * 60 * 1000;
+      case '20m': return 20 * 60 * 1000;
+      case '1h': return 60 * 60 * 1000;
+      case '5h': return 5 * 60 * 60 * 1000;
+      case '24h': return 24 * 60 * 60 * 1000;
+      default: return 10 * 60 * 1000;
+    }
+  }, [timeRange]);
+
+  const fetchDeviceMetrics = useCallback(async (isInitialFetch = false) => {
+    if (!id) return;
+    
+    try {
+      // Only show loading on initial fetch
+      if (isInitialFetch) {
+        setMetricsLoading(true);
+      }
+
+      // For initial fetch or when time range changes, fetch all data
+      // Otherwise, only fetch new data since last update
+      const params: any = {
+        timeRange,
+        metrics: 'temperature,utilization,fanspeed,hashrate'
+      };
+      
+      // If not initial fetch and we have a last fetch time, only get new data
+      if (!isInitialFetch && lastFetchTimeRef.current > 0) {
+        params.since = new Date(lastFetchTimeRef.current).toISOString();
+      }
+      
+      const response = await api.get(`/api/agents/${id}/metrics`, { params });
+      
+      if (response.data && response.data.devices) {
+        const now = Date.now();
+        const timeWindowMs = getTimeRangeMs();
+        const cutoffTime = now - timeWindowMs;
+        
+        // Process new data
+        response.data.devices.forEach((device: DeviceData) => {
+          const existingDevice = metricsDataRef.current.get(device.deviceId);
+          
+          if (!existingDevice) {
+            // New device, add it
+            metricsDataRef.current.set(device.deviceId, device);
+          } else {
+            // Merge metrics for existing device
+            Object.keys(device.metrics).forEach(metricType => {
+              if (!existingDevice.metrics[metricType]) {
+                existingDevice.metrics[metricType] = [];
+              }
+              
+              // Add new metrics
+              const newMetrics = device.metrics[metricType] || [];
+              existingDevice.metrics[metricType].push(...newMetrics);
+              
+              // Remove old metrics outside the time window
+              existingDevice.metrics[metricType] = existingDevice.metrics[metricType]
+                .filter(m => m.timestamp >= cutoffTime)
+                .sort((a, b) => a.timestamp - b.timestamp);
+            });
+          }
+        });
+        
+        // Update last fetch time
+        lastFetchTimeRef.current = now;
+        
+        // Convert map to array and update state
+        const updatedDevices = Array.from(metricsDataRef.current.values());
+        setDeviceMetrics(updatedDevices);
+      }
+    } catch (err: any) {
+      console.error('Failed to fetch device metrics:', err);
+    } finally {
+      if (isInitialFetch) {
+        setMetricsLoading(false);
+      }
+    }
+  }, [id, timeRange, getTimeRangeMs]);
 
   const handleToggleDevice = async (deviceId: number) => {
     try {
@@ -397,6 +530,101 @@ const AgentDetails: React.FC = () => {
             </Button>
           </Box>
         </Grid>
+        
+        {/* Device Monitoring Section */}
+        {devices.length > 0 && (
+          <>
+            <Grid item xs={12}>
+              <Typography variant="h5" sx={{ mt: 3, mb: 2 }}>
+                Device Monitoring
+              </Typography>
+              <Box sx={{ mb: 2 }}>
+                <FormControl size="small">
+                  <InputLabel>Time Range</InputLabel>
+                  <Select
+                    value={timeRange}
+                    onChange={(e) => setTimeRange(e.target.value)}
+                    label="Time Range"
+                  >
+                    <MenuItem value="10m">10 minutes</MenuItem>
+                    <MenuItem value="20m">20 minutes</MenuItem>
+                    <MenuItem value="1h">1 hour</MenuItem>
+                    <MenuItem value="5h">5 hours</MenuItem>
+                    <MenuItem value="24h">24 hours</MenuItem>
+                  </Select>
+                </FormControl>
+              </Box>
+            </Grid>
+            
+            {/* Temperature Chart */}
+            <Grid item xs={12} md={6}>
+              <Card>
+                <CardContent>
+                  <DeviceMetricsChart
+                    title="Temperature"
+                    metricType="temperature"
+                    devices={deviceMetrics}
+                    deviceStatuses={devices}
+                    unit="°C"
+                    yAxisDomain={[0, 100]}
+                    timeRange={timeRange}
+                  />
+                </CardContent>
+              </Card>
+            </Grid>
+            
+            {/* Utilization Chart */}
+            <Grid item xs={12} md={6}>
+              <Card>
+                <CardContent>
+                  <DeviceMetricsChart
+                    title="Utilization"
+                    metricType="utilization"
+                    devices={deviceMetrics}
+                    deviceStatuses={devices}
+                    unit="%"
+                    yAxisDomain={[0, 100]}
+                    timeRange={timeRange}
+                  />
+                </CardContent>
+              </Card>
+            </Grid>
+            
+            {/* Fan Speed Chart */}
+            <Grid item xs={12} md={6}>
+              <Card>
+                <CardContent>
+                  <DeviceMetricsChart
+                    title="Fan Speed"
+                    metricType="fanspeed"
+                    devices={deviceMetrics}
+                    deviceStatuses={devices}
+                    unit="%"
+                    yAxisDomain={[0, 100]}
+                    timeRange={timeRange}
+                  />
+                </CardContent>
+              </Card>
+            </Grid>
+            
+            {/* Hash Rate Chart */}
+            <Grid item xs={12} md={6}>
+              <Card>
+                <CardContent>
+                  <DeviceMetricsChart
+                    title="Hash Rate"
+                    metricType="hashrate"
+                    devices={deviceMetrics}
+                    deviceStatuses={devices}
+                    unit=""
+                    showCumulative={true}
+                    timeRange={timeRange}
+                  />
+                </CardContent>
+              </Card>
+            </Grid>
+          </>
+        )}
       </Grid>
     </Container>
   );

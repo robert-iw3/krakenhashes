@@ -544,7 +544,7 @@ func (s *JobSchedulingService) ProcessTaskProgress(ctx context.Context, taskID u
 		return fmt.Errorf("failed to update task progress: %w", err)
 	}
 
-	// Get the task to find the job execution
+	// Get the task to find the job execution and agent ID
 	task, err := s.jobExecutionService.jobTaskRepo.GetByID(ctx, taskID)
 	if err != nil {
 		return fmt.Errorf("failed to get task: %w", err)
@@ -565,6 +565,97 @@ func (s *JobSchedulingService) ProcessTaskProgress(ctx context.Context, taskID u
 			debug.Log("Failed to store job performance metric", map[string]interface{}{
 				"error": err.Error(),
 			})
+		}
+	}
+
+	// Store device-specific metrics if available
+	if len(progress.DeviceMetrics) > 0 && task.AgentID != nil {
+		// Get the job execution to get attack mode
+		jobExec, err := s.jobExecutionService.jobExecRepo.GetByID(ctx, task.JobExecutionID)
+		if err != nil {
+			debug.Log("Failed to get job execution for device metrics", map[string]interface{}{
+				"error": err.Error(),
+			})
+		} else {
+			attackMode := int(jobExec.AttackMode)
+			
+			// Store metrics for each device
+			for _, device := range progress.DeviceMetrics {
+				timestamp := time.Now()
+				
+				// Store temperature metric
+				if device.Temp > 0 {
+					tempMetric := &models.AgentPerformanceMetric{
+						AgentID:          *task.AgentID,
+						MetricType:       models.MetricTypeTemperature,
+						Value:            device.Temp,
+						Timestamp:        timestamp,
+						AggregationLevel: models.AggregationLevelRealtime,
+						DeviceID:         &device.DeviceID,
+						DeviceName:       &device.DeviceName,
+						TaskID:           &taskID,
+						AttackMode:       &attackMode,
+					}
+					if err := s.jobExecutionService.benchmarkRepo.CreateAgentPerformanceMetric(ctx, tempMetric); err != nil {
+						debug.Log("Failed to store temperature metric", map[string]interface{}{"error": err.Error()})
+					}
+				}
+
+				// Store utilization metric
+				if device.Util >= 0 {
+					utilMetric := &models.AgentPerformanceMetric{
+						AgentID:          *task.AgentID,
+						MetricType:       models.MetricTypeUtilization,
+						Value:            device.Util,
+						Timestamp:        timestamp,
+						AggregationLevel: models.AggregationLevelRealtime,
+						DeviceID:         &device.DeviceID,
+						DeviceName:       &device.DeviceName,
+						TaskID:           &taskID,
+						AttackMode:       &attackMode,
+					}
+					if err := s.jobExecutionService.benchmarkRepo.CreateAgentPerformanceMetric(ctx, utilMetric); err != nil {
+						debug.Log("Failed to store utilization metric", map[string]interface{}{"error": err.Error()})
+					}
+				}
+
+				// Store fan speed metric (custom metric type)
+				if device.FanSpeed >= 0 {
+					// Note: Using power_usage as a placeholder for fan speed since it's not in the enum
+					fanMetric := &models.AgentPerformanceMetric{
+						AgentID:          *task.AgentID,
+						MetricType:       models.MetricTypePowerUsage, // TODO: Add MetricTypeFanSpeed to enum
+						Value:            device.FanSpeed,
+						Timestamp:        timestamp,
+						AggregationLevel: models.AggregationLevelRealtime,
+						DeviceID:         &device.DeviceID,
+						DeviceName:       &device.DeviceName,
+						TaskID:           &taskID,
+						AttackMode:       &attackMode,
+					}
+					if err := s.jobExecutionService.benchmarkRepo.CreateAgentPerformanceMetric(ctx, fanMetric); err != nil {
+						debug.Log("Failed to store fan speed metric", map[string]interface{}{"error": err.Error()})
+					}
+				}
+
+				// Store hash rate metric per device
+				if device.Speed > 0 {
+					hashRateMetric := &models.AgentPerformanceMetric{
+						AgentID:          *task.AgentID,
+						MetricType:       models.MetricTypeHashRate,
+						Value:            float64(device.Speed),
+						Timestamp:        timestamp,
+						AggregationLevel: models.AggregationLevelRealtime,
+						DeviceID:         &device.DeviceID,
+						DeviceName:       &device.DeviceName,
+						TaskID:           &taskID,
+						AttackMode:       &attackMode,
+					}
+					if err := s.jobExecutionService.benchmarkRepo.CreateAgentPerformanceMetric(ctx, hashRateMetric); err != nil {
+						debug.Log("Failed to store hash rate metric", map[string]interface{}{"error": err.Error()})
+					}
+				}
+			}
 		}
 	}
 

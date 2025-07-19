@@ -39,6 +39,7 @@ func SetupAgentRoutes(jwtRouter *mux.Router, agentService *services.AgentService
 	jwtRouter.HandleFunc("/agents/{id}/devices", agentHandler.GetAgentDevices).Methods("GET", "OPTIONS")
 	jwtRouter.HandleFunc("/agents/{id}/devices/{deviceId}", agentHandler.UpdateDeviceStatus).Methods("PUT", "OPTIONS")
 	jwtRouter.HandleFunc("/agents/{id}/with-devices", agentHandler.GetAgentWithDevices).Methods("GET", "OPTIONS")
+	jwtRouter.HandleFunc("/agents/{id}/metrics", agentHandler.GetAgentMetrics).Methods("GET", "OPTIONS")
 
 	// Force cleanup route - note: this requires admin role middleware to be added separately
 	jwtRouter.HandleFunc("/agents/{id}/force-cleanup", func(w http.ResponseWriter, r *http.Request) {

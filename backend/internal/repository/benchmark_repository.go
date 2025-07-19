@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/db"
@@ -131,9 +132,10 @@ func (r *BenchmarkRepository) IsRecentBenchmark(ctx context.Context, agentID int
 func (r *BenchmarkRepository) CreateAgentPerformanceMetric(ctx context.Context, metric *models.AgentPerformanceMetric) error {
 	query := `
 		INSERT INTO agent_performance_metrics (
-			agent_id, metric_type, value, timestamp, aggregation_level, period_start, period_end
+			agent_id, metric_type, value, timestamp, aggregation_level, period_start, period_end,
+			device_id, device_name, task_id, attack_mode
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		RETURNING id`
 
 	err := r.db.QueryRowContext(ctx, query,
@@ -144,6 +146,10 @@ func (r *BenchmarkRepository) CreateAgentPerformanceMetric(ctx context.Context, 
 		metric.AggregationLevel,
 		metric.PeriodStart,
 		metric.PeriodEnd,
+		metric.DeviceID,
+		metric.DeviceName,
+		metric.TaskID,
+		metric.AttackMode,
 	).Scan(&metric.ID)
 
 	if err != nil {
@@ -156,7 +162,8 @@ func (r *BenchmarkRepository) CreateAgentPerformanceMetric(ctx context.Context, 
 // GetAgentMetrics retrieves metrics for an agent within a time range
 func (r *BenchmarkRepository) GetAgentMetrics(ctx context.Context, agentID int, metricType models.MetricType, start, end time.Time, aggregationLevel models.AggregationLevel) ([]models.AgentPerformanceMetric, error) {
 	query := `
-		SELECT id, agent_id, metric_type, value, timestamp, aggregation_level, period_start, period_end
+		SELECT id, agent_id, metric_type, value, timestamp, aggregation_level, period_start, period_end,
+		       device_id, device_name, task_id, attack_mode
 		FROM agent_performance_metrics
 		WHERE agent_id = $1 AND metric_type = $2 AND timestamp BETWEEN $3 AND $4 AND aggregation_level = $5
 		ORDER BY timestamp ASC`
@@ -179,9 +186,74 @@ func (r *BenchmarkRepository) GetAgentMetrics(ctx context.Context, agentID int, 
 			&metric.AggregationLevel,
 			&metric.PeriodStart,
 			&metric.PeriodEnd,
+			&metric.DeviceID,
+			&metric.DeviceName,
+			&metric.TaskID,
+			&metric.AttackMode,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan agent metric: %w", err)
+		}
+		metrics = append(metrics, metric)
+	}
+
+	return metrics, nil
+}
+
+// GetAgentDeviceMetrics retrieves device metrics for an agent within a time range for multiple metric types
+func (r *BenchmarkRepository) GetAgentDeviceMetrics(ctx context.Context, agentID int, metricTypes []models.MetricType, start, end time.Time) ([]models.AgentPerformanceMetric, error) {
+	// Build placeholders for metric types
+	placeholders := make([]string, len(metricTypes))
+	args := make([]interface{}, 0, len(metricTypes)+3)
+	args = append(args, agentID)
+	
+	for i, mt := range metricTypes {
+		placeholders[i] = fmt.Sprintf("$%d", i+2)
+		args = append(args, mt)
+	}
+	
+	args = append(args, start, end)
+	
+	query := fmt.Sprintf(`
+		SELECT id, agent_id, metric_type, value, timestamp, aggregation_level, period_start, period_end,
+		       device_id, device_name, task_id, attack_mode
+		FROM agent_performance_metrics
+		WHERE agent_id = $1 
+		  AND metric_type IN (%s)
+		  AND timestamp BETWEEN $%d AND $%d 
+		  AND aggregation_level = 'realtime'
+		  AND device_id IS NOT NULL
+		ORDER BY timestamp ASC, device_id ASC, metric_type ASC`,
+		strings.Join(placeholders, ", "),
+		len(metricTypes)+2,
+		len(metricTypes)+3,
+	)
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get agent device metrics: %w", err)
+	}
+	defer rows.Close()
+
+	var metrics []models.AgentPerformanceMetric
+	for rows.Next() {
+		var metric models.AgentPerformanceMetric
+		err := rows.Scan(
+			&metric.ID,
+			&metric.AgentID,
+			&metric.MetricType,
+			&metric.Value,
+			&metric.Timestamp,
+			&metric.AggregationLevel,
+			&metric.PeriodStart,
+			&metric.PeriodEnd,
+			&metric.DeviceID,
+			&metric.DeviceName,
+			&metric.TaskID,
+			&metric.AttackMode,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan agent device metric: %w", err)
 		}
 		metrics = append(metrics, metric)
 	}

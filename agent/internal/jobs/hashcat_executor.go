@@ -60,19 +60,30 @@ type JobTaskAssignment struct {
 	EnabledDevices  []int       `json:"enabled_devices,omitempty"`  // List of enabled device IDs
 }
 
+// DeviceMetric represents metrics for a single device
+type DeviceMetric struct {
+	DeviceID   int     `json:"device_id"`   // Device ID from hashcat
+	DeviceName string  `json:"device_name"` // Human-readable device name
+	Speed      int64   `json:"speed"`       // Hash rate for this device (H/s)
+	Temp       float64 `json:"temp"`        // Temperature in Celsius
+	Util       float64 `json:"util"`        // Utilization percentage (0-100)
+	FanSpeed   float64 `json:"fan_speed"`   // Fan speed percentage (0-100)
+}
+
 // JobProgress represents progress updates sent to backend
 type JobProgress struct {
 	TaskID            string         `json:"task_id"`
 	KeyspaceProcessed int64          `json:"keyspace_processed"` // Restore point (position in wordlist)
 	ProgressPercent   float64        `json:"progress_percent"`   // Actual progress percentage (0-100)
 	HashRate          int64          `json:"hash_rate"`         // Current hashes per second
-	Temperature       *float64       `json:"temperature"`       // GPU temperature
-	Utilization       *float64       `json:"utilization"`       // GPU utilization percentage
+	Temperature       *float64       `json:"temperature"`       // GPU temperature (deprecated, use DeviceMetrics)
+	Utilization       *float64       `json:"utilization"`       // GPU utilization percentage (deprecated, use DeviceMetrics)
 	TimeRemaining     *int           `json:"time_remaining"`    // Estimated seconds remaining
 	CrackedCount      int            `json:"cracked_count"`     // Number of hashes cracked in this update
 	CrackedHashes     []CrackedHash  `json:"cracked_hashes"`    // Detailed crack information
 	Status            string         `json:"status,omitempty"`  // Task status (running, completed, failed)
 	ErrorMessage      string         `json:"error_message,omitempty"` // Error message if status is failed
+	DeviceMetrics     []DeviceMetric `json:"device_metrics,omitempty"` // Per-device metrics
 }
 
 // CrackedHash represents a cracked hash with all available information
@@ -635,27 +646,59 @@ func (e *HashcatExecutor) runHashcatProcess(ctx context.Context, process *Hashca
 							ProgressPercent:   progressPercent,     // Actual progress percentage
 						}
 						
-						// Extract speed from devices array - sum all device speeds
+						// Extract metrics from all devices
 						var totalSpeed int64
+						var deviceMetrics []DeviceMetric
 						if devices, ok := status["devices"].([]interface{}); ok {
 							for i, dev := range devices {
 								if device, ok := dev.(map[string]interface{}); ok {
+									metric := DeviceMetric{}
+									
+									// Extract device ID
+									if deviceID, ok := device["device_id"].(float64); ok {
+										metric.DeviceID = int(deviceID)
+									}
+									
+									// Extract device name
+									if deviceName, ok := device["device_name"].(string); ok {
+										metric.DeviceName = deviceName
+									}
+									
+									// Extract speed
 									if speed, ok := device["speed"].(float64); ok {
+										metric.Speed = int64(speed)
 										totalSpeed += int64(speed)
 									}
-									// Use first device's temp and util for reporting
-									if i == 0 {
-										if temp, ok := device["temp"].(float64); ok {
+									
+									// Extract temperature
+									if temp, ok := device["temp"].(float64); ok {
+										metric.Temp = temp
+										// Keep backward compatibility - use first device for legacy fields
+										if i == 0 {
 											progress.Temperature = &temp
 										}
-										if util, ok := device["util"].(float64); ok {
+									}
+									
+									// Extract utilization
+									if util, ok := device["util"].(float64); ok {
+										metric.Util = util
+										// Keep backward compatibility - use first device for legacy fields
+										if i == 0 {
 											progress.Utilization = &util
 										}
 									}
+									
+									// Extract fan speed
+									if fanspeed, ok := device["fanspeed"].(float64); ok {
+										metric.FanSpeed = fanspeed
+									}
+									
+									deviceMetrics = append(deviceMetrics, metric)
 								}
 							}
 						}
 						progress.HashRate = totalSpeed
+						progress.DeviceMetrics = deviceMetrics
 						
 						// Calculate time remaining based on actual progress
 						if totalProgress > 0 && currentProgress < totalProgress && progress.HashRate > 0 {

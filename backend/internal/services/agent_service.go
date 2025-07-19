@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/db"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/models"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/repository"
 	"github.com/ZerkerEOD/krakenhashes/backend/pkg/debug"
@@ -536,6 +537,116 @@ func (s *AgentService) UpdateDeviceDetectionStatus(agentID int, status string, e
 // GetEnabledDevices retrieves only enabled devices for an agent
 func (s *AgentService) GetEnabledDevices(agentID int) ([]models.AgentDevice, error) {
 	return s.deviceRepo.GetEnabledDevicesByAgentID(agentID)
+}
+
+// GetAgentDeviceMetrics retrieves device metrics for an agent
+func (s *AgentService) GetAgentDeviceMetrics(ctx context.Context, agentID int, timeRange string, metricsParam string) (map[string]interface{}, error) {
+	// Parse time range
+	var duration time.Duration
+	switch timeRange {
+	case "10m":
+		duration = 10 * time.Minute
+	case "20m":
+		duration = 20 * time.Minute
+	case "1h":
+		duration = 1 * time.Hour
+	case "5h":
+		duration = 5 * time.Hour
+	case "24h":
+		duration = 24 * time.Hour
+	default:
+		duration = 10 * time.Minute
+	}
+	
+	endTime := time.Now()
+	startTime := endTime.Add(-duration)
+	
+	// Parse metrics types
+	metricTypeMap := map[string]models.MetricType{
+		"temperature": models.MetricTypeTemperature,
+		"utilization": models.MetricTypeUtilization,
+		"fanspeed":    models.MetricTypePowerUsage, // Using power_usage as placeholder for fan speed
+		"hashrate":    models.MetricTypeHashRate,
+	}
+	
+	var requestedMetrics []models.MetricType
+	for _, metric := range strings.Split(metricsParam, ",") {
+		metric = strings.TrimSpace(metric)
+		if metricType, ok := metricTypeMap[metric]; ok {
+			requestedMetrics = append(requestedMetrics, metricType)
+		}
+	}
+	
+	// Get benchmark repository for metrics
+	// Create a db.DB wrapper from the agent repository's database
+	dbWrapper := &db.DB{DB: s.agentRepo.GetDB()}
+	benchmarkRepo := repository.NewBenchmarkRepository(dbWrapper)
+	
+	// Fetch metrics from database
+	metrics, err := benchmarkRepo.GetAgentDeviceMetrics(ctx, agentID, requestedMetrics, startTime, endTime)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get device metrics: %w", err)
+	}
+	
+	// Transform metrics for frontend consumption
+	// Group by device and metric type
+	deviceMetrics := make(map[int]map[string][]map[string]interface{})
+	deviceNames := make(map[int]string)
+	
+	for _, metric := range metrics {
+		if metric.DeviceID == nil {
+			continue
+		}
+		
+		deviceID := *metric.DeviceID
+		if metric.DeviceName != nil {
+			deviceNames[deviceID] = *metric.DeviceName
+		}
+		
+		if _, ok := deviceMetrics[deviceID]; !ok {
+			deviceMetrics[deviceID] = make(map[string][]map[string]interface{})
+		}
+		
+		// Map metric type to frontend name
+		var metricName string
+		switch metric.MetricType {
+		case models.MetricTypeTemperature:
+			metricName = "temperature"
+		case models.MetricTypeUtilization:
+			metricName = "utilization"
+		case models.MetricTypePowerUsage:
+			metricName = "fanspeed"
+		case models.MetricTypeHashRate:
+			metricName = "hashrate"
+		}
+		
+		dataPoint := map[string]interface{}{
+			"timestamp": metric.Timestamp.Unix() * 1000, // Convert to milliseconds for JavaScript
+			"value":     metric.Value,
+		}
+		
+		deviceMetrics[deviceID][metricName] = append(deviceMetrics[deviceID][metricName], dataPoint)
+	}
+	
+	// Build response structure
+	response := map[string]interface{}{
+		"timeRange": timeRange,
+		"startTime": startTime.Unix() * 1000,
+		"endTime":   endTime.Unix() * 1000,
+		"devices":   []map[string]interface{}{},
+	}
+	
+	// Convert to array format for frontend
+	for deviceID, metrics := range deviceMetrics {
+		deviceData := map[string]interface{}{
+			"deviceId":   deviceID,
+			"deviceName": deviceNames[deviceID],
+			"metrics":    metrics,
+		}
+		response["devices"] = append(response["devices"].([]map[string]interface{}), deviceData)
+	}
+	
+	return response, nil
 }
 
 // HasEnabledDevices checks if an agent has at least one enabled device

@@ -268,6 +268,46 @@ func (h *AgentHandler) GetAgentWithDevices(w http.ResponseWriter, r *http.Reques
 	}
 }
 
+// GetAgentMetrics retrieves performance metrics for an agent
+func (h *AgentHandler) GetAgentMetrics(w http.ResponseWriter, r *http.Request) {
+	debug.Info("Getting agent metrics")
+	
+	// Parse agent ID from URL
+	vars := mux.Vars(r)
+	agentID, err := strconv.Atoi(vars["id"])
+	if err != nil {
+		http.Error(w, "Invalid agent ID", http.StatusBadRequest)
+		return
+	}
+	
+	// Parse query parameters
+	timeRange := r.URL.Query().Get("timeRange")
+	if timeRange == "" {
+		timeRange = "1h" // Default to 1 hour
+	}
+	
+	metricsParam := r.URL.Query().Get("metrics")
+	if metricsParam == "" {
+		metricsParam = "temperature,utilization,fanspeed,hashrate"
+	}
+	
+	// Get metrics from service
+	metrics, err := h.service.GetAgentDeviceMetrics(r.Context(), agentID, timeRange, metricsParam)
+	if err != nil {
+		debug.Error("Failed to get agent metrics: %v", err)
+		http.Error(w, "Failed to get agent metrics", http.StatusInternalServerError)
+		return
+	}
+	
+	// Send response
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(metrics); err != nil {
+		debug.Error("Failed to encode metrics: %v", err)
+		http.Error(w, "Failed to encode metrics", http.StatusInternalServerError)
+		return
+	}
+}
+
 // UpdateAgent updates agent settings
 func (h *AgentHandler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPut {

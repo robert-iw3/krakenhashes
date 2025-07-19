@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"context"
 	cryptotls "crypto/tls"
 	"database/sql"
 
@@ -149,6 +150,11 @@ func SetupWebSocketWithJobRoutes(
 	// Return the job integration manager so it can be started from main
 	// Store it globally for now until we refactor the main function
 	JobIntegrationManager = jobIntegration
+
+	// Initialize and start metrics cleanup service
+	metricsCleanupService := services.NewMetricsCleanupService(benchmarkRepo, systemSettingsRepo)
+	go metricsCleanupService.StartCleanupScheduler(context.Background())
+	debug.Info("Metrics cleanup service started")
 
 	if tlsConfig != nil {
 		debug.Debug("WebSocket TLS Configuration:")
