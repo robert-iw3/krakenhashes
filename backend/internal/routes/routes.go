@@ -218,7 +218,7 @@ func SetupRoutes(r *mux.Router, sqlDB *sql.DB, tlsProvider tls.Provider, agentSe
 	jwtRouter.HandleFunc("/settings/max-priority", userSystemSettingsHandler.GetMaxPriorityForUsers).Methods(http.MethodGet, http.MethodOptions)
 
 	SetupAdminRoutes(jwtRouter, database, emailService, adminJobsHandler, binaryManager) // Pass adminJobsHandler and binaryManager
-	SetupUserRoutes(jwtRouter, database, appConfig.DataDir, binaryManager)
+	SetupUserRoutes(jwtRouter, database, appConfig.DataDir, binaryManager, agentService)
 	SetupMFARoutes(jwtRouter, mfaHandler, database, emailService)
 	// Use the enhanced WebSocket setup with job integration
 	SetupWebSocketWithJobRoutes(r, agentService, tlsProvider, sqlDB, appConfig, wordlistManager, ruleManager, binaryManager)

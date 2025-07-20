@@ -4,6 +4,8 @@
  * @packageDocumentation
  */
 
+import { JobTask, JobExecution } from './jobs';
+
 /**
  * Represents a registered agent in the system.
  * 
@@ -38,6 +40,20 @@ export interface Agent {
     isEnabled?: boolean;
     ownerId?: string;
     extraParameters?: string;
+}
+
+/**
+ * Represents an agent with its current task information.
+ * Used in the dashboard to show agents and their active jobs.
+ * 
+ * @interface AgentWithTask
+ * @extends Agent
+ * @property {JobTask} [currentTask] - The current task assigned to this agent
+ * @property {JobExecution} [jobExecution] - The job execution for the current task
+ */
+export interface AgentWithTask extends Agent {
+    currentTask?: JobTask;
+    jobExecution?: JobExecution;
 }
 
 /**

@@ -328,10 +328,7 @@ func (r *JobTaskRepository) UpdateStatus(ctx context.Context, id uuid.UUID, stat
 	}
 
 	if rowsAffected == 0 {
-		debug.Error("Task not found when updating status", map[string]interface{}{
-			"task_id": id,
-			"status":  status,
-		})
+		debug.Error("Task not found when updating status: task_id=%s, status=%s", id, status)
 		return ErrNotFound
 	}
 

@@ -73,9 +73,11 @@ import {
 } from '@mui/icons-material';
 import JobsTable from '../pages/Jobs/JobsTable';
 import DeleteConfirm from '../pages/Jobs/DeleteConfirm';
-import { api } from '../services/api';
+import { api, getUserAgents } from '../services/api';
 import { JobSummary, PaginationInfo } from '../types/jobs';
+import { AgentWithTask } from '../types/agent';
 import { calculateJobProgress, formatKeyspace } from '../utils/jobProgress';
+import { useNavigate } from 'react-router-dom';
 // import JobStatusMonitor from '../components/JobStatusMonitor'; // Removed to improve page load performance
 
 /**
@@ -100,6 +102,8 @@ interface Filters {
 }
 
 const Dashboard: React.FC = () => {
+  const navigate = useNavigate();
+  
   // Pagination state
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
@@ -117,6 +121,9 @@ const Dashboard: React.FC = () => {
   const [statusCounts, setStatusCounts] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+  const [agents, setAgents] = useState<AgentWithTask[]>([]);
+  const [agentsLoading, setAgentsLoading] = useState(true);
+  const [agentsError, setAgentsError] = useState<Error | null>(null);
   
   // UI state
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -127,6 +134,21 @@ const Dashboard: React.FC = () => {
   // Refs for cleanup
   const pollingTimer = useRef<NodeJS.Timeout | null>(null);
   const abortController = useRef<AbortController | null>(null);
+
+  // Fetch agents data
+  const fetchAgents = useCallback(async () => {
+    try {
+      setAgentsLoading(true);
+      const data = await getUserAgents();
+      setAgents(data);
+      setAgentsError(null);
+    } catch (err: any) {
+      console.error('Failed to fetch agents:', err);
+      setAgentsError(err);
+    } finally {
+      setAgentsLoading(false);
+    }
+  }, []);
 
   // Build query parameters from current state
   const buildQueryParams = useCallback(() => {
@@ -190,6 +212,20 @@ const Dashboard: React.FC = () => {
   useEffect(() => {
     fetchJobs(true);
   }, [page, pageSize, filters]);
+
+  // Fetch agents on component mount and with polling
+  useEffect(() => {
+    fetchAgents();
+    
+    // Poll agents data along with jobs
+    const interval = setInterval(() => {
+      if (isPolling) {
+        fetchAgents();
+      }
+    }, 5000);
+    
+    return () => clearInterval(interval);
+  }, [fetchAgents, isPolling]);
 
   // Set up polling
   useEffect(() => {
@@ -373,32 +409,85 @@ const Dashboard: React.FC = () => {
       <Grid item xs={12} md={4}>
         <Paper sx={{ p: 2, display: 'flex', flexDirection: 'column' }}>
           <Typography variant="h6" gutterBottom>
-            Active Agents
+            Agent Status
           </Typography>
-          {/* 
-            TODO: Implement active agents list
-            - Add pagination
-            - Include search/filter
-            - Add sorting capabilities
-          */}
+          {agentsLoading && agents.length === 0 ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+              <CircularProgress size={24} />
+            </Box>
+          ) : agentsError ? (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              Failed to load agents: {agentsError.message}
+            </Alert>
+          ) : agents.length === 0 ? (
+            <Typography variant="body2" color="text.secondary">
+              No agents found
+            </Typography>
+          ) : (
+            <Stack spacing={2}>
+              {agents.map(agent => (
+                <Box key={agent.id} sx={{ 
+                  p: 1.5, 
+                  border: '1px solid', 
+                  borderColor: 'divider',
+                  borderRadius: 1,
+                  bgcolor: 'background.paper'
+                }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+                    <Typography 
+                      variant="subtitle2" 
+                      sx={{ 
+                        cursor: 'pointer',
+                        '&:hover': { textDecoration: 'underline' }
+                      }}
+                      onClick={() => navigate(`/agents/${agent.id}`)}
+                    >
+                      {agent.name}
+                    </Typography>
+                    <Chip 
+                      label={agent.status} 
+                      size="small"
+                      color={agent.status === 'active' ? 'success' : 'default'}
+                    />
+                  </Box>
+                  
+                  {agent.currentTask ? (
+                    <>
+                      <Typography variant="caption" color="text.secondary" display="block">
+                        Hash Rate: {agent.currentTask.benchmark_speed ? 
+                          `${(agent.currentTask.benchmark_speed / 1000000000).toFixed(2)} GH/s` : 
+                          'N/A'
+                        }
+                      </Typography>
+                      {agent.jobExecution && (
+                        <Typography 
+                          variant="caption" 
+                          color="primary"
+                          sx={{ 
+                            cursor: 'pointer',
+                            display: 'block',
+                            '&:hover': { textDecoration: 'underline' }
+                          }}
+                          onClick={() => navigate(`/jobs/${agent.jobExecution!.id}`)}
+                        >
+                          Job: {agent.jobExecution.preset_job_name || 'Unnamed Job'}
+                        </Typography>
+                      )}
+                    </>
+                  ) : (
+                    <Typography variant="caption" color="text.secondary" display="block">
+                      No active task
+                    </Typography>
+                  )}
+                </Box>
+              ))}
+            </Stack>
+          )}
         </Paper>
       </Grid>
 
-      <Grid item xs={12} md={4}>
-        <Paper sx={{ p: 2, display: 'flex', flexDirection: 'column' }}>
-          <Typography variant="h6" gutterBottom>
-            Recent Activity
-          </Typography>
-          {/* 
-            TODO: Implement activity feed
-            - Add real-time updates
-            - Include activity filtering
-            - Add timestamp sorting
-          */}
-        </Paper>
-      </Grid>
     </>
-  ), [jobs]);
+  ), [jobs, agents, agentsLoading, agentsError, navigate]);
 
   return (
     <Container maxWidth="lg">

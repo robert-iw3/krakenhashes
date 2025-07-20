@@ -170,8 +170,6 @@ func main() {
 	debug.Debug("Initializing repositories and services")
 	agentRepo := repository.NewAgentRepository(dbWrapper)
 	deviceRepo := repository.NewAgentDeviceRepository(dbWrapper)
-	agentService := services.NewAgentService(agentRepo, repository.NewClaimVoucherRepository(dbWrapper), repository.NewFileRepository(dbWrapper, appConfig.DataDir), deviceRepo)
-
 	clientRepo := repository.NewClientRepository(dbWrapper)
 	clientSettingsRepo := repository.NewClientSettingsRepository(dbWrapper)
 	hashlistRepo := repository.NewHashListRepository(dbWrapper)
@@ -179,6 +177,9 @@ func main() {
 	systemSettingsRepo := repository.NewSystemSettingsRepository(dbWrapper)
 	jobExecutionRepo := repository.NewJobExecutionRepository(dbWrapper)
 	jobTaskRepo := repository.NewJobTaskRepository(dbWrapper)
+	
+	// Initialize services with dependencies
+	agentService := services.NewAgentService(agentRepo, repository.NewClaimVoucherRepository(dbWrapper), repository.NewFileRepository(dbWrapper, appConfig.DataDir), deviceRepo, jobTaskRepo, jobExecutionRepo)
 
 	retentionService := retentionsvc.NewRetentionService(dbWrapper, hashlistRepo, hashRepo, clientRepo, clientSettingsRepo)
 

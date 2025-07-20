@@ -352,3 +352,32 @@ func (h *AgentHandler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 		"id":      id,
 	})
 }
+
+// GetUserAgents retrieves agents owned by the authenticated user with their current task info
+func (h *AgentHandler) GetUserAgents(w http.ResponseWriter, r *http.Request) {
+	debug.Info("Getting user agents with task info")
+
+	// Get user ID from context
+	userID, ok := r.Context().Value("user_id").(string)
+	if !ok {
+		debug.Error("No user ID in context")
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Get agents with current task info for the user
+	agents, err := h.service.GetUserAgentsWithTasks(r.Context(), userID)
+	if err != nil {
+		debug.Error("Failed to get user agents with tasks: %v", err)
+		http.Error(w, "Failed to get agents", http.StatusInternalServerError)
+		return
+	}
+
+	// Send response
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(agents); err != nil {
+		debug.Error("Failed to encode agents: %v", err)
+		http.Error(w, "Failed to encode agents", http.StatusInternalServerError)
+		return
+	}
+}

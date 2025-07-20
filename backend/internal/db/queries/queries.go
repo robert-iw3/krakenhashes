@@ -6,9 +6,9 @@ const (
 		INSERT INTO agents (
 			name, status, last_heartbeat, version, hardware,
 			os_info, created_by_id, created_at, updated_at, api_key,
-			api_key_created_at, api_key_last_used, last_error, metadata
+			api_key_created_at, api_key_last_used, last_error, metadata, owner_id
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
 		) RETURNING id`
 
 	GetAgentByID = `

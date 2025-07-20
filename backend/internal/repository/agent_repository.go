@@ -58,6 +58,7 @@ func (r *AgentRepository) Create(ctx context.Context, agent *models.Agent) error
 		agent.APIKeyLastUsed,
 		agent.LastError,
 		metadataJSON,
+		agent.OwnerID,
 	).Scan(&agent.ID)
 
 	if err != nil {
@@ -335,6 +336,98 @@ func (r *AgentRepository) List(ctx context.Context, filters map[string]interface
 			}
 		}
 
+		agent.CreatedBy = &createdByUser
+		agents = append(agents, agent)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating agents: %w", err)
+	}
+
+	return agents, nil
+}
+
+// GetByOwnerID retrieves all agents owned by a specific user
+func (r *AgentRepository) GetByOwnerID(ctx context.Context, ownerID uuid.UUID) ([]models.Agent, error) {
+	query := `
+		SELECT 
+			a.id, a.name, a.status, a.last_error, a.last_heartbeat, 
+			a.version, a.hardware, a.os_info, a.created_by_id, a.created_at, 
+			a.updated_at, a.api_key, a.api_key_created_at, a.api_key_last_used,
+			a.metadata, a.owner_id, a.extra_parameters, a.is_enabled,
+			a.consecutive_failures, a.scheduling_enabled, a.schedule_timezone,
+			u.id, u.username, u.email, u.role
+		FROM agents a
+		JOIN users u ON a.created_by_id = u.id
+		WHERE a.owner_id = $1 OR (a.owner_id IS NULL AND a.created_by_id = $1)
+		ORDER BY a.name ASC`
+
+	rows, err := r.db.QueryContext(ctx, query, ownerID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get agents by owner: %w", err)
+	}
+	defer rows.Close()
+
+	var agents []models.Agent
+	for rows.Next() {
+		var agent models.Agent
+		var hardwareJSON, osInfoJSON, metadataJSON []byte
+		var createdByUser models.User
+		var ownerIDStr sql.NullString
+
+		err := rows.Scan(
+			&agent.ID,
+			&agent.Name,
+			&agent.Status,
+			&agent.LastError,
+			&agent.LastHeartbeat,
+			&agent.Version,
+			&hardwareJSON,
+			&osInfoJSON,
+			&agent.CreatedByID,
+			&agent.CreatedAt,
+			&agent.UpdatedAt,
+			&agent.APIKey,
+			&agent.APIKeyCreatedAt,
+			&agent.APIKeyLastUsed,
+			&metadataJSON,
+			&ownerIDStr,
+			&agent.ExtraParameters,
+			&agent.IsEnabled,
+			&agent.ConsecutiveFailures,
+			&agent.SchedulingEnabled,
+			&agent.ScheduleTimezone,
+			&createdByUser.ID,
+			&createdByUser.Username,
+			&createdByUser.Email,
+			&createdByUser.Role,
+		)
+
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan agent: %w", err)
+		}
+
+		// Unmarshal hardware JSON
+		if err := json.Unmarshal(hardwareJSON, &agent.Hardware); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal hardware: %w", err)
+		}
+
+		// Unmarshal OS info JSON
+		if err := json.Unmarshal(osInfoJSON, &agent.OSInfo); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal OS info: %w", err)
+		}
+
+		// Unmarshal metadata JSON
+		if len(metadataJSON) > 0 {
+			if err := json.Unmarshal(metadataJSON, &agent.Metadata); err != nil {
+				return nil, fmt.Errorf("failed to unmarshal metadata: %w", err)
+			}
+		} else {
+			agent.Metadata = make(map[string]string)
+		}
+
+		// Set owner ID
+		agent.OwnerID = &ownerID
 		agent.CreatedBy = &createdByUser
 		agents = append(agents, agent)
 	}

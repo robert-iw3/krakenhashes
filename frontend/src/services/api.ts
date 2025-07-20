@@ -17,6 +17,7 @@ import {
   JobWorkflowFormDataResponse,
 } from '../types/adminJobs';
 import { AgentSchedule, AgentScheduleDTO, AgentSchedulingInfo } from '../types/scheduling';
+import { AgentWithTask } from '../types/agent';
 
 // Use HTTPS API URL for all secure endpoints
 const API_URL = process.env.REACT_APP_API_URL || 'https://localhost:31337';
@@ -442,6 +443,13 @@ export const updateJobWorkflow = async (id: string, data: UpdateWorkflowRequest)
 
 export const deleteJobWorkflow = async (id: string): Promise<void> => {
   await api.delete(`/api/admin/job-workflows/${id}`);
+};
+
+// --- Agent Management ---
+
+export const getUserAgents = async (): Promise<AgentWithTask[]> => {
+  const response = await api.get<AgentWithTask[]>('/api/user/agents');
+  return response.data;
 };
 
 // --- Agent Scheduling ---

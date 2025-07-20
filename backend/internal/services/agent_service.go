@@ -21,12 +21,14 @@ import (
 
 // AgentService handles agent-related operations
 type AgentService struct {
-	agentRepo   *repository.AgentRepository
-	voucherRepo *repository.ClaimVoucherRepository
-	fileRepo    *repository.FileRepository
-	deviceRepo  *repository.AgentDeviceRepository
-	tokens      map[string]downloadToken
-	tokenMutex  sync.RWMutex
+	agentRepo       *repository.AgentRepository
+	voucherRepo     *repository.ClaimVoucherRepository
+	fileRepo        *repository.FileRepository
+	deviceRepo      *repository.AgentDeviceRepository
+	jobTaskRepo     *repository.JobTaskRepository
+	jobExecutionRepo *repository.JobExecutionRepository
+	tokens          map[string]downloadToken
+	tokenMutex      sync.RWMutex
 }
 
 type downloadToken struct {
@@ -35,13 +37,15 @@ type downloadToken struct {
 }
 
 // NewAgentService creates a new instance of AgentService
-func NewAgentService(agentRepo *repository.AgentRepository, voucherRepo *repository.ClaimVoucherRepository, fileRepo *repository.FileRepository, deviceRepo *repository.AgentDeviceRepository) *AgentService {
+func NewAgentService(agentRepo *repository.AgentRepository, voucherRepo *repository.ClaimVoucherRepository, fileRepo *repository.FileRepository, deviceRepo *repository.AgentDeviceRepository, jobTaskRepo *repository.JobTaskRepository, jobExecutionRepo *repository.JobExecutionRepository) *AgentService {
 	return &AgentService{
-		agentRepo:   agentRepo,
-		voucherRepo: voucherRepo,
-		fileRepo:    fileRepo,
-		deviceRepo:  deviceRepo,
-		tokens:      make(map[string]downloadToken),
+		agentRepo:        agentRepo,
+		voucherRepo:      voucherRepo,
+		fileRepo:         fileRepo,
+		deviceRepo:       deviceRepo,
+		jobTaskRepo:      jobTaskRepo,
+		jobExecutionRepo: jobExecutionRepo,
+		tokens:           make(map[string]downloadToken),
 	}
 }
 
@@ -129,6 +133,7 @@ func (s *AgentService) RegisterAgent(ctx context.Context, claimCode, hostname st
 		Name:          name,
 		Status:        models.AgentStatusPending,
 		CreatedByID:   voucher.CreatedByID,
+		OwnerID:       &voucher.CreatedByID, // Set owner to creator initially
 		CreatedAt:     now,
 		UpdatedAt:     now,
 		LastHeartbeat: now,     // Initialize heartbeat timestamp
@@ -669,4 +674,54 @@ func (s *AgentService) UpdateAgent(ctx context.Context, agentID int, isEnabled b
 // UpdateAgentOSInfo updates an agent's OS information
 func (s *AgentService) UpdateAgentOSInfo(ctx context.Context, agentID int, osInfo map[string]interface{}) error {
 	return s.agentRepo.UpdateOSInfo(ctx, agentID, osInfo)
+}
+
+// GetUserAgentsWithTasks retrieves agents owned by a user along with their current task information
+func (s *AgentService) GetUserAgentsWithTasks(ctx context.Context, userID string) ([]models.AgentWithTask, error) {
+	debug.Info("Getting agents with tasks for user: %s", userID)
+
+	// Parse user ID
+	userUUID, err := uuid.Parse(userID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid user ID: %w", err)
+	}
+
+	// Get agents owned by the user
+	agents, err := s.agentRepo.GetByOwnerID(ctx, userUUID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user agents: %w", err)
+	}
+
+	// Create result slice
+	result := make([]models.AgentWithTask, 0, len(agents))
+
+	// For each agent, get their current active task
+	for _, agent := range agents {
+		agentWithTask := models.AgentWithTask{
+			Agent: agent,
+		}
+
+		// Get active tasks for this agent
+		activeTasks, err := s.jobTaskRepo.GetActiveTasksByAgent(ctx, agent.ID)
+		if err != nil {
+			debug.Warning("Failed to get active tasks for agent %d: %v", agent.ID, err)
+			// Continue with nil task
+		} else if len(activeTasks) > 0 {
+			// Take the first active task (should typically be only one)
+			task := activeTasks[0]
+			agentWithTask.CurrentTask = &task
+
+			// Get job execution details for the task
+			jobExecution, err := s.jobExecutionRepo.GetByID(ctx, task.JobExecutionID)
+			if err != nil {
+				debug.Warning("Failed to get job execution for task %s: %v", task.ID, err)
+			} else {
+				agentWithTask.JobExecution = jobExecution
+			}
+		}
+
+		result = append(result, agentWithTask)
+	}
+
+	return result, nil
 }

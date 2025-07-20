@@ -57,6 +57,7 @@ const queryClient = new QueryClient();
 const LoginPage = lazy(() => import('./pages/Login'));
 const DashboardPage = lazy(() => import('./pages/Dashboard'));
 const JobsPage = lazy(() => import('./pages/Jobs'));
+const JobDetails = lazy(() => import('./pages/Jobs/JobDetails'));
 const AgentManagementPage = lazy(() => import('./pages/AgentManagement'));
 const WordlistsManagementPage = lazy(() => import('./pages/WordlistsManagement'));
 const RulesManagementPage = lazy(() => import('./pages/RulesManagement'));
@@ -124,6 +125,7 @@ const App: React.FC = () => {
                   <Route element={<RequireAuth><Layout /></RequireAuth>}>
                     <Route path="/dashboard" element={<DashboardPage />} />
                     <Route path="/jobs" element={<JobsPage />} />
+                    <Route path="/jobs/:id" element={<JobDetails />} />
                     <Route path="/agents" element={<AgentManagementPage />} />
                     <Route path="/agents/:id" element={<AgentDetailsPage />} />
                     <Route path="/hashlists" element={<HashlistsDashboardPage />} />

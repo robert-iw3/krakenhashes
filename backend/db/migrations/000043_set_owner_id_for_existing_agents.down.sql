@@ -1,0 +1,4 @@
+-- This migration sets owner_id values, reverting would set them back to NULL
+-- which may not be desired, so we'll leave this as a no-op
+-- If needed, uncomment the following:
+-- UPDATE agents SET owner_id = NULL WHERE owner_id = created_by_id;

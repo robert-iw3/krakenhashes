@@ -54,18 +54,53 @@ export interface JobDetail extends JobSummary {
   agents?: JobAgent[];
 }
 
+// Job execution information
+export interface JobExecution {
+  id: string;
+  preset_job_id: string;
+  preset_job_name?: string;
+  hashlist_id: number;
+  hashlist_name?: string;
+  status: string;
+  priority: number;
+  max_agents: number;
+  total_keyspace?: number;
+  processed_keyspace: number;
+  attack_mode: number;
+  created_by?: string;
+  created_at: string;
+  started_at?: string;
+  completed_at?: string;
+  updated_at: string;
+  error_message?: string;
+  total_hashes?: number;
+  cracked_hashes?: number;
+  overall_progress_percent?: number;
+}
+
 // Job task information
 export interface JobTask {
   id: string;
   job_id: string;
+  job_execution_id?: string;
+  agent_id?: number;
   status: string;
   priority: number;
   chunk_start: number;
   chunk_end: number;
+  keyspace_start?: number;
+  keyspace_end?: number;
+  keyspace_processed?: number;
+  benchmark_speed?: number;
+  chunk_duration?: number;
   assigned_agent_id?: string;
   assigned_at?: string;
+  started_at?: string;
   completed_at?: string;
+  last_checkpoint?: string;
   error_message?: string;
+  crack_count?: number;
+  progress_percent?: number;
 }
 
 // Job agent information

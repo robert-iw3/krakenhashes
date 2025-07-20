@@ -19,6 +19,13 @@ const (
 	AgentStatusDisabled = "disabled"
 )
 
+// AgentWithTask represents an agent with its current task information
+type AgentWithTask struct {
+	Agent
+	CurrentTask    *JobTask       `json:"currentTask,omitempty"`
+	JobExecution   *JobExecution  `json:"jobExecution,omitempty"`
+}
+
 // Agent represents a registered agent in the system
 type Agent struct {
 	ID                  int               `json:"id"`

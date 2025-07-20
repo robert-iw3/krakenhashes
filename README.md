@@ -158,10 +158,10 @@ Instructions for setting up and running each component can be found in their res
 
 ### Frontend Features
 
--   [ ] Dashboard
+-   [x] Dashboard
     -   [x] User-specific job status
     -   [x] Performance statistics
-    -   [ ] System health indicators (active agents, activity feed)
+    -   [x] System health indicators (active agents)
 -   [x] Job management interface
     -   [x] Job creation/modification
     -   [x] Priority level assignment
