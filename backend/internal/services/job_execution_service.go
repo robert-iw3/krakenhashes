@@ -31,6 +31,7 @@ type JobExecutionService struct {
 	hashlistRepo       *repository.HashListRepository
 	systemSettingsRepo *repository.SystemSettingsRepository
 	fileRepo           *repository.FileRepository
+	scheduleRepo       *repository.AgentScheduleRepository
 	binaryManager      binary.Manager
 	ruleSplitManager   *RuleSplitManager
 
@@ -51,6 +52,7 @@ func NewJobExecutionService(
 	hashlistRepo *repository.HashListRepository,
 	systemSettingsRepo *repository.SystemSettingsRepository,
 	fileRepo *repository.FileRepository,
+	scheduleRepo *repository.AgentScheduleRepository,
 	binaryManager binary.Manager,
 	hashcatBinaryPath string,
 	dataDirectory string,
@@ -75,6 +77,7 @@ func NewJobExecutionService(
 		hashlistRepo:       hashlistRepo,
 		systemSettingsRepo: systemSettingsRepo,
 		fileRepo:           fileRepo,
+		scheduleRepo:       scheduleRepo,
 		binaryManager:      binaryManager,
 		ruleSplitManager:   ruleSplitManager,
 		hashcatBinaryPath:  hashcatBinaryPath,
@@ -822,6 +825,29 @@ func (s *JobExecutionService) GetAvailableAgents(ctx context.Context) ([]models.
 			}
 
 			if hasEnabledDevices {
+				// Check if scheduling is enabled for this agent
+				if agent.SchedulingEnabled {
+					// Check if scheduling system is enabled globally
+					schedulingSetting, err := s.systemSettingsRepo.GetSetting(ctx, "agent_scheduling_enabled")
+					if err == nil && schedulingSetting.Value != nil && *schedulingSetting.Value == "true" {
+						// Check if agent is scheduled for current UTC time
+						isScheduled, err := s.scheduleRepo.IsAgentScheduledNow(ctx, agent.ID)
+						if err != nil {
+							debug.Log("Failed to check agent schedule", map[string]interface{}{
+								"agent_id": agent.ID,
+								"error":    err.Error(),
+							})
+							continue
+						}
+						if !isScheduled {
+							debug.Log("Agent is not scheduled for current time, skipping", map[string]interface{}{
+								"agent_id": agent.ID,
+							})
+							continue
+						}
+					}
+				}
+				
 				availableAgents = append(availableAgents, agent)
 			} else {
 				debug.Log("Agent has no enabled devices, skipping", map[string]interface{}{

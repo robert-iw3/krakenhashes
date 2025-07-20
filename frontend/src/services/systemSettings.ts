@@ -18,4 +18,21 @@ export const updateMaxPriority = async (maxPriority: number): Promise<MaxPriorit
 export const getMaxPriorityForUsers = async (): Promise<MaxPriorityConfig> => {
   const response = await api.get<MaxPriorityConfig>('/api/settings/max-priority');
   return response.data;
+};
+
+// Agent scheduling settings
+export const getSystemSettings = async () => {
+  const response = await api.get('/api/admin/settings');
+  return response.data;
+};
+
+export const updateSystemSetting = async (key: string, value: string) => {
+  const response = await api.put(`/api/admin/settings/${key}`, { value });
+  return response.data;
+};
+
+// Get a specific system setting
+export const getSystemSetting = async (key: string) => {
+  const response = await api.get(`/api/admin/settings/${key}`);
+  return response.data;
 }; 

@@ -8,6 +8,7 @@ import (
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/models"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/repository"
 	"github.com/ZerkerEOD/krakenhashes/backend/pkg/debug"
+	"errors"
 )
 
 // SystemSettingsHandler handles system settings requests
@@ -143,4 +144,86 @@ func (h *SystemSettingsHandler) GetMaxPriorityForUsers(w http.ResponseWriter, r 
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+// ListSettings retrieves all system settings
+func (h *SystemSettingsHandler) ListSettings(w http.ResponseWriter, r *http.Request) {
+	debug.Debug("Getting all system settings")
+
+	settings, err := h.systemSettingsRepo.GetAllSettings(r.Context())
+	if err != nil {
+		debug.Error("Failed to get system settings: %v", err)
+		http.Error(w, "Failed to get system settings", http.StatusInternalServerError)
+		return
+	}
+
+	response := map[string]interface{}{
+		"data": settings,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// UpdateSetting updates a specific system setting
+func (h *SystemSettingsHandler) UpdateSetting(w http.ResponseWriter, r *http.Request) {
+	debug.Info("Received request to update system setting")
+
+	var request struct {
+		Value string `json:"value"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		debug.Error("Failed to decode update setting request: %v", err)
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Extract setting key from URL path
+	settingKey := r.URL.Path[len("/api/admin/settings/"):]
+	
+	debug.Info("Updating setting %s to value: %s", settingKey, request.Value)
+
+	// Update the setting
+	err := h.systemSettingsRepo.UpdateSetting(r.Context(), settingKey, request.Value)
+	if err != nil {
+		debug.Error("Failed to update setting %s: %v", settingKey, err)
+		http.Error(w, "Failed to update setting", http.StatusInternalServerError)
+		return
+	}
+
+	debug.Info("Successfully updated setting %s", settingKey)
+
+	// Return the updated setting
+	setting, err := h.systemSettingsRepo.GetSetting(r.Context(), settingKey)
+	if err != nil {
+		debug.Error("Failed to get updated setting: %v", err)
+		http.Error(w, "Failed to retrieve updated setting", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(setting)
+}
+
+// GetSetting retrieves a specific system setting by key
+func (h *SystemSettingsHandler) GetSetting(w http.ResponseWriter, r *http.Request) {
+	// Extract setting key from URL path
+	settingKey := r.URL.Path[len("/api/admin/settings/"):]
+	
+	debug.Debug("Getting system setting: %s", settingKey)
+
+	setting, err := h.systemSettingsRepo.GetSetting(r.Context(), settingKey)
+	if err != nil {
+		debug.Error("Failed to get setting %s: %v", settingKey, err)
+		if errors.Is(err, repository.ErrNotFound) {
+			http.Error(w, "Setting not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "Failed to get setting", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(setting)
 }

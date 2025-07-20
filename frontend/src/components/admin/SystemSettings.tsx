@@ -11,10 +11,12 @@ import {
   Grid,
   Tooltip,
   IconButton,
+  Switch,
+  FormControlLabel,
 } from '@mui/material';
 import { Info as InfoIcon } from '@mui/icons-material';
 import { useSnackbar } from 'notistack';
-import { getMaxPriority, updateMaxPriority } from '../../services/systemSettings';
+import { getMaxPriority, updateMaxPriority, getSystemSettings, updateSystemSetting } from '../../services/systemSettings';
 import { MaxPriorityConfig, SystemSettingsFormData } from '../../types/systemSettings';
 
 interface SystemSettingsProps {
@@ -26,6 +28,7 @@ const SystemSettings: React.FC<SystemSettingsProps> = ({ onSave, loading = false
   const [formData, setFormData] = useState<SystemSettingsFormData>({
     max_priority: 1000,
   });
+  const [agentSchedulingEnabled, setAgentSchedulingEnabled] = useState(false);
   const [loadingData, setLoadingData] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -42,6 +45,18 @@ const SystemSettings: React.FC<SystemSettingsProps> = ({ onSave, loading = false
       setFormData({
         max_priority: data.max_priority,
       });
+      
+      // Load general system settings
+      try {
+        const settings = await getSystemSettings();
+        const schedulingSetting = settings.data?.find((s: any) => s.key === 'agent_scheduling_enabled');
+        if (schedulingSetting) {
+          setAgentSchedulingEnabled(schedulingSetting.value === 'true');
+        }
+      } catch (err) {
+        console.error('Failed to load general settings:', err);
+      }
+      
       setError(null);
     } catch (error) {
       console.error('Failed to load system settings:', error);
@@ -206,6 +221,55 @@ const SystemSettings: React.FC<SystemSettingsProps> = ({ onSave, loading = false
                 <br />• Small organization: 0-100
                 <br />• Medium/large organization: 0-1,000
                 <br />• Ridiculous workload organization: 0-10,000
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+        
+        <Grid item xs={12} md={6}>
+          <Card sx={{ height: '100%' }}>
+            <CardContent>
+              <Box display="flex" alignItems="center" mb={2}>
+                <Typography variant="h6" component="h3">
+                  Agent Scheduling
+                </Typography>
+                <Tooltip title="Enable or disable the agent scheduling system globally. When enabled, agents can have daily schedules configured.">
+                  <IconButton size="small" sx={{ ml: 1 }}>
+                    <InfoIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </Box>
+              
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={agentSchedulingEnabled}
+                    onChange={async (e) => {
+                      const newValue = e.target.checked;
+                      setAgentSchedulingEnabled(newValue);
+                      try {
+                        await updateSystemSetting('agent_scheduling_enabled', newValue.toString());
+                        enqueueSnackbar('Agent scheduling setting updated', { variant: 'success' });
+                      } catch (error) {
+                        console.error('Failed to update scheduling setting:', error);
+                        setAgentSchedulingEnabled(!newValue); // Revert on error
+                        enqueueSnackbar('Failed to update scheduling setting', { variant: 'error' });
+                      }
+                    }}
+                    disabled={loading || saving || loadingData}
+                  />
+                }
+                label="Enable Agent Scheduling System"
+              />
+              
+              <Typography variant="body2" color="text.secondary" paragraph sx={{ mt: 2 }}>
+                When enabled, agents can be configured with daily schedules. Only agents that are scheduled 
+                for the current time will be assigned jobs.
+              </Typography>
+              
+              <Typography variant="body2" color="text.secondary">
+                <strong>Note:</strong> Individual agents must also have scheduling enabled and schedules 
+                configured for this to take effect.
               </Typography>
             </CardContent>
           </Card>

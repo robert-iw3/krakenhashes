@@ -41,6 +41,9 @@ func CreateJobsHandler(database *db.DB, dataDir string, binaryManager binary.Man
 	// Create device repository
 	deviceRepo := repository.NewAgentDeviceRepository(dbWrapper)
 
+	// Create schedule repository
+	scheduleRepo := repository.NewAgentScheduleRepository(dbWrapper)
+
 	// Create additional repositories for job creation
 	workflowRepo := repository.NewJobWorkflowRepository(database.DB)
 	wordlistStore := wordlist.NewStore(database.DB)
@@ -59,6 +62,7 @@ func CreateJobsHandler(database *db.DB, dataDir string, binaryManager binary.Man
 		hashlistRepo,
 		systemSettingsRepo,
 		fileRepo,
+		scheduleRepo,
 		binaryManager,
 		"", // hashcatBinaryPath - not needed for keyspace calculation
 		dataDir,

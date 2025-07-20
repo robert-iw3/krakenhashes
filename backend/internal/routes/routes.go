@@ -210,7 +210,7 @@ func SetupRoutes(r *mux.Router, sqlDB *sql.DB, tlsProvider tls.Provider, agentSe
 	SetupDashboardRoutes(jwtRouter)
 	SetupHashlistRoutes(jwtRouter)
 	// Note: Skipping SetupJobRoutes(jwtRouter) as it conflicts with SetupUserRoutes - the real job routes are in SetupUserRoutes
-	SetupAgentRoutes(jwtRouter, agentService)
+	SetupAgentRoutes(jwtRouter, agentService, database)
 	SetupVoucherRoutes(jwtRouter, services.NewClaimVoucherService(repository.NewClaimVoucherRepository(database)))
 	SetupPotRoutes(jwtRouter, hashRepo, hashlistRepo, clientRepo)
 

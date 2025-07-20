@@ -133,3 +133,8 @@ func (r *SystemSettingsRepository) SetMaxJobPriority(ctx context.Context, maxPri
 	value := strconv.Itoa(maxPriority)
 	return r.SetSetting(ctx, "max_job_priority", &value)
 }
+
+// UpdateSetting updates a specific setting's value by its key (alias for SetSetting with string value).
+func (r *SystemSettingsRepository) UpdateSetting(ctx context.Context, key string, value string) error {
+	return r.SetSetting(ctx, key, &value)
+}

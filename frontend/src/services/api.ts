@@ -16,6 +16,7 @@ import {
   PresetJobApiData,
   JobWorkflowFormDataResponse,
 } from '../types/adminJobs';
+import { AgentSchedule, AgentScheduleDTO, AgentSchedulingInfo } from '../types/scheduling';
 
 // Use HTTPS API URL for all secure endpoints
 const API_URL = process.env.REACT_APP_API_URL || 'https://localhost:31337';
@@ -441,6 +442,35 @@ export const updateJobWorkflow = async (id: string, data: UpdateWorkflowRequest)
 
 export const deleteJobWorkflow = async (id: string): Promise<void> => {
   await api.delete(`/api/admin/job-workflows/${id}`);
+};
+
+// --- Agent Scheduling ---
+
+export const getAgentSchedules = async (agentId: number): Promise<AgentSchedulingInfo> => {
+  const response = await api.get<AgentSchedulingInfo>(`/api/agents/${agentId}/schedules`);
+  return response.data;
+};
+
+export const updateAgentSchedule = async (agentId: number, schedule: AgentScheduleDTO): Promise<AgentSchedule> => {
+  const response = await api.post<AgentSchedule>(`/api/agents/${agentId}/schedules`, schedule);
+  return response.data;
+};
+
+export const bulkUpdateAgentSchedules = async (agentId: number, schedules: AgentScheduleDTO[]): Promise<{ agentId: number; schedules: AgentSchedule[] }> => {
+  const response = await api.post<{ agentId: number; schedules: AgentSchedule[] }>(`/api/agents/${agentId}/schedules/bulk`, { schedules });
+  return response.data;
+};
+
+export const deleteAgentSchedule = async (agentId: number, dayOfWeek: number): Promise<void> => {
+  await api.delete(`/api/agents/${agentId}/schedules/${dayOfWeek}`);
+};
+
+export const toggleAgentScheduling = async (agentId: number, enabled: boolean, timezone: string): Promise<{ agentId: number; schedulingEnabled: boolean; scheduleTimezone: string }> => {
+  const response = await api.put<{ agentId: number; schedulingEnabled: boolean; scheduleTimezone: string }>(
+    `/api/agents/${agentId}/scheduling-enabled`,
+    { enabled, timezone }
+  );
+  return response.data;
 };
 
 // --- SSE Integration ---

@@ -71,6 +71,11 @@ func SetupAdminRoutes(router *mux.Router, database *db.DB, emailService *email.S
 	// System settings routes (New)
 	adminRouter.HandleFunc("/settings/max-priority", systemSettingsHandler.GetMaxPriority).Methods(http.MethodGet, http.MethodOptions)
 	adminRouter.HandleFunc("/settings/max-priority", systemSettingsHandler.UpdateMaxPriority).Methods(http.MethodPut, http.MethodOptions)
+	
+	// General system settings routes for listing and updating individual settings
+	adminRouter.HandleFunc("/settings", systemSettingsHandler.ListSettings).Methods(http.MethodGet, http.MethodOptions)
+	adminRouter.HandleFunc("/settings/{key}", systemSettingsHandler.GetSetting).Methods(http.MethodGet, http.MethodOptions)
+	adminRouter.HandleFunc("/settings/{key}", systemSettingsHandler.UpdateSetting).Methods(http.MethodPut, http.MethodOptions)
 
 	// Job execution settings routes (New)
 	adminRouter.HandleFunc("/settings/job-execution", jobSettingsHandler.GetJobExecutionSettings).Methods(http.MethodGet, http.MethodOptions)

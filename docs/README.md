@@ -16,6 +16,8 @@ Welcome to the KrakenHashes documentation. This guide covers installation, confi
 ### 🔧 Administrator Documentation
 
 #### Core Features
+- [Agent Management](agents/) - Complete guide to agent configuration and management
+  - [Agent Scheduling](agents/scheduling.md) - Configure working hours for agents
 - [Preset Jobs and Workflows](admin/preset_jobs_and_workflows.md) - Creating and managing attack strategies
 - [Client Management](admin/client-management.md) - Managing clients and engagements
 - [Wordlists and Rules](admin/wordlists_and_rules.md) - Managing wordlists and rule files
@@ -46,8 +48,9 @@ Welcome to the KrakenHashes documentation. This guide covers installation, confi
 ### For Administrators
 1. Begin with [Installation Guide](installation.md) for production deployment
 2. Configure [Authentication Settings](admin/authentication_settings.md) for security
-3. Set up [Preset Jobs and Workflows](admin/preset_jobs_and_workflows.md) for your organization
-4. Manage [Clients](admin/client-management.md) and [Data Retention](admin/data-retention.md)
+3. Set up [Agent Management](agents/) including [Scheduling](agents/scheduling.md)
+4. Create [Preset Jobs and Workflows](admin/preset_jobs_and_workflows.md) for your organization
+5. Manage [Clients](admin/client-management.md) and [Data Retention](admin/data-retention.md)
 
 ### For Developers
 See the main [README.md](../README.md) for development setup and the [CLAUDE.md](../CLAUDE.md) for codebase guidance.

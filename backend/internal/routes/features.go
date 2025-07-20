@@ -3,6 +3,7 @@ package routes
 import (
 	"net/http"
 
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/db"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/admin"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/agent"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/dashboard"
@@ -28,7 +29,7 @@ func SetupJobRoutes(jwtRouter *mux.Router) {
 }
 
 // SetupAgentRoutes configures agent management routes
-func SetupAgentRoutes(jwtRouter *mux.Router, agentService *services.AgentService) {
+func SetupAgentRoutes(jwtRouter *mux.Router, agentService *services.AgentService, database *db.DB) {
 	agentHandler := agent.NewAgentHandler(agentService)
 	jwtRouter.HandleFunc("/agents", agentHandler.ListAgents).Methods("GET", "OPTIONS")
 	jwtRouter.HandleFunc("/agents/{id}", agentHandler.GetAgent).Methods("GET", "OPTIONS")
@@ -51,6 +52,17 @@ func SetupAgentRoutes(jwtRouter *mux.Router, agentService *services.AgentService
 			http.Error(w, "WebSocket integration not available", http.StatusServiceUnavailable)
 		}
 	}).Methods("POST", "OPTIONS")
+
+	// Scheduling routes
+	agentRepo := repository.NewAgentRepository(database)
+	scheduleRepo := repository.NewAgentScheduleRepository(database)
+	schedulingHandler := agent.NewSchedulingHandler(scheduleRepo, agentRepo)
+	
+	jwtRouter.HandleFunc("/agents/{id}/schedules", schedulingHandler.GetAgentSchedules).Methods("GET", "OPTIONS")
+	jwtRouter.HandleFunc("/agents/{id}/schedules", schedulingHandler.UpdateAgentSchedule).Methods("POST", "OPTIONS")
+	jwtRouter.HandleFunc("/agents/{id}/schedules/{day}", schedulingHandler.DeleteAgentSchedule).Methods("DELETE", "OPTIONS")
+	jwtRouter.HandleFunc("/agents/{id}/scheduling-enabled", schedulingHandler.ToggleAgentScheduling).Methods("PUT", "OPTIONS")
+	jwtRouter.HandleFunc("/agents/{id}/schedules/bulk", schedulingHandler.BulkUpdateSchedules).Methods("POST", "OPTIONS")
 
 	debug.Info("Configured agent management endpoints: /agents")
 }

@@ -152,10 +152,9 @@ Instructions for setting up and running each component can be found in their res
     -   [x] GPU/CPU temperature tracking
     -   [x] Resource usage history
     -   [x] Performance metrics
--   [ ] Scheduling system
-    -   [ ] On/Off toggle
-    -   [ ] Daily schedule configuration
-    -   [ ] Resource usage limits
+-   [x] Scheduling system
+    -   [x] On/Off toggle
+    -   [x] Daily schedule configuration
 
 ### Frontend Features
 

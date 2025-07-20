@@ -53,6 +53,7 @@ func SetupWebSocketWithJobRoutes(
 	agentHashlistRepo := repository.NewAgentHashlistRepository(database)
 	fileRepo := repository.NewFileRepository(database, appConfig.DataDir)
 	deviceRepo := repository.NewAgentDeviceRepository(database)
+	scheduleRepo := repository.NewAgentScheduleRepository(database)
 
 	// Create services
 	jobExecutionService := services.NewJobExecutionService(
@@ -66,6 +67,7 @@ func SetupWebSocketWithJobRoutes(
 		hashlistRepo,
 		systemSettingsRepo,
 		fileRepo,
+		scheduleRepo,
 		binaryManager,
 		"/usr/bin/hashcat", // hashcat binary path (deprecated, using binary manager now)
 		appConfig.DataDir,

@@ -43,12 +43,19 @@ import {
 import {
   CheckCircle as CheckCircleIcon,
   Cancel as CancelIcon,
-  Save as SaveIcon,
   ArrowBack as ArrowBackIcon,
 } from '@mui/icons-material';
 import { api } from '../services/api';
 import { formatDistanceToNow } from 'date-fns';
 import DeviceMetricsChart from '../components/agent/DeviceMetricsChart';
+import AgentScheduling from '../components/agent/AgentScheduling';
+import { 
+  getAgentSchedules, 
+  toggleAgentScheduling, 
+  bulkUpdateAgentSchedules, 
+  deleteAgentSchedule 
+} from '../services/api';
+import { AgentSchedule, AgentScheduleDTO } from '../types/scheduling';
 
 interface Agent {
   id: number;
@@ -113,7 +120,6 @@ const AgentDetails: React.FC = () => {
   const [devices, setDevices] = useState<AgentDevice[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   
@@ -132,6 +138,11 @@ const AgentDetails: React.FC = () => {
   const [ownerId, setOwnerId] = useState('');
   const [extraParameters, setExtraParameters] = useState('');
   const [deviceStates, setDeviceStates] = useState<{ [key: number]: boolean }>({});
+  
+  // Scheduling state
+  const [schedulingEnabled, setSchedulingEnabled] = useState(false);
+  const [scheduleTimezone, setScheduleTimezone] = useState('UTC');
+  const [schedules, setSchedules] = useState<AgentSchedule[]>([]);
 
   useEffect(() => {
     fetchAgentDetails();
@@ -189,6 +200,17 @@ const AgentDetails: React.FC = () => {
         initialDeviceStates[device.device_id] = device.enabled;
       });
       setDeviceStates(initialDeviceStates);
+      
+      // Fetch scheduling information
+      try {
+        const schedulingInfo = await getAgentSchedules(agentData.id);
+        setSchedulingEnabled(schedulingInfo.schedulingEnabled);
+        setScheduleTimezone(schedulingInfo.scheduleTimezone);
+        setSchedules(schedulingInfo.schedules || []);
+      } catch (err) {
+        console.error('Failed to fetch agent schedules:', err);
+        // Don't fail the whole page load if scheduling fetch fails
+      }
       
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to fetch agent details');
@@ -307,28 +329,110 @@ const AgentDetails: React.FC = () => {
     }
   };
 
-  const handleSave = async () => {
+  // Scheduling handlers
+  const handleToggleScheduling = async (enabled: boolean, timezone: string) => {
     try {
-      setSaving(true);
-      setError('');
-      
-      // Update agent details
+      await toggleAgentScheduling(agent!.id, enabled, timezone);
+      setSchedulingEnabled(enabled);
+      setScheduleTimezone(timezone);
+      setSuccess('Scheduling settings updated');
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to toggle scheduling');
+    }
+  };
+
+  const handleUpdateSchedules = async (scheduleDTOs: AgentScheduleDTO[]) => {
+    try {
+      const result = await bulkUpdateAgentSchedules(agent!.id, scheduleDTOs);
+      setSchedules(result.schedules);
+      setSuccess('Schedules updated successfully');
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to update schedules');
+      throw err; // Re-throw to let the component handle it
+    }
+  };
+
+  const handleDeleteSchedule = async (dayOfWeek: number) => {
+    try {
+      await deleteAgentSchedule(agent!.id, dayOfWeek);
+      setSchedules(schedules.filter(s => s.dayOfWeek !== dayOfWeek));
+      setSuccess('Schedule removed');
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to delete schedule');
+    }
+  };
+
+  // Auto-save agent enabled status
+  const handleIsEnabledChange = async (newValue: boolean) => {
+    console.log('Updating agent enabled status to:', newValue);
+    setIsEnabled(newValue);
+    try {
       await api.put(`/api/agents/${id}`, {
-        isEnabled: isEnabled,
+        isEnabled: newValue,
         ownerId: ownerId || null,
         extraParameters: extraParameters.trim()
       });
-      
-      setSuccess('Agent settings saved successfully');
+      setSuccess('Agent status updated');
       setTimeout(() => setSuccess(''), 3000);
-      
-      // Refresh agent details
-      fetchAgentDetails();
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to save agent settings');
-    } finally {
-      setSaving(false);
+      console.error('Failed to update agent status:', err);
+      setError(err.response?.data?.error || 'Failed to update agent status');
+      // Revert on error
+      setIsEnabled(!newValue);
     }
+  };
+
+  // Auto-save owner change
+  const handleOwnerChange = async (newOwnerId: string) => {
+    const previousOwnerId = ownerId;
+    setOwnerId(newOwnerId);
+    try {
+      await api.put(`/api/agents/${id}`, {
+        isEnabled: isEnabled,
+        ownerId: newOwnerId || null,
+        extraParameters: extraParameters.trim()
+      });
+      setSuccess('Agent owner updated');
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to update agent owner');
+      // Revert on error
+      setOwnerId(previousOwnerId);
+    }
+  };
+
+  // Auto-save extra parameters with debounce
+  const [parametersSaving, setParametersSaving] = useState(false);
+  const parametersTimeoutRef = useRef<NodeJS.Timeout>();
+  
+  const handleExtraParametersChange = (value: string) => {
+    setExtraParameters(value);
+    
+    // Clear existing timeout
+    if (parametersTimeoutRef.current) {
+      clearTimeout(parametersTimeoutRef.current);
+    }
+    
+    // Set new timeout for debounced save
+    parametersTimeoutRef.current = setTimeout(async () => {
+      setParametersSaving(true);
+      try {
+        await api.put(`/api/agents/${id}`, {
+          isEnabled: isEnabled,
+          ownerId: ownerId || null,
+          extraParameters: value.trim()
+        });
+        setSuccess('Extra parameters updated');
+        setTimeout(() => setSuccess(''), 3000);
+      } catch (err: any) {
+        setError(err.response?.data?.error || 'Failed to update extra parameters');
+      } finally {
+        setParametersSaving(false);
+      }
+    }, 1000); // 1 second debounce
   };
 
   if (loading) {
@@ -381,7 +485,7 @@ const AgentDetails: React.FC = () => {
                   control={
                     <Switch
                       checked={isEnabled}
-                      onChange={(e) => setIsEnabled(e.target.checked)}
+                      onChange={(e) => handleIsEnabledChange(e.target.checked)}
                       color="primary"
                     />
                   }
@@ -411,7 +515,7 @@ const AgentDetails: React.FC = () => {
                   <InputLabel>Owner</InputLabel>
                   <Select
                     value={ownerId}
-                    onChange={(e) => setOwnerId(e.target.value)}
+                    onChange={(e) => handleOwnerChange(e.target.value)}
                     label="Owner"
                   >
                     <MenuItem value="">
@@ -508,28 +612,30 @@ const AgentDetails: React.FC = () => {
             <TextField
               fullWidth
               value={extraParameters}
-              onChange={(e) => setExtraParameters(e.target.value)}
+              onChange={(e) => handleExtraParametersChange(e.target.value)}
               placeholder="Enter hashcat parameters..."
               variant="outlined"
               sx={{ mt: 2 }}
+              InputProps={{
+                endAdornment: parametersSaving && <CircularProgress size={20} />
+              }}
             />
           </Paper>
         </Grid>
 
-        {/* Save Button */}
+        {/* Scheduling */}
         <Grid item xs={12}>
-          <Box display="flex" justifyContent="flex-end">
-            <Button
-              variant="contained"
-              color="primary"
-              onClick={handleSave}
-              disabled={saving}
-              startIcon={saving ? <CircularProgress size={20} /> : <SaveIcon />}
-            >
-              {saving ? 'Saving...' : 'Save Changes'}
-            </Button>
-          </Box>
+          <AgentScheduling
+            agentId={agent!.id}
+            schedulingEnabled={schedulingEnabled}
+            scheduleTimezone={scheduleTimezone}
+            schedules={schedules}
+            onToggleScheduling={handleToggleScheduling}
+            onUpdateSchedules={handleUpdateSchedules}
+            onDeleteSchedule={handleDeleteSchedule}
+          />
         </Grid>
+
         
         {/* Device Monitoring Section */}
         {devices.length > 0 && (

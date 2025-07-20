@@ -43,6 +43,8 @@ type Agent struct {
 	ExtraParameters     string            `json:"extraParameters"`
 	IsEnabled           bool              `json:"isEnabled"`
 	ConsecutiveFailures int               `json:"consecutiveFailures"` // Track consecutive task failures
+	SchedulingEnabled   bool              `json:"schedulingEnabled"`
+	ScheduleTimezone    string            `json:"scheduleTimezone"`
 }
 
 // Hardware represents the hardware configuration of an agent
