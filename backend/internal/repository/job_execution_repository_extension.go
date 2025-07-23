@@ -414,7 +414,7 @@ func (r *JobExecutionRepository) ListWithFiltersAndUser(ctx context.Context, lim
 			je.total_keyspace, je.processed_keyspace, je.attack_mode, je.created_by,
 			je.created_at, je.started_at, je.completed_at, je.error_message, je.interrupted_by, je.updated_at,
 			je.base_keyspace, je.effective_keyspace, je.multiplication_factor, je.uses_rule_splitting,
-			je.rule_split_count, je.overall_progress_percent,
+			je.rule_split_count, je.overall_progress_percent, je.dispatched_keyspace,
 			u.username as created_by_username
 		FROM job_executions je
 		JOIN preset_jobs pj ON je.preset_job_id = pj.id
@@ -499,7 +499,7 @@ func (r *JobExecutionRepository) ListWithFiltersAndUser(ctx context.Context, lim
 			&exec.TotalKeyspace, &exec.ProcessedKeyspace, &exec.AttackMode, &exec.CreatedBy,
 			&exec.CreatedAt, &exec.StartedAt, &exec.CompletedAt, &exec.ErrorMessage, &exec.InterruptedBy, &exec.UpdatedAt,
 			&exec.BaseKeyspace, &exec.EffectiveKeyspace, &exec.MultiplicationFactor, &exec.UsesRuleSplitting,
-			&exec.RuleSplitCount, &exec.OverallProgressPercent,
+			&exec.RuleSplitCount, &exec.OverallProgressPercent, &exec.DispatchedKeyspace,
 			&exec.CreatedByUsername,
 		)
 		if err != nil {

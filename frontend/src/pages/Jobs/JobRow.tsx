@@ -205,7 +205,7 @@ const JobRow: React.FC<JobRowProps> = ({ job, onJobUpdated, isLastActiveJob, isC
                       </Box>
                     </Box>
                     <Typography variant="caption" color="text.secondary" display="block">
-                      {dispatchedPercent.toFixed(3)}% / {searchedPercent.toFixed(3)}%
+                      {searchedPercent.toFixed(3)}% / {dispatchedPercent.toFixed(3)}%
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
                       {progress.displayText}
@@ -231,7 +231,7 @@ const JobRow: React.FC<JobRowProps> = ({ job, onJobUpdated, isLastActiveJob, isC
                       </Box>
                     </Box>
                     <Typography variant="caption" color="text.secondary">
-                      {dispatchedPercent.toFixed(3)}% / {searchedPercent.toFixed(3)}%
+                      {searchedPercent.toFixed(3)}% / {dispatchedPercent.toFixed(3)}%
                     </Typography>
                   </>
                 );
@@ -250,10 +250,10 @@ const JobRow: React.FC<JobRowProps> = ({ job, onJobUpdated, isLastActiveJob, isC
                 </Typography>
                 {job.multiplication_factor && job.multiplication_factor > 1 && (
                   <Chip 
-                    label={`×${job.multiplication_factor}`} 
+                    label={`×${job.multiplication_factor}${job.uses_rule_splitting ? ' (rules)' : ''}`} 
                     size="small" 
-                    color="primary" 
-                    variant="outlined"
+                    color="error" 
+                    variant="filled"
                     icon={<InfoIcon fontSize="small" />}
                   />
                 )}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -246,38 +247,157 @@ func (s *JobSchedulingService) assignWorkToAgent(ctx context.Context, agent *mod
 		return nil, interruptedJobs, fmt.Errorf("benchmark required but WebSocket integration not available")
 	}
 
-	// Check if this job uses rule splitting and needs initialization
+	// For rule splitting jobs, first check if there are any existing tasks that need assignment
 	if nextJob.UsesRuleSplitting {
-		// Check if tasks already exist for this job
-		taskCount, err := s.jobExecutionService.jobTaskRepo.GetTaskCountByJobExecution(ctx, nextJob.ID)
-		if err != nil {
-			return nil, interruptedJobs, fmt.Errorf("failed to get task count: %w", err)
-		}
-
-		debug.Log("Checking rule splitting initialization", map[string]interface{}{
-			"job_id":             nextJob.ID,
-			"rule_split_count":   nextJob.RuleSplitCount,
-			"existing_tasks":     taskCount,
-			"processed_keyspace": nextJob.ProcessedKeyspace,
-		})
-
-		if taskCount == 0 {
-			// This is the first time, need to initialize rule splitting
-			debug.Log("Initializing rule splitting for job", map[string]interface{}{
-				"job_id":           nextJob.ID,
-				"rule_split_count": nextJob.RuleSplitCount,
+		// Check for tasks that need to be assigned (error retry, pending, or unassigned)
+		// Priority order:
+		// 1. Tasks in error state with retry_count < 3
+		// 2. Tasks that were returned to pending (agent crashed)
+		// 3. Unassigned pending tasks (for backward compatibility)
+		
+		// First check for error tasks that can be retried
+		errorTask, err := s.jobExecutionService.jobTaskRepo.GetRetriableErrorTask(ctx, nextJob.ID, 3)
+		if err == nil && errorTask != nil {
+			debug.Log("Found error task to retry", map[string]interface{}{
+				"task_id":     errorTask.ID,
+				"retry_count": errorTask.RetryCount,
+				"agent_id":    agent.ID,
 			})
-
-			// Let the job execution service handle rule splitting
-			err = s.jobExecutionService.InitializeRuleSplitting(ctx, nextJob)
-			if err != nil {
-				debug.Error("Failed to initialize rule splitting: %v", err)
-				return nil, interruptedJobs, fmt.Errorf("failed to initialize rule splitting: %w", err)
+			
+			// Assign the task to this agent
+			errorTask.AgentID = &agent.ID
+			errorTask.Status = models.JobTaskStatusPending
+			errorTask.RetryCount++
+			errorTask.AssignedAt = time.Now()
+			errorTask.UpdatedAt = time.Now()
+			errorTask.ErrorMessage = nil
+			
+			if err := s.jobExecutionService.jobTaskRepo.Update(ctx, errorTask); err != nil {
+				return nil, interruptedJobs, fmt.Errorf("failed to update error task: %w", err)
 			}
-
-			debug.Log("Rule splitting initialized successfully", map[string]interface{}{
-				"job_id": nextJob.ID,
+			
+			return errorTask, interruptedJobs, nil
+		}
+		
+		// Check for tasks returned to pending (stale assignments)
+		staleTask, err := s.jobExecutionService.jobTaskRepo.GetStalePendingTask(ctx, nextJob.ID, 5*time.Minute)
+		if err == nil && staleTask != nil {
+			debug.Log("Found stale pending task to reassign", map[string]interface{}{
+				"task_id":         staleTask.ID,
+				"previous_agent":  staleTask.AgentID,
+				"new_agent":       agent.ID,
+				"last_checkpoint": staleTask.LastCheckpoint,
 			})
+			
+			// Reassign the task
+			staleTask.AgentID = &agent.ID
+			staleTask.AssignedAt = time.Now()
+			staleTask.UpdatedAt = time.Now()
+			
+			if err := s.jobExecutionService.jobTaskRepo.Update(ctx, staleTask); err != nil {
+				return nil, interruptedJobs, fmt.Errorf("failed to update stale task: %w", err)
+			}
+			
+			return staleTask, interruptedJobs, nil
+		}
+		
+		// Check for any unassigned pending tasks (backward compatibility)
+		unassignedTask, err := s.jobExecutionService.jobTaskRepo.GetUnassignedPendingTask(ctx, nextJob.ID)
+		if err == nil && unassignedTask != nil {
+			debug.Log("Found unassigned pending task", map[string]interface{}{
+				"task_id":  unassignedTask.ID,
+				"agent_id": agent.ID,
+			})
+			
+			// Assign the task
+			unassignedTask.AgentID = &agent.ID
+			unassignedTask.AssignedAt = time.Now()
+			unassignedTask.UpdatedAt = time.Now()
+			
+			if err := s.jobExecutionService.jobTaskRepo.Update(ctx, unassignedTask); err != nil {
+				return nil, interruptedJobs, fmt.Errorf("failed to update unassigned task: %w", err)
+			}
+			
+			return unassignedTask, interruptedJobs, nil
+		}
+	}
+
+	// Check if this is the first dispatch for a job with rules (dynamic rule splitting determination)
+	if nextJob.AttackMode == models.AttackModeStraight && 
+		nextJob.MultiplicationFactor > 1 && 
+		!nextJob.UsesRuleSplitting &&
+		benchmark != nil && benchmark.Speed > 0 {
+		
+		// Only do this check for the first dispatch
+		if nextJob.DispatchedKeyspace == 0 {
+			// Calculate if the entire job can be done within chunk duration
+			effectiveKeyspace := int64(0)
+			if nextJob.EffectiveKeyspace != nil {
+				effectiveKeyspace = *nextJob.EffectiveKeyspace
+			}
+			
+			// Get chunk duration from settings or preset job
+			chunkDuration := 1200 // Default 20 minutes
+			if duration, err := s.getChunkDuration(ctx, nextJob); err == nil {
+				chunkDuration = duration
+			}
+			
+			// Get fluctuation settings
+			fluctuationSetting, _ := s.systemSettingsRepo.GetSetting(ctx, "chunk_fluctuation_percentage")
+			fluctuationPercent := 20 // Default 20%
+			if fluctuationSetting != nil && fluctuationSetting.Value != nil {
+				if parsed, err := strconv.Atoi(*fluctuationSetting.Value); err == nil {
+					fluctuationPercent = parsed
+				}
+			}
+			
+			// Calculate max allowed duration (chunk duration + fluctuation)
+			maxDuration := float64(chunkDuration) * (1.0 + float64(fluctuationPercent)/100.0)
+			
+			// Estimate time to complete based on benchmark
+			estimatedTime := float64(effectiveKeyspace) / float64(benchmark.Speed)
+			
+			// If job would take longer than max duration, enable rule splitting
+			if estimatedTime > maxDuration {
+				nextJob.UsesRuleSplitting = true
+				nextJob.RuleSplitCount = 0  // Start at 0, will increment as chunks are created
+				// Update the job in database
+				err = s.jobExecutionService.UpdateRuleSplitting(ctx, nextJob.ID, true)
+				if err != nil {
+					debug.Log("Failed to update rule splitting flag", map[string]interface{}{
+						"job_id": nextJob.ID,
+						"error": err.Error(),
+					})
+				}
+				
+				// Update rule split count to 0
+				err = s.jobExecutionService.jobExecRepo.UpdateKeyspaceInfo(ctx, nextJob)
+				if err != nil {
+					debug.Log("Failed to reset rule split count", map[string]interface{}{
+						"job_id": nextJob.ID,
+						"error": err.Error(),
+					})
+				}
+				
+				debug.Log("Dynamically enabled rule splitting", map[string]interface{}{
+					"job_id": nextJob.ID,
+					"effective_keyspace": effectiveKeyspace,
+					"benchmark_speed": benchmark.Speed,
+					"estimated_time": estimatedTime,
+					"max_duration": maxDuration,
+					"chunk_duration": chunkDuration,
+					"fluctuation_percent": fluctuationPercent,
+					"rule_split_count": 0,
+				})
+			} else {
+				debug.Log("Job can be completed in single chunk", map[string]interface{}{
+					"job_id": nextJob.ID,
+					"effective_keyspace": effectiveKeyspace,
+					"benchmark_speed": benchmark.Speed,
+					"estimated_time": estimatedTime,
+					"max_duration": maxDuration,
+				})
+			}
 		}
 	}
 
@@ -304,29 +424,251 @@ func (s *JobSchedulingService) assignWorkToAgent(ctx context.Context, agent *mod
 	// For rule-split jobs, we need special handling
 	var jobTask *models.JobTask
 	if nextJob.UsesRuleSplitting {
-		// Get the next available rule chunk task
-		debug.Log("Getting next rule split task", map[string]interface{}{
-			"job_id":   nextJob.ID,
-			"agent_id": agent.ID,
-		})
-
-		jobTask, err = s.jobExecutionService.GetNextRuleSplitTask(ctx, nextJob, agent)
+		// First check if there are any pending tasks for this job
+		pendingTasks, err := s.jobExecutionService.jobTaskRepo.GetPendingTasksByJobExecution(ctx, nextJob.ID)
 		if err != nil {
-			return nil, interruptedJobs, fmt.Errorf("failed to get rule split task: %w", err)
-		}
-		if jobTask == nil {
-			// No more tasks available for this job
-			debug.Log("No more rule split tasks available", map[string]interface{}{
+			debug.Log("Failed to get pending tasks", map[string]interface{}{
 				"job_id": nextJob.ID,
+				"error":  err.Error(),
 			})
+		}
+		
+		if len(pendingTasks) > 0 {
+			// Assign the first pending task to this agent
+			pendingTask := &pendingTasks[0]
+			debug.Log("Assigning existing pending task to agent", map[string]interface{}{
+				"job_id":       nextJob.ID,
+				"agent_id":     agent.ID,
+				"task_id":      pendingTask.ID,
+				"chunk_number": pendingTask.ChunkNumber,
+				"rule_start":   pendingTask.RuleStartIndex,
+				"rule_end":     pendingTask.RuleEndIndex,
+			})
+			
+			// Update the task with the new agent assignment
+			pendingTask.AgentID = &agent.ID
+			pendingTask.Status = models.JobTaskStatusAssigned
+			pendingTask.AssignedAt = time.Now()
+			
+			// Update in database
+			err = s.jobExecutionService.jobTaskRepo.AssignTaskToAgent(ctx, pendingTask.ID, agent.ID)
+			if err != nil {
+				return nil, interruptedJobs, fmt.Errorf("failed to assign pending task to agent: %w", err)
+			}
+			
+			// Update dispatched keyspace for the job
+			if pendingTask.EffectiveKeyspaceStart != nil && pendingTask.EffectiveKeyspaceEnd != nil {
+				dispatchedKeyspace := *pendingTask.EffectiveKeyspaceEnd - *pendingTask.EffectiveKeyspaceStart
+				err = s.jobExecutionService.jobExecRepo.IncrementDispatchedKeyspace(ctx, nextJob.ID, dispatchedKeyspace)
+				if err != nil {
+					debug.Error("Failed to update dispatched keyspace: %v", err)
+				}
+			}
+			
+			jobTask = pendingTask
+		} else {
+			// No pending tasks, create a new chunk
+			debug.Log("No pending tasks found, creating new dynamic rule chunk", map[string]interface{}{
+				"job_id":   nextJob.ID,
+				"agent_id": agent.ID,
+			})
+
+			// Get the next rule index by checking existing tasks
+			maxRuleEnd, err := s.jobExecutionService.jobTaskRepo.GetMaxRuleEndIndex(ctx, nextJob.ID)
+			nextRuleStart := 0
+			if maxRuleEnd != nil {
+				nextRuleStart = *maxRuleEnd
+			}
+
+		// Check if all rules have been dispatched
+		totalRules := 0
+		if nextJob.RuleSplitCount > 0 {
+			// Get total rules from job metadata
+			// This should be stored during initial analysis
+			presetJob, err := s.jobExecutionService.presetJobRepo.GetByID(ctx, nextJob.PresetJobID)
+			if err != nil {
+				return nil, interruptedJobs, fmt.Errorf("failed to get preset job: %w", err)
+			}
+
+			// Get the rule file to count total rules
+			if len(presetJob.RuleIDs) > 0 {
+				rulePath, err := s.jobExecutionService.resolveRulePath(ctx, presetJob.RuleIDs[0])
+				if err != nil {
+					return nil, interruptedJobs, fmt.Errorf("failed to resolve rule path: %w", err)
+				}
+				totalRules, err = s.jobExecutionService.ruleSplitManager.CountRules(ctx, rulePath)
+				if err != nil {
+					return nil, interruptedJobs, fmt.Errorf("failed to count rules: %w", err)
+				}
+			}
+		}
+
+		if nextRuleStart >= totalRules {
+			debug.Log("All rules have been dispatched", map[string]interface{}{
+				"job_id":          nextJob.ID,
+				"total_rules":     totalRules,
+				"next_rule_start": nextRuleStart,
+			})
+			
+			// Check if job should be completed
+			err = s.ProcessJobCompletion(ctx, nextJob.ID)
+			if err != nil {
+				debug.Log("Failed to process job completion", map[string]interface{}{
+					"job_id": nextJob.ID,
+					"error":  err.Error(),
+				})
+			}
+			
 			return nil, interruptedJobs, nil
 		}
 
-		debug.Log("Got rule split task", map[string]interface{}{
-			"task_id":            jobTask.ID,
-			"is_rule_split_task": jobTask.IsRuleSplitTask,
-			"rule_chunk_path":    jobTask.RuleChunkPath,
+		// Calculate rules for this specific agent based on its benchmark
+		// For rule splits: effective speed = base_keyspace_per_second / chunk_duration * rules_per_chunk
+		baseKeyspace := int64(0)
+		if nextJob.BaseKeyspace != nil {
+			baseKeyspace = *nextJob.BaseKeyspace
+		}
+
+		// Calculate how many rules this agent can process in the chunk duration
+		// Get benchmark speed for this agent
+		benchmarkSpeed, err := s.jobChunkingService.GetOrEstimateBenchmark(ctx, agent.ID, nextJob.AttackMode, hashlist.HashTypeID)
+		if err != nil {
+			debug.Log("Failed to get benchmark, using default", map[string]interface{}{
+				"error": err.Error(),
+			})
+			benchmarkSpeed = 1000000 // Default 1M H/s
+		}
+
+		// rulesPerSecond = benchmarkSpeed / baseKeyspace (how many complete wordlist passes per second)
+		// rulesPerChunk = rulesPerSecond * chunkDuration
+		rulesPerChunk := 100 // Default if calculation fails
+		if baseKeyspace > 0 && benchmarkSpeed > 0 {
+			rulesPerSecond := float64(benchmarkSpeed) / float64(baseKeyspace)
+			rulesPerChunk = int(rulesPerSecond * float64(chunkReq.ChunkDuration))
+			if rulesPerChunk < 1 {
+				rulesPerChunk = 1 // At least one rule per chunk
+			}
+		}
+
+		// Apply fluctuation logic to avoid tiny final chunks
+		fluctuationSetting, _ := s.systemSettingsRepo.GetSetting(ctx, "chunk_fluctuation_percentage")
+		fluctuationPercent := 20 // Default 20%
+		if fluctuationSetting != nil && fluctuationSetting.Value != nil {
+			if parsed, err := strconv.Atoi(*fluctuationSetting.Value); err == nil {
+				fluctuationPercent = parsed
+			}
+		}
+
+		fluctuationThreshold := int(float64(rulesPerChunk) * float64(fluctuationPercent) / 100.0)
+		nextRuleEnd := nextRuleStart + rulesPerChunk
+
+		if nextRuleEnd >= totalRules {
+			nextRuleEnd = totalRules
+		} else {
+			// Check if remaining rules would be too small
+			remainingAfterChunk := totalRules - nextRuleEnd
+			if remainingAfterChunk <= fluctuationThreshold {
+				// Merge the final small chunk
+				nextRuleEnd = totalRules
+				debug.Log("Merging final rule chunk to avoid small remainder", map[string]interface{}{
+					"normal_chunk_size":    rulesPerChunk,
+					"remaining_rules":      remainingAfterChunk,
+					"threshold":            fluctuationThreshold,
+					"merged_chunk_size":    nextRuleEnd - nextRuleStart,
+					"percent_over_normal":  float64(nextRuleEnd-nextRuleStart-rulesPerChunk) / float64(rulesPerChunk) * 100,
+				})
+			}
+		}
+
+		// Create rule chunk file on-demand
+		presetJob, _ := s.jobExecutionService.presetJobRepo.GetByID(ctx, nextJob.PresetJobID)
+		rulePath, _ := s.jobExecutionService.resolveRulePath(ctx, presetJob.RuleIDs[0])
+		chunk, err := s.jobExecutionService.ruleSplitManager.CreateSingleRuleChunk(
+			ctx, nextJob.ID, rulePath, nextRuleStart, nextRuleEnd-nextRuleStart)
+		if err != nil {
+			return nil, interruptedJobs, fmt.Errorf("failed to create rule chunk: %w", err)
+		}
+
+		// Get next chunk number
+		chunkNumber, err := s.jobExecutionService.jobTaskRepo.GetNextChunkNumber(ctx, nextJob.ID)
+		if err != nil {
+			return nil, interruptedJobs, fmt.Errorf("failed to get next chunk number: %w", err)
+		}
+
+		// Build attack command
+		attackCmd, err := s.jobExecutionService.buildAttackCommand(ctx, presetJob, nextJob)
+		if err != nil {
+			return nil, interruptedJobs, fmt.Errorf("failed to build attack command: %w", err)
+		}
+		// Replace rule file with chunk path
+		attackCmd = strings.Replace(attackCmd, rulePath, chunk.Path, 1)
+
+		// Calculate effective keyspace for this chunk
+		effectiveKeyspaceStart := baseKeyspace * int64(chunk.StartIndex)
+		effectiveKeyspaceEnd := baseKeyspace * int64(chunk.EndIndex)
+		
+		// Create task
+		task := &models.JobTask{
+			JobExecutionID:         nextJob.ID,
+			AgentID:                &agent.ID,
+			Status:                 models.JobTaskStatusPending,
+			Priority:               nextJob.Priority,
+			AttackCmd:              attackCmd,
+			KeyspaceStart:          0,
+			KeyspaceEnd:            baseKeyspace,
+			KeyspaceProcessed:      0,
+			EffectiveKeyspaceStart: &effectiveKeyspaceStart,
+			EffectiveKeyspaceEnd:   &effectiveKeyspaceEnd,
+			RuleStartIndex:         &chunk.StartIndex,
+			RuleEndIndex:           &chunk.EndIndex,
+			RuleChunkPath:          &chunk.Path,
+			IsRuleSplitTask:        true,
+			ChunkNumber:            chunkNumber,
+			ChunkDuration:          chunkReq.ChunkDuration,
+			BenchmarkSpeed:         &benchmarkSpeed,
+		}
+
+		// Save task
+		err = s.jobExecutionService.jobTaskRepo.Create(ctx, task)
+		if err != nil {
+			return nil, interruptedJobs, fmt.Errorf("failed to create task: %w", err)
+		}
+
+		// Update dispatched keyspace
+		// For rule splitting, we need to account for the number of rules in this chunk
+		dispatchedKeyspace := baseKeyspace * int64(chunk.RuleCount)
+		err = s.jobExecutionService.jobExecRepo.IncrementDispatchedKeyspace(ctx, nextJob.ID, dispatchedKeyspace)
+		if err != nil {
+			debug.Error("Failed to update dispatched keyspace: %v", err)
+		}
+		
+		// Update rule_split_count to reflect actual chunks created
+		actualChunksCreated := chunkNumber
+		nextJob.RuleSplitCount = actualChunksCreated
+		err = s.jobExecutionService.jobExecRepo.UpdateKeyspaceInfo(ctx, nextJob)
+		if err != nil {
+			debug.Error("Failed to update rule split count: %v", err)
+		}
+		
+		debug.Log("Updated dispatched keyspace and rule split count", map[string]interface{}{
+			"job_id":              nextJob.ID,
+			"base_keyspace":       baseKeyspace,
+			"rules_in_chunk":      chunk.RuleCount,
+			"dispatched_keyspace": dispatchedKeyspace,
+			"rule_split_count":    actualChunksCreated,
 		})
+
+		jobTask = task
+
+		debug.Log("Created dynamic rule chunk task", map[string]interface{}{
+			"task_id":         task.ID,
+			"chunk_number":    chunkNumber,
+			"rule_start":      chunk.StartIndex,
+			"rule_end":        chunk.EndIndex,
+			"rules_in_chunk":  chunk.RuleCount,
+			"chunk_path":      chunk.Path,
+		})
+		}  // End of else block for "No pending tasks"
 	} else {
 		// Regular chunking
 		chunkResult, err := s.jobChunkingService.CalculateNextChunk(ctx, chunkReq)
@@ -515,10 +857,58 @@ func (s *JobSchedulingService) ProcessJobCompletion(ctx context.Context, jobExec
 		"job_execution_id": jobExecutionID,
 	})
 
+	// Get job details
+	job, err := s.jobExecutionService.jobExecRepo.GetByID(ctx, jobExecutionID)
+	if err != nil {
+		return fmt.Errorf("failed to get job execution: %w", err)
+	}
+
 	// Check if all tasks for this job are completed
 	incompleteTasks, err := s.jobExecutionService.jobTaskRepo.GetIncompleteTasksCount(ctx, jobExecutionID)
 	if err != nil {
 		return fmt.Errorf("failed to get incomplete tasks count: %w", err)
+	}
+
+	// For rule-split jobs, also check if all rules have been dispatched
+	if job.UsesRuleSplitting && incompleteTasks == 0 {
+		// Get total rules from the job's effective keyspace and base keyspace
+		totalRules := job.MultiplicationFactor
+		if totalRules == 0 && job.EffectiveKeyspace != nil && job.BaseKeyspace != nil && *job.BaseKeyspace > 0 {
+			totalRules = int(*job.EffectiveKeyspace / *job.BaseKeyspace)
+		}
+		
+		// Get the maximum rule end index from all tasks
+		maxRuleEnd, err := s.jobExecutionService.jobTaskRepo.GetMaxRuleEndIndex(ctx, jobExecutionID)
+		if err != nil {
+			debug.Log("Failed to get max rule end index", map[string]interface{}{
+				"job_execution_id": jobExecutionID,
+				"error":            err.Error(),
+			})
+		}
+		
+		// Check if all rules have been processed
+		allRulesProcessed := false
+		if maxRuleEnd != nil && totalRules > 0 {
+			allRulesProcessed = *maxRuleEnd >= totalRules
+		}
+		
+		debug.Log("Rule-split job completion check", map[string]interface{}{
+			"job_execution_id":   jobExecutionID,
+			"incomplete_tasks":   incompleteTasks,
+			"total_rules":        totalRules,
+			"max_rule_end":       maxRuleEnd,
+			"all_rules_processed": allRulesProcessed,
+		})
+		
+		// Only complete if all tasks are done AND all rules have been dispatched
+		if !allRulesProcessed {
+			debug.Log("Rule-split job has completed tasks but not all rules dispatched", map[string]interface{}{
+				"job_execution_id": jobExecutionID,
+				"total_rules":      totalRules,
+				"max_rule_end":     maxRuleEnd,
+			})
+			return nil
+		}
 	}
 
 	if incompleteTasks == 0 {
@@ -539,7 +929,7 @@ func (s *JobSchedulingService) ProcessJobCompletion(ctx context.Context, jobExec
 // ProcessTaskProgress handles task progress updates and job aggregation
 func (s *JobSchedulingService) ProcessTaskProgress(ctx context.Context, taskID uuid.UUID, progress *models.JobProgress) error {
 	// Use the enhanced progress tracking method from job execution service
-	err := s.jobExecutionService.UpdateTaskProgress(ctx, taskID, progress.KeyspaceProcessed, &progress.HashRate, progress.ProgressPercent)
+	err := s.jobExecutionService.UpdateTaskProgress(ctx, taskID, progress.KeyspaceProcessed, progress.EffectiveProgress, &progress.HashRate, progress.ProgressPercent)
 	if err != nil {
 		return fmt.Errorf("failed to update task progress: %w", err)
 	}

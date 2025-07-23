@@ -10,6 +10,7 @@ import (
 
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/repository"
 	"github.com/ZerkerEOD/krakenhashes/backend/pkg/debug"
+	"github.com/google/uuid"
 )
 
 // RuleChunk represents a chunk of rules split from a larger rule file
@@ -230,4 +231,113 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// CreateSingleRuleChunk creates a single rule chunk on-demand for dynamic chunking
+// This is used when assigning work to agents dynamically instead of pre-splitting all chunks
+func (m *RuleSplitManager) CreateSingleRuleChunk(ctx context.Context, jobID uuid.UUID, ruleFile string, startIndex int, numRules int) (*RuleChunk, error) {
+	// Open the rule file
+	file, err := os.Open(ruleFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("rule file not found: %s", ruleFile)
+		}
+		return nil, fmt.Errorf("failed to open rule file %s: %w", ruleFile, err)
+	}
+	defer file.Close()
+
+	// Create job-specific directory
+	jobDir := filepath.Join(m.tempDir, fmt.Sprintf("job_%s", jobID.String()))
+	if err := os.MkdirAll(jobDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create job directory: %w", err)
+	}
+
+	// Generate unique chunk filename using timestamp
+	chunkPath := filepath.Join(jobDir, fmt.Sprintf("chunk_%d_%d.rule", startIndex, startIndex+numRules))
+
+	// Create chunk file
+	chunkFile, err := os.Create(chunkPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create chunk file: %w", err)
+	}
+	defer chunkFile.Close()
+
+	writer := bufio.NewWriter(chunkFile)
+	scanner := bufio.NewScanner(file)
+	
+	// Skip to startIndex
+	currentIndex := 0
+	for scanner.Scan() && currentIndex < startIndex {
+		currentIndex++
+	}
+	
+	// Write numRules lines to chunk file
+	rulesWritten := 0
+	for scanner.Scan() && rulesWritten < numRules {
+		line := scanner.Text()
+		if _, err := writer.WriteString(line + "\n"); err != nil {
+			os.Remove(chunkPath) // Clean up on error
+			return nil, fmt.Errorf("failed to write rule to chunk: %w", err)
+		}
+		rulesWritten++
+		currentIndex++
+	}
+
+	if err := writer.Flush(); err != nil {
+		os.Remove(chunkPath) // Clean up on error
+		return nil, fmt.Errorf("failed to flush chunk file: %w", err)
+	}
+
+	if err := scanner.Err(); err != nil {
+		os.Remove(chunkPath) // Clean up on error
+		return nil, fmt.Errorf("failed to read rule file: %w", err)
+	}
+
+	chunk := &RuleChunk{
+		Path:       chunkPath,
+		StartIndex: startIndex,
+		EndIndex:   startIndex + rulesWritten,
+		RuleCount:  rulesWritten,
+	}
+
+	debug.Log("Created single rule chunk", map[string]interface{}{
+		"job_id":      jobID,
+		"chunk_path":  chunkPath,
+		"start_index": startIndex,
+		"end_index":   chunk.EndIndex,
+		"rule_count":  rulesWritten,
+	})
+
+	return chunk, nil
+}
+
+// CleanupJobChunksUUID removes all chunk files for a specific job with UUID
+func (m *RuleSplitManager) CleanupJobChunksUUID(jobID uuid.UUID) error {
+	jobDir := filepath.Join(m.tempDir, fmt.Sprintf("job_%s", jobID.String()))
+
+	// Check if directory exists
+	if _, err := os.Stat(jobDir); os.IsNotExist(err) {
+		debug.Log("Job directory does not exist, nothing to clean", map[string]interface{}{
+			"job_id":  jobID,
+			"job_dir": jobDir,
+		})
+		return nil
+	}
+
+	// Count files before removal for logging
+	files, _ := filepath.Glob(filepath.Join(jobDir, "*.rule"))
+	fileCount := len(files)
+
+	// Remove the entire job directory
+	if err := os.RemoveAll(jobDir); err != nil {
+		return fmt.Errorf("failed to remove job directory %s: %w", jobDir, err)
+	}
+
+	debug.Log("Cleaned up rule chunks for job", map[string]interface{}{
+		"job_id":     jobID,
+		"job_dir":    jobDir,
+		"file_count": fileCount,
+	})
+
+	return nil
 }

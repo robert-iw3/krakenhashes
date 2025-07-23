@@ -31,6 +31,7 @@ export interface JobSummary {
   base_keyspace?: number;
   total_keyspace?: number;
   processed_keyspace?: number;
+  dispatched_keyspace?: number;
   overall_progress_percent: number;
 }
 

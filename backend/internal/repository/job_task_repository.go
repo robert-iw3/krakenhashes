@@ -29,10 +29,12 @@ func (r *JobTaskRepository) Create(ctx context.Context, task *models.JobTask) er
 		INSERT INTO job_tasks (
 			job_execution_id, agent_id, status, priority, attack_cmd,
 			keyspace_start, keyspace_end, keyspace_processed, 
+			effective_keyspace_start, effective_keyspace_end, effective_keyspace_processed,
 			benchmark_speed, chunk_duration,
-			rule_start_index, rule_end_index, rule_chunk_path, is_rule_split_task
+			rule_start_index, rule_end_index, rule_chunk_path, is_rule_split_task,
+			chunk_number
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
 		RETURNING id, assigned_at, created_at, updated_at`
 
 	err := r.db.QueryRowContext(ctx, query,
@@ -44,12 +46,16 @@ func (r *JobTaskRepository) Create(ctx context.Context, task *models.JobTask) er
 		task.KeyspaceStart,
 		task.KeyspaceEnd,
 		task.KeyspaceProcessed,
+		task.EffectiveKeyspaceStart,
+		task.EffectiveKeyspaceEnd,
+		task.EffectiveKeyspaceProcessed,
 		task.BenchmarkSpeed,
 		task.ChunkDuration,
 		task.RuleStartIndex,
 		task.RuleEndIndex,
 		task.RuleChunkPath,
 		task.IsRuleSplitTask,
+		task.ChunkNumber,
 	).Scan(&task.ID, &task.AssignedAt, &task.CreatedAt, &task.UpdatedAt)
 
 	if err != nil {
@@ -73,10 +79,12 @@ func (r *JobTaskRepository) CreateWithRuleSplitting(ctx context.Context, task *m
 		INSERT INTO job_tasks (
 			job_execution_id, agent_id, status, priority, attack_cmd,
 			keyspace_start, keyspace_end, keyspace_processed, 
+			effective_keyspace_start, effective_keyspace_end, effective_keyspace_processed,
 			benchmark_speed, chunk_duration,
-			rule_start_index, rule_end_index, rule_chunk_path, is_rule_split_task
+			rule_start_index, rule_end_index, rule_chunk_path, is_rule_split_task,
+			chunk_number
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
 		RETURNING id, assigned_at, created_at, updated_at`
 
 	err := r.db.QueryRowContext(ctx, query,
@@ -88,12 +96,16 @@ func (r *JobTaskRepository) CreateWithRuleSplitting(ctx context.Context, task *m
 		task.KeyspaceStart,
 		task.KeyspaceEnd,
 		task.KeyspaceProcessed,
+		task.EffectiveKeyspaceStart,
+		task.EffectiveKeyspaceEnd,
+		task.EffectiveKeyspaceProcessed,
 		task.BenchmarkSpeed,
 		task.ChunkDuration,
 		task.RuleStartIndex,
 		task.RuleEndIndex,
 		task.RuleChunkPath,
 		task.IsRuleSplitTask,
+		task.ChunkNumber,
 	).Scan(&task.ID, &task.AssignedAt, &task.CreatedAt, &task.UpdatedAt)
 
 	if err != nil {
@@ -109,6 +121,7 @@ func (r *JobTaskRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.
 		SELECT 
 			jt.id, jt.job_execution_id, jt.agent_id, jt.status,
 			jt.keyspace_start, jt.keyspace_end, jt.keyspace_processed,
+			jt.effective_keyspace_start, jt.effective_keyspace_end, jt.effective_keyspace_processed,
 			jt.benchmark_speed, jt.chunk_duration, jt.assigned_at,
 			jt.started_at, jt.completed_at, jt.last_checkpoint, jt.error_message,
 			jt.rule_start_index, jt.rule_end_index, jt.rule_chunk_path, jt.is_rule_split_task,
@@ -121,6 +134,7 @@ func (r *JobTaskRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&task.ID, &task.JobExecutionID, &task.AgentID, &task.Status,
 		&task.KeyspaceStart, &task.KeyspaceEnd, &task.KeyspaceProcessed,
+		&task.EffectiveKeyspaceStart, &task.EffectiveKeyspaceEnd, &task.EffectiveKeyspaceProcessed,
 		&task.BenchmarkSpeed, &task.ChunkDuration, &task.AssignedAt,
 		&task.StartedAt, &task.CompletedAt, &task.LastCheckpoint, &task.ErrorMessage,
 		&task.RuleStartIndex, &task.RuleEndIndex, &task.RuleChunkPath, &task.IsRuleSplitTask,
@@ -143,6 +157,7 @@ func (r *JobTaskRepository) GetTasksByJobExecution(ctx context.Context, jobExecu
 		SELECT 
 			jt.id, jt.job_execution_id, jt.agent_id, jt.status,
 			jt.keyspace_start, jt.keyspace_end, jt.keyspace_processed,
+			jt.effective_keyspace_start, jt.effective_keyspace_end, jt.effective_keyspace_processed,
 			jt.benchmark_speed, jt.chunk_duration, jt.assigned_at,
 			jt.started_at, jt.completed_at, jt.last_checkpoint, jt.error_message,
 			jt.crack_count,
@@ -166,6 +181,7 @@ func (r *JobTaskRepository) GetTasksByJobExecution(ctx context.Context, jobExecu
 		err := rows.Scan(
 			&task.ID, &task.JobExecutionID, &task.AgentID, &task.Status,
 			&task.KeyspaceStart, &task.KeyspaceEnd, &task.KeyspaceProcessed,
+			&task.EffectiveKeyspaceStart, &task.EffectiveKeyspaceEnd, &task.EffectiveKeyspaceProcessed,
 			&task.BenchmarkSpeed, &task.ChunkDuration, &task.AssignedAt,
 			&task.StartedAt, &task.CompletedAt, &task.LastCheckpoint, &task.ErrorMessage,
 			&task.CrackCount,
@@ -363,14 +379,14 @@ func (r *JobTaskRepository) StartTask(ctx context.Context, id uuid.UUID) error {
 }
 
 // UpdateProgress updates the progress of a task
-func (r *JobTaskRepository) UpdateProgress(ctx context.Context, id uuid.UUID, keyspaceProcessed int64, benchmarkSpeed *int64, progressPercent float64) error {
+func (r *JobTaskRepository) UpdateProgress(ctx context.Context, id uuid.UUID, keyspaceProcessed int64, effectiveKeyspaceProcessed int64, benchmarkSpeed *int64, progressPercent float64) error {
 	now := time.Now()
 	query := `
 		UPDATE job_tasks 
-		SET keyspace_processed = $1, benchmark_speed = $2, last_checkpoint = $3, progress_percent = $4
-		WHERE id = $5`
+		SET keyspace_processed = $1, effective_keyspace_processed = $2, benchmark_speed = $3, last_checkpoint = $4, progress_percent = $5
+		WHERE id = $6`
 
-	result, err := r.db.ExecContext(ctx, query, keyspaceProcessed, benchmarkSpeed, now, progressPercent, id)
+	result, err := r.db.ExecContext(ctx, query, keyspaceProcessed, effectiveKeyspaceProcessed, benchmarkSpeed, now, progressPercent, id)
 	if err != nil {
 		return fmt.Errorf("failed to update job task progress: %w", err)
 	}
@@ -549,6 +565,24 @@ func (r *JobTaskRepository) UpdateTaskStatus(ctx context.Context, id uuid.UUID, 
 
 // ResetTaskForRetry resets a task for retry by incrementing retry count and resetting status
 func (r *JobTaskRepository) ResetTaskForRetry(ctx context.Context, id uuid.UUID) error {
+	// First, get the current keyspace_processed value
+	var jobExecutionID uuid.UUID
+	var keyspaceProcessed int64
+	err := r.db.QueryRowContext(ctx, 
+		"SELECT job_execution_id, keyspace_processed FROM job_tasks WHERE id = $1", 
+		id).Scan(&jobExecutionID, &keyspaceProcessed)
+	if err != nil {
+		return fmt.Errorf("failed to get task details: %w", err)
+	}
+	
+	// Begin transaction to ensure atomicity
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+	
+	// Reset the task
 	query := `
 		UPDATE job_tasks 
 		SET 
@@ -558,14 +592,36 @@ func (r *JobTaskRepository) ResetTaskForRetry(ctx context.Context, id uuid.UUID)
 			started_at = NULL,
 			completed_at = NULL,
 			error_message = NULL,
-			keyspace_processed = 0
+			keyspace_processed = 0,
+			progress_percent = 0,
+			agent_id = NULL,
+			assigned_at = NULL,
+			last_checkpoint = NULL,
+			updated_at = CURRENT_TIMESTAMP
 		WHERE id = $1`
-
-	_, err := r.db.ExecContext(ctx, query, id)
+	_, err = tx.ExecContext(ctx, query, id)
 	if err != nil {
 		return fmt.Errorf("failed to reset task for retry: %w", err)
 	}
-
+	
+	// Subtract the processed keyspace from the job execution
+	if keyspaceProcessed > 0 {
+		updateJobQuery := `
+			UPDATE job_executions 
+			SET processed_keyspace = processed_keyspace - $1,
+			    updated_at = CURRENT_TIMESTAMP
+			WHERE id = $2 AND processed_keyspace >= $1`
+		_, err = tx.ExecContext(ctx, updateJobQuery, keyspaceProcessed, jobExecutionID)
+		if err != nil {
+			return fmt.Errorf("failed to update job processed keyspace: %w", err)
+		}
+	}
+	
+	// Commit transaction
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+	
 	return nil
 }
 
@@ -824,4 +880,224 @@ func (r *JobTaskRepository) GetTasksByStatuses(ctx context.Context, statuses []s
 	}
 
 	return tasks, nil
+}
+
+// GetMaxRuleEndIndex returns the maximum rule_end_index for a job execution
+// This is used to determine where to start the next rule chunk
+func (r *JobTaskRepository) GetMaxRuleEndIndex(ctx context.Context, jobExecutionID uuid.UUID) (*int, error) {
+	query := `
+		SELECT MAX(rule_end_index)
+		FROM job_tasks
+		WHERE job_execution_id = $1 AND is_rule_split_task = true`
+
+	var maxEnd sql.NullInt64
+	err := r.db.QueryRowContext(ctx, query, jobExecutionID).Scan(&maxEnd)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get max rule end index: %w", err)
+	}
+
+	if !maxEnd.Valid {
+		return nil, nil // No rule split tasks exist yet
+	}
+
+	result := int(maxEnd.Int64)
+	return &result, nil
+}
+
+// GetNextChunkNumber returns the next chunk number for a job execution
+// Chunk numbers are sequential per job (1, 2, 3, ...)
+func (r *JobTaskRepository) GetNextChunkNumber(ctx context.Context, jobExecutionID uuid.UUID) (int, error) {
+	query := `
+		SELECT COALESCE(MAX(chunk_number), 0) + 1
+		FROM job_tasks
+		WHERE job_execution_id = $1`
+
+	var nextNumber int
+	err := r.db.QueryRowContext(ctx, query, jobExecutionID).Scan(&nextNumber)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get next chunk number: %w", err)
+	}
+
+	return nextNumber, nil
+}
+
+// GetTasksByChunkNumber retrieves tasks by job execution ID and chunk number
+// Useful for user queries like "show me chunk 5 for job X"
+func (r *JobTaskRepository) GetTasksByChunkNumber(ctx context.Context, jobExecutionID uuid.UUID, chunkNumber int) ([]models.JobTask, error) {
+	query := `
+		SELECT 
+			id, job_execution_id, agent_id, status, priority,
+			attack_cmd, keyspace_start, keyspace_end, keyspace_processed,
+			progress_percent, benchmark_speed, chunk_duration,
+			created_at, assigned_at, started_at, completed_at, updated_at,
+			last_checkpoint, error_message, crack_count, detailed_status,
+			retry_count, rule_start_index, rule_end_index, rule_chunk_path,
+			is_rule_split_task, chunk_number
+		FROM job_tasks
+		WHERE job_execution_id = $1 AND chunk_number = $2
+		ORDER BY created_at ASC`
+
+	rows, err := r.db.QueryContext(ctx, query, jobExecutionID, chunkNumber)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get tasks by chunk number: %w", err)
+	}
+	defer rows.Close()
+
+	var tasks []models.JobTask
+	for rows.Next() {
+		var task models.JobTask
+		err := rows.Scan(
+			&task.ID, &task.JobExecutionID, &task.AgentID, &task.Status, &task.Priority,
+			&task.AttackCmd, &task.KeyspaceStart, &task.KeyspaceEnd, &task.KeyspaceProcessed,
+			&task.ProgressPercent, &task.BenchmarkSpeed, &task.ChunkDuration,
+			&task.CreatedAt, &task.AssignedAt, &task.StartedAt, &task.CompletedAt, &task.UpdatedAt,
+			&task.LastCheckpoint, &task.ErrorMessage, &task.CrackCount, &task.DetailedStatus,
+			&task.RetryCount, &task.RuleStartIndex, &task.RuleEndIndex, &task.RuleChunkPath,
+			&task.IsRuleSplitTask, &task.ChunkNumber,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan task: %w", err)
+		}
+		tasks = append(tasks, task)
+	}
+
+	return tasks, nil
+}
+
+// GetRetriableErrorTask gets a task in error state that can be retried
+func (r *JobTaskRepository) GetRetriableErrorTask(ctx context.Context, jobExecutionID uuid.UUID, maxRetries int) (*models.JobTask, error) {
+	query := `
+		SELECT id, job_execution_id, agent_id, status, priority, attack_cmd,
+			keyspace_start, keyspace_end, keyspace_processed, progress_percent,
+			benchmark_speed, chunk_duration, created_at, assigned_at, started_at, 
+			completed_at, updated_at, last_checkpoint, error_message, crack_count, 
+			detailed_status, retry_count, rule_start_index, rule_end_index, 
+			rule_chunk_path, is_rule_split_task, chunk_number
+		FROM job_tasks
+		WHERE job_execution_id = $1 
+			AND status = 'error' 
+			AND retry_count < $2
+		ORDER BY created_at ASC
+		LIMIT 1`
+
+	var task models.JobTask
+	err := r.db.QueryRowContext(ctx, query, jobExecutionID, maxRetries).Scan(
+		&task.ID, &task.JobExecutionID, &task.AgentID, &task.Status, &task.Priority,
+		&task.AttackCmd, &task.KeyspaceStart, &task.KeyspaceEnd, &task.KeyspaceProcessed,
+		&task.ProgressPercent, &task.BenchmarkSpeed, &task.ChunkDuration,
+		&task.CreatedAt, &task.AssignedAt, &task.StartedAt, &task.CompletedAt, &task.UpdatedAt,
+		&task.LastCheckpoint, &task.ErrorMessage, &task.CrackCount, &task.DetailedStatus,
+		&task.RetryCount, &task.RuleStartIndex, &task.RuleEndIndex, &task.RuleChunkPath,
+		&task.IsRuleSplitTask, &task.ChunkNumber,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get retriable error task: %w", err)
+	}
+
+	return &task, nil
+}
+
+// GetStalePendingTask gets a pending task that hasn't been updated in the specified duration
+func (r *JobTaskRepository) GetStalePendingTask(ctx context.Context, jobExecutionID uuid.UUID, staleDuration time.Duration) (*models.JobTask, error) {
+	cutoffTime := time.Now().Add(-staleDuration)
+	query := `
+		SELECT id, job_execution_id, agent_id, status, priority, attack_cmd,
+			keyspace_start, keyspace_end, keyspace_processed, progress_percent,
+			benchmark_speed, chunk_duration, created_at, assigned_at, started_at, 
+			completed_at, updated_at, last_checkpoint, error_message, crack_count, 
+			detailed_status, retry_count, rule_start_index, rule_end_index, 
+			rule_chunk_path, is_rule_split_task, chunk_number
+		FROM job_tasks
+		WHERE job_execution_id = $1 
+			AND status IN ('pending', 'running')
+			AND agent_id IS NOT NULL
+			AND (last_checkpoint IS NULL OR last_checkpoint < $2)
+			AND assigned_at < $2
+		ORDER BY created_at ASC
+		LIMIT 1`
+
+	var task models.JobTask
+	err := r.db.QueryRowContext(ctx, query, jobExecutionID, cutoffTime).Scan(
+		&task.ID, &task.JobExecutionID, &task.AgentID, &task.Status, &task.Priority,
+		&task.AttackCmd, &task.KeyspaceStart, &task.KeyspaceEnd, &task.KeyspaceProcessed,
+		&task.ProgressPercent, &task.BenchmarkSpeed, &task.ChunkDuration,
+		&task.CreatedAt, &task.AssignedAt, &task.StartedAt, &task.CompletedAt, &task.UpdatedAt,
+		&task.LastCheckpoint, &task.ErrorMessage, &task.CrackCount, &task.DetailedStatus,
+		&task.RetryCount, &task.RuleStartIndex, &task.RuleEndIndex, &task.RuleChunkPath,
+		&task.IsRuleSplitTask, &task.ChunkNumber,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get stale pending task: %w", err)
+	}
+
+	return &task, nil
+}
+
+// GetUnassignedPendingTask gets a pending task that hasn't been assigned to any agent
+func (r *JobTaskRepository) GetUnassignedPendingTask(ctx context.Context, jobExecutionID uuid.UUID) (*models.JobTask, error) {
+	query := `
+		SELECT id, job_execution_id, agent_id, status, priority, attack_cmd,
+			keyspace_start, keyspace_end, keyspace_processed, progress_percent,
+			benchmark_speed, chunk_duration, created_at, assigned_at, started_at, 
+			completed_at, updated_at, last_checkpoint, error_message, crack_count, 
+			detailed_status, retry_count, rule_start_index, rule_end_index, 
+			rule_chunk_path, is_rule_split_task, chunk_number
+		FROM job_tasks
+		WHERE job_execution_id = $1 
+			AND status = 'pending'
+			AND agent_id IS NULL
+		ORDER BY created_at ASC
+		LIMIT 1`
+
+	var task models.JobTask
+	err := r.db.QueryRowContext(ctx, query, jobExecutionID).Scan(
+		&task.ID, &task.JobExecutionID, &task.AgentID, &task.Status, &task.Priority,
+		&task.AttackCmd, &task.KeyspaceStart, &task.KeyspaceEnd, &task.KeyspaceProcessed,
+		&task.ProgressPercent, &task.BenchmarkSpeed, &task.ChunkDuration,
+		&task.CreatedAt, &task.AssignedAt, &task.StartedAt, &task.CompletedAt, &task.UpdatedAt,
+		&task.LastCheckpoint, &task.ErrorMessage, &task.CrackCount, &task.DetailedStatus,
+		&task.RetryCount, &task.RuleStartIndex, &task.RuleEndIndex, &task.RuleChunkPath,
+		&task.IsRuleSplitTask, &task.ChunkNumber,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get unassigned pending task: %w", err)
+	}
+
+	return &task, nil
+}
+
+// AssignTaskToAgent assigns a pending task to an agent
+func (r *JobTaskRepository) AssignTaskToAgent(ctx context.Context, taskID uuid.UUID, agentID int) error {
+	query := `
+		UPDATE job_tasks 
+		SET status = 'assigned', 
+		    agent_id = $2,
+		    assigned_at = CURRENT_TIMESTAMP,
+		    updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1 AND status = 'pending'`
+
+	result, err := r.db.ExecContext(ctx, query, taskID, agentID)
+	if err != nil {
+		return fmt.Errorf("failed to assign task to agent: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("task not found or not in pending status")
+	}
+
+	return nil
 }

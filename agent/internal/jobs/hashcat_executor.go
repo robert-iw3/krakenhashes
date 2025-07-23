@@ -74,6 +74,7 @@ type DeviceMetric struct {
 type JobProgress struct {
 	TaskID            string         `json:"task_id"`
 	KeyspaceProcessed int64          `json:"keyspace_processed"` // Restore point (position in wordlist)
+	EffectiveProgress int64          `json:"effective_progress"` // Actual effective progress (words × rules processed)
 	ProgressPercent   float64        `json:"progress_percent"`   // Actual progress percentage (0-100)
 	HashRate          int64          `json:"hash_rate"`         // Current hashes per second
 	Temperature       *float64       `json:"temperature"`       // GPU temperature (deprecated, use DeviceMetrics)
@@ -643,6 +644,7 @@ func (e *HashcatExecutor) runHashcatProcess(ctx context.Context, process *Hashca
 						progress := &JobProgress{
 							TaskID:            process.TaskID,
 							KeyspaceProcessed: keyspaceProcessed,  // Restore point (word position)
+							EffectiveProgress: currentProgress,     // Actual effective progress
 							ProgressPercent:   progressPercent,     // Actual progress percentage
 						}
 						
@@ -916,12 +918,17 @@ func (e *HashcatExecutor) runHashcatProcess(ctx context.Context, process *Hashca
 					debug.Info("Hashcat completed with OK/cracked status for task %s", process.TaskID)
 					// Use the last progress percentage if available, otherwise 100%
 					progressPercent := 100.0
-					if process.LastProgress != nil && process.LastProgress.ProgressPercent > 0 {
-						progressPercent = process.LastProgress.ProgressPercent
+					var effectiveProgress int64
+					if process.LastProgress != nil {
+						if process.LastProgress.ProgressPercent > 0 {
+							progressPercent = process.LastProgress.ProgressPercent
+						}
+						effectiveProgress = process.LastProgress.EffectiveProgress
 					}
 					finalProgress := &JobProgress{
 						TaskID:            process.TaskID,
 						KeyspaceProcessed: process.Assignment.KeyspaceEnd - process.Assignment.KeyspaceStart,
+						EffectiveProgress: effectiveProgress,
 						ProgressPercent:   progressPercent,
 					}
 					e.sendProgressUpdate(process, finalProgress, "completed")
@@ -930,9 +937,14 @@ func (e *HashcatExecutor) runHashcatProcess(ctx context.Context, process *Hashca
 					// Exhausted - normal completion, keyspace fully processed
 					debug.Info("Hashcat exhausted keyspace for task %s", process.TaskID)
 					// Exhausted means 100% complete
+					var effectiveProgress int64
+					if process.LastProgress != nil {
+						effectiveProgress = process.LastProgress.EffectiveProgress
+					}
 					finalProgress := &JobProgress{
 						TaskID:            process.TaskID,
 						KeyspaceProcessed: process.Assignment.KeyspaceEnd - process.Assignment.KeyspaceStart,
+						EffectiveProgress: effectiveProgress,
 						ProgressPercent:   100.0, // Keyspace exhausted = 100% complete
 					}
 					e.sendProgressUpdate(process, finalProgress, "completed")
@@ -979,12 +991,17 @@ func (e *HashcatExecutor) runHashcatProcess(ctx context.Context, process *Hashca
 			debug.Info("Hashcat completed successfully with exit code 0 (OK/cracked) for task %s", process.TaskID)
 			// Use the last progress percentage if available, otherwise 100%
 			progressPercent := 100.0
-			if process.LastProgress != nil && process.LastProgress.ProgressPercent > 0 {
-				progressPercent = process.LastProgress.ProgressPercent
+			var effectiveProgress int64
+			if process.LastProgress != nil {
+				if process.LastProgress.ProgressPercent > 0 {
+					progressPercent = process.LastProgress.ProgressPercent
+				}
+				effectiveProgress = process.LastProgress.EffectiveProgress
 			}
 			finalProgress := &JobProgress{
 				TaskID:            process.TaskID,
 				KeyspaceProcessed: process.Assignment.KeyspaceEnd - process.Assignment.KeyspaceStart,
+				EffectiveProgress: effectiveProgress,
 				ProgressPercent:   progressPercent,
 			}
 			e.sendProgressUpdate(process, finalProgress, "completed")

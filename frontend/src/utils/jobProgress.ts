@@ -47,6 +47,7 @@ export const calculateJobProgress = (job: JobSummary | JobDetail): ProgressInfo 
   // Get the effective keyspace for calculations
   const total = job.effective_keyspace || job.total_keyspace || 0;
   const processed = job.processed_keyspace || 0;
+  const dispatched = job.dispatched_keyspace || 0;
   
   // Use backend-calculated overall progress if available
   const percentage = job.overall_progress_percent || 0;
@@ -60,19 +61,23 @@ export const calculateJobProgress = (job: JobSummary | JobDetail): ProgressInfo 
   let displayText = '';
   let multiplierText: string | undefined;
   
-  if (total > 0) {
+  if (dispatched > 0) {
+    // Show searched / dispatched (not total)
+    displayText = `${formatKeyspace(processed)} / ${formatKeyspace(dispatched)}`;
+  } else if (total > 0) {
+    // Fallback if no dispatched keyspace
     displayText = `${formatKeyspace(processed)} / ${formatKeyspace(total)}`;
-    
-    if (hasMultiplier) {
-      multiplierText = `×${job.multiplication_factor}`;
-      if (job.uses_rule_splitting) {
-        multiplierText += ' (rules)';
-      }
-      displayText += ` ${multiplierText}`;
-    }
   } else {
     // No keyspace info available
     displayText = 'No keyspace data';
+  }
+  
+  if (hasMultiplier) {
+    multiplierText = `×${job.multiplication_factor}`;
+    if (job.uses_rule_splitting) {
+      multiplierText += ' (rules)';
+    }
+    // Don't add multiplier to display text - it will be shown in keyspace column
   }
   
   return {

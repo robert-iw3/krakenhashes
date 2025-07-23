@@ -92,7 +92,7 @@ func (s *JobChunkingService) CalculateNextChunk(ctx context.Context, req ChunkCa
 	}
 
 	// Get agent benchmark for this attack mode and hash type
-	benchmarkSpeed, err := s.getOrEstimateBenchmark(ctx, req.Agent.ID, req.AttackMode, req.HashType)
+	benchmarkSpeed, err := s.GetOrEstimateBenchmark(ctx, req.Agent.ID, req.AttackMode, req.HashType)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get benchmark: %w", err)
 	}
@@ -171,8 +171,8 @@ func (s *JobChunkingService) calculateChunkWithoutKeyspace(ctx context.Context, 
 	return nil, fmt.Errorf("keyspace calculation is required for all job types - attack mode %d does not support chunking without keyspace", req.AttackMode)
 }
 
-// getOrEstimateBenchmark gets the benchmark for an agent or estimates one if not available
-func (s *JobChunkingService) getOrEstimateBenchmark(ctx context.Context, agentID int, attackMode models.AttackMode, hashType int) (int64, error) {
+// GetOrEstimateBenchmark gets the benchmark for an agent or estimates one if not available
+func (s *JobChunkingService) GetOrEstimateBenchmark(ctx context.Context, agentID int, attackMode models.AttackMode, hashType int) (int64, error) {
 	// Try to get existing benchmark
 	benchmark, err := s.benchmarkRepo.GetAgentBenchmark(ctx, agentID, attackMode, hashType)
 	if err == nil {
@@ -364,7 +364,7 @@ func (s *JobChunkingService) CreateInitialChunks(ctx context.Context, job *model
 		hashType = presetJob.HashType
 	}
 
-	benchmarkSpeed, err := s.getOrEstimateBenchmark(ctx, agent.ID, job.AttackMode, hashType)
+	benchmarkSpeed, err := s.GetOrEstimateBenchmark(ctx, agent.ID, job.AttackMode, hashType)
 	if err != nil {
 		debug.Log("Failed to get benchmark, using default", map[string]interface{}{
 			"error": err.Error(),

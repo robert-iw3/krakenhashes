@@ -439,6 +439,18 @@ func (r *JobExecutionRepository) ClearError(ctx context.Context, id uuid.UUID) e
 
 // UpdateKeyspaceInfo updates the enhanced keyspace information for a job execution
 func (r *JobExecutionRepository) UpdateKeyspaceInfo(ctx context.Context, job *models.JobExecution) error {
+	// Calculate total keyspace value to avoid COALESCE issues
+	var totalKeyspace int64
+	if job.EffectiveKeyspace != nil {
+		totalKeyspace = *job.EffectiveKeyspace
+	} else if job.BaseKeyspace != nil {
+		totalKeyspace = *job.BaseKeyspace
+	} else if job.TotalKeyspace != nil {
+		totalKeyspace = *job.TotalKeyspace
+	} else {
+		totalKeyspace = 0
+	}
+
 	query := `
 		UPDATE job_executions 
 		SET base_keyspace = $1, 
@@ -446,8 +458,9 @@ func (r *JobExecutionRepository) UpdateKeyspaceInfo(ctx context.Context, job *mo
 		    multiplication_factor = $3,
 		    uses_rule_splitting = $4,
 		    rule_split_count = $5,
+		    total_keyspace = $6,
 		    updated_at = CURRENT_TIMESTAMP
-		WHERE id = $6`
+		WHERE id = $7`
 
 	result, err := r.db.ExecContext(ctx, query,
 		job.BaseKeyspace,
@@ -455,6 +468,7 @@ func (r *JobExecutionRepository) UpdateKeyspaceInfo(ctx context.Context, job *mo
 		job.MultiplicationFactor,
 		job.UsesRuleSplitting,
 		job.RuleSplitCount,
+		totalKeyspace,
 		job.ID,
 	)
 	if err != nil {

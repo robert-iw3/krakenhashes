@@ -126,12 +126,20 @@ func (s *JobCleanupService) MonitorStaleTasksPeriodically(ctx context.Context, i
 
 // checkForStaleTasks checks for tasks that have been assigned/running too long without updates
 func (s *JobCleanupService) checkForStaleTasks(ctx context.Context) {
-	// Get task timeout setting (default 30 minutes)
-	taskTimeout := 30 * time.Minute
-	timeoutSetting, err := s.systemSettingsRepo.GetSetting(ctx, "task_timeout_minutes")
+	// Get task timeout setting (default 5 minutes for agent heartbeat)
+	taskTimeout := 5 * time.Minute
+	timeoutSetting, err := s.systemSettingsRepo.GetSetting(ctx, "task_heartbeat_timeout_minutes")
 	if err == nil && timeoutSetting.Value != nil {
 		if minutes, err := time.ParseDuration(*timeoutSetting.Value + "m"); err == nil {
 			taskTimeout = minutes
+		}
+	} else {
+		// Fall back to task_timeout_minutes if heartbeat setting doesn't exist
+		timeoutSetting, err = s.systemSettingsRepo.GetSetting(ctx, "task_timeout_minutes")
+		if err == nil && timeoutSetting.Value != nil {
+			if minutes, err := time.ParseDuration(*timeoutSetting.Value + "m"); err == nil {
+				taskTimeout = minutes
+			}
 		}
 	}
 

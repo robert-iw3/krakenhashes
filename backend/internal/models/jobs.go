@@ -184,10 +184,13 @@ type JobTask struct {
 	Status            JobTaskStatus `json:"status" db:"status"`
 	Priority          int           `json:"priority" db:"priority"`     // Task priority (inherited from job)
 	AttackCmd         string        `json:"attack_cmd" db:"attack_cmd"` // Full hashcat command for this task
-	KeyspaceStart     int64         `json:"keyspace_start" db:"keyspace_start"`
-	KeyspaceEnd       int64         `json:"keyspace_end" db:"keyspace_end"`
-	KeyspaceProcessed int64         `json:"keyspace_processed" db:"keyspace_processed"`
-	ProgressPercent   float64       `json:"progress_percent" db:"progress_percent"` // Task progress percentage (0-100)
+	KeyspaceStart           int64   `json:"keyspace_start" db:"keyspace_start"`
+	KeyspaceEnd             int64   `json:"keyspace_end" db:"keyspace_end"`
+	KeyspaceProcessed       int64   `json:"keyspace_processed" db:"keyspace_processed"`
+	EffectiveKeyspaceStart  *int64  `json:"effective_keyspace_start" db:"effective_keyspace_start"`   // For rule splitting: base_keyspace * rule_start_index
+	EffectiveKeyspaceEnd    *int64  `json:"effective_keyspace_end" db:"effective_keyspace_end"`       // For rule splitting: base_keyspace * rule_end_index  
+	EffectiveKeyspaceProcessed *int64 `json:"effective_keyspace_processed" db:"effective_keyspace_processed"` // Actual effective progress
+	ProgressPercent         float64 `json:"progress_percent" db:"progress_percent"` // Task progress percentage (0-100)
 	BenchmarkSpeed    *int64        `json:"benchmark_speed" db:"benchmark_speed"`   // hashes per second
 	ChunkDuration     int           `json:"chunk_duration" db:"chunk_duration"`     // seconds
 	CreatedAt         time.Time     `json:"created_at" db:"created_at"`
@@ -208,6 +211,9 @@ type JobTask struct {
 	RuleEndIndex    *int    `json:"rule_end_index" db:"rule_end_index"`         // Ending rule index for this chunk
 	RuleChunkPath   *string `json:"rule_chunk_path" db:"rule_chunk_path"`       // Path to temporary rule chunk file
 	IsRuleSplitTask bool    `json:"is_rule_split_task" db:"is_rule_split_task"` // Whether this is a rule-split task
+
+	// Chunk tracking
+	ChunkNumber int `json:"chunk_number" db:"chunk_number"` // Sequential chunk number within this job (1, 2, 3...)
 
 	// Populated fields from JOINs
 	AgentName *string `json:"agent_name,omitempty" db:"agent_name"`
@@ -326,6 +332,7 @@ type DeviceMetric struct {
 type JobProgress struct {
 	TaskID            uuid.UUID      `json:"task_id"`
 	KeyspaceProcessed int64          `json:"keyspace_processed"`      // Restore point (position in wordlist)
+	EffectiveProgress int64          `json:"effective_progress"`      // Actual effective progress (words × rules processed)
 	ProgressPercent   float64        `json:"progress_percent"`        // Actual progress percentage (0-100)
 	HashRate          int64          `json:"hash_rate"`               // Current hashes per second
 	Temperature       *float64       `json:"temperature"`             // GPU temperature (deprecated, use DeviceMetrics)

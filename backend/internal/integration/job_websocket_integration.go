@@ -598,6 +598,7 @@ func (s *JobWebSocketIntegration) HandleJobProgress(ctx context.Context, agentID
 		"agent_id":           agentID,
 		"task_id":            progress.TaskID,
 		"keyspace_processed": progress.KeyspaceProcessed,
+		"effective_progress": progress.EffectiveProgress,
 		"progress_percent":   progress.ProgressPercent,
 		"hash_rate":          progress.HashRate,
 	})
