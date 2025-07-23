@@ -598,6 +598,11 @@ func (r *JobExecutionRepository) GetJobsWithPendingWork(ctx context.Context) ([]
 				-- Job has pending work and is not at max capacity
 				(COALESCE(js.pending_tasks, 0) + COALESCE(js.retryable_tasks, 0) > 0 
 				 AND COALESCE(js.active_agents, 0) < COALESCE(je.max_agents, 999))
+				OR
+				-- Rule-split job with more keyspace to dispatch
+				(je.uses_rule_splitting = true 
+				 AND je.dispatched_keyspace < je.effective_keyspace
+				 AND COALESCE(js.active_agents, 0) < COALESCE(je.max_agents, 999))
 			)
 		ORDER BY je.priority DESC, je.created_at ASC`
 
