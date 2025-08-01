@@ -1,0 +1,173 @@
+site_name: KrakenHashes Documentation
+site_url: https://zerkereod.github.io/krakenhashes/
+site_description: Distributed password cracking system for security professionals
+site_author: ZerkerEOD
+
+repo_name: ZerkerEOD/krakenhashes
+repo_url: https://github.com/ZerkerEOD/krakenhashes
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  logo: assets/logo.png
+  favicon: assets/favicon.ico
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.expand
+    - navigation.path
+    - navigation.prune
+    - navigation.indexes
+    - navigation.top
+    - toc.follow
+    - toc.integrate
+    - search.suggest
+    - search.highlight
+    - search.share
+    - header.autohide
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+  palette:
+    - scheme: slate
+      primary: deep red
+      accent: red
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+    - scheme: default
+      primary: deep red
+      accent: red
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+  font:
+    text: Roboto
+    code: Roboto Mono
+  icon:
+    repo: fontawesome/brands/github
+
+plugins:
+  - search:
+      separator: '[\s\-,:!=\[\]()"`/]+|\.(?!\d)|&[lg]t;|(?!\b)(?=[A-Z][a-z])'
+  - minify:
+      minify_html: true
+  - git-revision-date-localized:
+      enable_creation_date: true
+      type: timeago
+  - tags
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - toc:
+      permalink: true
+      toc_depth: 3
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.betterem:
+      smart_enable: all
+  - pymdownx.caret
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - getting-started/index.md
+    - Overview: getting-started/overview.md
+    - Quick Start: getting-started/quick-start.md
+    - Installation: getting-started/installation.md
+    - First Password Crack: getting-started/first-crack.md
+  - User Guide:
+    - user-guide/index.md
+    - Core Concepts: user-guide/core-concepts.md
+    - Managing Hashlists: user-guide/hashlists.md
+    - Jobs & Workflows: user-guide/jobs-workflows.md
+    - Wordlists & Rules: user-guide/wordlists-rules.md
+    - Analyzing Results: user-guide/analyzing-results.md
+    - Troubleshooting: user-guide/troubleshooting.md
+  - Admin Guide:
+    - admin-guide/index.md
+    - System Setup:
+      - Configuration: admin-guide/system-setup/configuration.md
+      - SSL/TLS Setup: admin-guide/system-setup/ssl-tls.md
+      - Email Configuration: admin-guide/system-setup/email.md
+      - Authentication: admin-guide/system-setup/authentication.md
+    - Resource Management:
+      - Managing Binaries: admin-guide/resource-management/binaries.md
+      - Wordlist Management: admin-guide/resource-management/wordlists.md
+      - Rule Management: admin-guide/resource-management/rules.md
+      - Storage Architecture: admin-guide/resource-management/storage.md
+    - Operations:
+      - User Management: admin-guide/operations/users.md
+      - Client Management: admin-guide/operations/clients.md
+      - Agent Management: admin-guide/operations/agents.md
+      - Agent Scheduling: admin-guide/operations/scheduling.md
+      - System Monitoring: admin-guide/operations/monitoring.md
+      - Backup Procedures: admin-guide/operations/backup.md
+      - Data Retention: admin-guide/operations/data-retention.md
+    - Advanced:
+      - Preset Jobs & Workflows: admin-guide/advanced/presets.md
+      - Job Chunking System: admin-guide/advanced/chunking.md
+      - Performance Tuning: admin-guide/advanced/performance.md
+  - Deployment:
+    - deployment/index.md
+    - Docker Deployment: deployment/docker.md
+    - Docker Compose: deployment/docker-compose.md
+    - Production Best Practices: deployment/production.md
+    - Update Procedures: deployment/updates.md
+  - Developer Guide:
+    - developer/index.md
+    - System Architecture: developer/architecture.md
+    - Backend Development: developer/backend.md
+    - Frontend Development: developer/frontend.md
+    - Agent Development: developer/agent.md
+  - Reference:
+    - reference/index.md
+    - Environment Variables: reference/environment.md
+    - Database Schema: reference/database.md
+    - Error Codes: reference/errors.md
+    - Glossary: reference/glossary.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/ZerkerEOD/krakenhashes
+    - icon: fontawesome/brands/discord
+      link: https://discord.gg/taafA9cSFV
+  version:
+    provider: mike
+
+extra_css:
+  - stylesheets/extra.css
+
+extra_javascript:
+  - javascripts/extra.js
