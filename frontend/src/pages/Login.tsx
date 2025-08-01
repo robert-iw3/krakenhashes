@@ -190,9 +190,16 @@ const Login: React.FC = () => {
           alignItems: 'center',
         }}
       >
-        <Typography component="h1" variant="h5">
-          Log in to KrakenHashes
-        </Typography>
+        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mb: 3 }}>
+          <img 
+            src="/logo.png" 
+            alt="KrakenHashes Logo" 
+            style={{ height: 80, marginBottom: 16 }}
+          />
+          <Typography component="h1" variant="h5">
+            Log in to KrakenHashes
+          </Typography>
+        </Box>
         <Box component="form" onSubmit={handleSubmit} noValidate sx={{ mt: 1 }}>
           {error && (
             <Typography color="error" align="center">

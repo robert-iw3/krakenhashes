@@ -142,9 +142,16 @@ const Layout: React.FC<LayoutProps> = () => {
           >
             {open ? <ChevronLeftIcon /> : <MenuIcon />}
           </IconButton>
-          <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1 }}>
-            KrakenHashes
-          </Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', flexGrow: 1 }}>
+            <img 
+              src="/logo.png" 
+              alt="KrakenHashes Logo" 
+              style={{ height: 32, marginRight: 12 }}
+            />
+            <Typography variant="h6" noWrap component="div">
+              KrakenHashes
+            </Typography>
+          </Box>
           <UserMenu />
         </Toolbar>
       </AppBar>
