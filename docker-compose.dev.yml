@@ -77,7 +77,7 @@ networks:
 
 volumes:
   postgres_dev_data:
-    name: krakenhashes_postgres_dev_data
+    name: krakenhashes_postgres_data  # Use same volume as production
   go_mod_cache:
     name: krakenhashes_go_mod_cache
   node_modules:

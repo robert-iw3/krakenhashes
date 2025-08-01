@@ -186,8 +186,8 @@ func TestJobManager_RetryLogic(t *testing.T) {
 		0644,
 	))
 	
-	// Marshal assignment
-	assignmentData, err := json.Marshal(assignment)
+	// Marshal assignment (not used in simplified test)
+	_, err := json.Marshal(assignment)
 	require.NoError(t, err)
 	
 	// Skip the hashlist check and directly execute the task

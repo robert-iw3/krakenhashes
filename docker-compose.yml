@@ -17,7 +17,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
-    restart: unless-stopped
+    # restart: unless-stopped  # Disabled for dev - manually start when needed
     networks:
       - krakenhashes-net
 
@@ -49,7 +49,7 @@ services:
       - DB_NAME=${DB_NAME:-krakenhashes}
       - DB_USER=${DB_USER:-krakenhashes}
       - DB_PASSWORD=${DB_PASSWORD:-krakenhashes}
-    restart: unless-stopped
+    # restart: unless-stopped  # Disabled for dev - manually start when needed
     networks:
       - krakenhashes-net
 

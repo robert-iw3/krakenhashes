@@ -59,7 +59,6 @@ const (
 type WSMessage struct {
 	Type         WSMessageType   `json:"type"`
 	Payload      json.RawMessage `json:"payload,omitempty"`
-	HardwareInfo *types.Info     `json:"hardware_info,omitempty"`
 	Metrics      *MetricsData    `json:"metrics,omitempty"`
 	Timestamp    time.Time       `json:"timestamp"`
 }
@@ -765,23 +764,20 @@ func (c *Connection) readPump() {
 			}
 		case WSTypeMetrics:
 			// Server requested metrics update
-			if err := c.hwMonitor.UpdateMetrics(); err != nil {
-				debug.Error("Failed to update hardware metrics: %v", err)
-				continue
-			}
 			// TODO: Implement metrics collection and sending
 			// This will be implemented later when we add the metrics collection functionality
 			debug.Info("Metrics update requested but not yet implemented")
 		case WSTypeHardwareInfo:
 			// Server requested hardware info update
-			if err := c.hwMonitor.UpdateInfo(); err != nil {
-				debug.Error("Failed to update hardware info: %v", err)
+			// Detect devices and send the result
+			detectionResult, err := c.hwMonitor.DetectDevices()
+			if err != nil {
+				debug.Error("Failed to detect devices: %v", err)
 				continue
 			}
-			hwInfo := c.hwMonitor.GetInfo()
 
 			// Marshal hardware info to JSON for the payload
-			hwInfoJSON, err := json.Marshal(hwInfo)
+			hwInfoJSON, err := json.Marshal(detectionResult)
 			if err != nil {
 				debug.Error("Failed to marshal hardware info: %v", err)
 				continue
