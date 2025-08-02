@@ -68,7 +68,7 @@ docker-compose up -d
 
 ### :material-file-document-multiple: **Comprehensive Hash Support**
 - Support for 300+ hash types via Hashcat
-- Automatic hash type detection
+- Manual hash type selection with detailed metadata
 - Bulk hash import and management
 - Client-based organization for engagements
 
@@ -94,7 +94,7 @@ docker-compose up -d
 - Multi-factor authentication (TOTP, Email, Backup codes)
 - TLS/SSL support with multiple certificate options
 - API key authentication for agents
-- Session management with IP validation
+- JWT-based session management with refresh tokens
 
 ## Use Cases
 
@@ -173,7 +173,6 @@ See our [GitHub repository](https://github.com/ZerkerEOD/krakenhashes) for the l
 - :material-book-open: **Documentation** - You're here! Browse the guides
 - :material-github: **GitHub Issues** - Report bugs and request features
 - :material-chat: **Discord Community** - Join our [Discord server](https://discord.gg/taafA9cSFV)
-- :material-email: **Email** - Contact for security issues
 
 ## License
 

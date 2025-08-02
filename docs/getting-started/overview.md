@@ -251,7 +251,7 @@ graph LR
 - JWT-based authentication with refresh tokens
 - Multi-factor authentication options
 - Role-based permissions (Admin/User)
-- Session management with IP validation
+- Secure session management with token validation
 
 ### 📝 Compliance
 
