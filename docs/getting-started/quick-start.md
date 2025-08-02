@@ -102,8 +102,8 @@ Open your browser and navigate to:
 
     - Navigate to Admin → Binaries
     - Click "Upload Binary"
-    - Upload your hashcat binary (download from https://hashcat.net/hashcat/)
-    - Select the appropriate platform (Linux, Windows, etc.)
+    - Upload your hashcat binary archive (download from https://hashcat.net/hashcat/)
+    - The archive contains binaries for all platforms (Linux, Windows, macOS)
 
 2. **Upload a wordlist**:
 
@@ -118,10 +118,10 @@ Open your browser and navigate to:
     - Add a few test hashes (e.g., MD5 hashes like `5f4dcc3b5aa765d61d8327deb882cf99` for "password")
 
 4. **Create a job** (when agents are connected):
-    - Navigate to Jobs
-    - Select your hashlist
-    - Choose a preset job template
-    - Configure the attack settings
+    - Navigate to your hashlist from the Hashlists page
+    - Click on your hashlist to view its details
+    - Click "Create Job" from the hashlist management page
+    - Choose a preset job template or configure custom settings
     - Start the job
 
 **Note**: Jobs require at least one connected agent to execute. Without agents, jobs will remain in pending status.
