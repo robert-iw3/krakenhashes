@@ -10,13 +10,13 @@ GOFLAGS = -v
 CGO_ENABLED = 0
 
 # Version information
-VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+VERSION = $(shell jq -r .agent ../versions.json 2>/dev/null || echo "dev")
 BUILD_TIME = $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 COMMIT = $(shell git rev-parse HEAD 2>/dev/null || echo "unknown")
 
 # Build flags
 LDFLAGS = -ldflags "-s -w \
-	-X main.Version=$(VERSION) \
+	-X github.com/ZerkerEOD/krakenhashes/agent/internal/version.Version=$(VERSION) \
 	-X main.BuildTime=$(BUILD_TIME) \
 	-X main.Commit=$(COMMIT)"
 

@@ -1,0 +1,201 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  REGISTRY: docker.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # Build and push Docker images
+  docker:
+    name: Build Docker Images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+      
+      - name: Extract metadata (tags, labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+      
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.prod
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # Build agent binaries for all platforms
+  agent-binaries:
+    name: Build Agent - ${{ matrix.os }}-${{ matrix.arch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Windows
+          - os: windows
+            arch: amd64
+            ext: .exe
+          - os: windows
+            arch: 386
+            ext: .exe
+          - os: windows
+            arch: arm64
+            ext: .exe
+          # Linux
+          - os: linux
+            arch: amd64
+            ext: ""
+          - os: linux
+            arch: 386
+            ext: ""
+          - os: linux
+            arch: arm64
+            ext: ""
+          - os: linux
+            arch: arm
+            goarm: 7
+            ext: ""
+          # macOS
+          - os: darwin
+            arch: amd64
+            ext: ""
+          - os: darwin
+            arch: arm64
+            ext: ""
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.1'
+      
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+      
+      - name: Get agent version
+        id: agent_version
+        run: echo "VERSION=$(jq -r .agent versions.json)" >> $GITHUB_OUTPUT
+      
+      - name: Build agent binary
+        env:
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+          GOARM: ${{ matrix.goarm }}
+          CGO_ENABLED: 0
+        working-directory: ./agent
+        run: |
+          VERSION=${{ steps.agent_version.outputs.VERSION }}
+          BINARY_NAME=krakenhashes-agent${{ matrix.ext }}
+          go build -v -ldflags="-s -w -X github.com/ZerkerEOD/krakenhashes/agent/internal/version.Version=${VERSION}" \
+            -o ${BINARY_NAME} ./cmd/agent
+      
+      - name: Create archive
+        working-directory: ./agent
+        run: |
+          BINARY_NAME=krakenhashes-agent${{ matrix.ext }}
+          ARCHIVE_NAME=krakenhashes-agent-${{ steps.agent_version.outputs.VERSION }}-${{ matrix.os }}-${{ matrix.arch }}
+          
+          if [ "${{ matrix.os }}" = "windows" ]; then
+            zip -q ${ARCHIVE_NAME}.zip ${BINARY_NAME}
+            echo "ARCHIVE_PATH=${ARCHIVE_NAME}.zip" >> $GITHUB_ENV
+          else
+            tar czf ${ARCHIVE_NAME}.tar.gz ${BINARY_NAME}
+            echo "ARCHIVE_PATH=${ARCHIVE_NAME}.tar.gz" >> $GITHUB_ENV
+          fi
+      
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-${{ matrix.os }}-${{ matrix.arch }}
+          path: ./agent/${{ env.ARCHIVE_PATH }}
+          retention-days: 1
+
+  # Create GitHub release with all artifacts
+  create-release:
+    name: Create Release
+    needs: [docker, agent-binaries]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./artifacts
+      
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+      
+      - name: Get release info from versions.json
+        id: release_info
+        run: |
+          echo "BACKEND_VERSION=$(jq -r .backend versions.json)" >> $GITHUB_OUTPUT
+          echo "FRONTEND_VERSION=$(jq -r .frontend versions.json)" >> $GITHUB_OUTPUT
+          echo "AGENT_VERSION=$(jq -r .agent versions.json)" >> $GITHUB_OUTPUT
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.VERSION }}
+          name: Release ${{ steps.version.outputs.VERSION }}
+          body: |
+            ## Component Versions
+            - Backend: v${{ steps.release_info.outputs.BACKEND_VERSION }}
+            - Frontend: v${{ steps.release_info.outputs.FRONTEND_VERSION }}
+            - Agent: v${{ steps.release_info.outputs.AGENT_VERSION }}
+            
+            ## Docker Images
+            - `docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.VERSION }}`
+            - `docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest`
+            
+            ## Agent Binaries
+            Download the appropriate agent binary for your platform from the assets below.
+            
+            ## What's Changed
+            See the [CHANGELOG](https://github.com/${{ github.repository }}/blob/master/CHANGELOG.md) for details.
+          files: |
+            ./artifacts/**/*.zip
+            ./artifacts/**/*.tar.gz
+          draft: false
+          prerelease: false

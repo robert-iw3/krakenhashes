@@ -11,6 +11,8 @@ RUN npm install --save-dev @babel/plugin-proposal-private-property-in-object && 
     npm ci
 COPY frontend/ ./
 RUN VERSION=$(jq -r .frontend versions.json) && \
+    jq ".version = \"$VERSION\"" package.json > package.tmp.json && \
+    mv package.tmp.json package.json && \
     echo "REACT_APP_VERSION=$VERSION" >> .env && \
     CI=false npm run build
 

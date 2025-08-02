@@ -23,6 +23,7 @@ import (
 	"github.com/ZerkerEOD/krakenhashes/agent/internal/hardware/types"
 	"github.com/ZerkerEOD/krakenhashes/agent/internal/jobs"
 	filesync "github.com/ZerkerEOD/krakenhashes/agent/internal/sync"
+	"github.com/ZerkerEOD/krakenhashes/agent/internal/version"
 	"github.com/ZerkerEOD/krakenhashes/agent/pkg/debug"
 	"github.com/gorilla/websocket"
 )
@@ -1623,7 +1624,7 @@ func (c *Connection) createAgentStatusMessage() (*WSMessage, error) {
 	// Create status payload
 	statusPayload := map[string]interface{}{
 		"status":      "active",
-		"version":     "1.0.0", // Replace with actual version
+		"version":     version.GetVersion(),
 		"updated_at":  time.Now(),
 		"environment": map[string]string{
 			"os":       runtime.GOOS,
