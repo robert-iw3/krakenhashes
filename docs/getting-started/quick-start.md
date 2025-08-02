@@ -90,14 +90,11 @@ Open your browser and navigate to:
 
 ## 5. First Login
 
-1. Check the logs for the default admin credentials:
+1. Log in with the default admin credentials:
+   - **Username:** `admin`
+   - **Password:** `KrakenHashes1!`
 
-    ```bash
-    docker-compose logs krakenhashes | grep -A5 "Admin user created"
-    ```
-
-2. Log in with the provided credentials
-3. **Important:** Change the admin password immediately after first login
+2. **Important:** Change the admin password immediately after first login for security
 
 ## 6. Quick Test
 
