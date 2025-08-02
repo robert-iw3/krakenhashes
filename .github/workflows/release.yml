@@ -175,26 +175,43 @@ jobs:
           echo "FRONTEND_VERSION=$(jq -r .frontend versions.json)" >> $GITHUB_OUTPUT
           echo "AGENT_VERSION=$(jq -r .agent versions.json)" >> $GITHUB_OUTPUT
       
+      - name: Get release notes from commit
+        id: release_notes
+        run: |
+          # Get the commit hash for this tag
+          COMMIT_HASH=$(git rev-list -n 1 ${{ steps.version.outputs.VERSION }})
+          
+          # Get the full commit message
+          COMMIT_MESSAGE=$(git log --format=%B -n 1 $COMMIT_HASH)
+          
+          # Extract everything after the first line (the detailed release notes)
+          RELEASE_NOTES=$(echo "$COMMIT_MESSAGE" | tail -n +3)
+          
+          # Create release body with component versions header
+          cat > release_body.md << EOF
+          ## Component Versions
+          - Backend: v${{ steps.release_info.outputs.BACKEND_VERSION }}
+          - Frontend: v${{ steps.release_info.outputs.FRONTEND_VERSION }}
+          - Agent: v${{ steps.release_info.outputs.AGENT_VERSION }}
+          
+          ## Docker Images
+          - \`docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.VERSION }}\`
+          - \`docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest\`
+          
+          ## Agent Binaries
+          Download the appropriate agent binary for your platform from the assets below.
+          
+          ---
+          
+          $RELEASE_NOTES
+          EOF
+      
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.VERSION }}
           name: Release ${{ steps.version.outputs.VERSION }}
-          body: |
-            ## Component Versions
-            - Backend: v${{ steps.release_info.outputs.BACKEND_VERSION }}
-            - Frontend: v${{ steps.release_info.outputs.FRONTEND_VERSION }}
-            - Agent: v${{ steps.release_info.outputs.AGENT_VERSION }}
-            
-            ## Docker Images
-            - `docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.VERSION }}`
-            - `docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest`
-            
-            ## Agent Binaries
-            Download the appropriate agent binary for your platform from the assets below.
-            
-            ## What's Changed
-            See the [CHANGELOG](https://github.com/${{ github.repository }}/blob/master/CHANGELOG.md) for details.
+          body_path: release_body.md
           files: |
             ./artifacts/**/*.zip
             ./artifacts/**/*.tar.gz
