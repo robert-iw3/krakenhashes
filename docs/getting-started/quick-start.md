@@ -130,16 +130,23 @@ Open your browser and navigate to:
 
 ### View Logs
 
+Log files are stored in `$HOME/krakenhashes/logs/` by default. You can view them in several ways:
+
 ```bash
-# All logs
+# Live logs from Docker
 docker-compose logs -f
 
 # Backend logs only
-docker-compose logs -f krakenhashes | grep backend
+docker-compose logs -f krakenhashes
 
-# Check for errors
-docker-compose logs | grep -i error
+# Check stored log files
+tail -f $HOME/krakenhashes/logs/backend/*.log
+
+# Check for errors across all logs
+grep -i error $HOME/krakenhashes/logs/*/*.log
 ```
+
+For debugging, you can enable verbose logging by setting `LOG_LEVEL=DEBUG` in your `.env` file.
 
 ### Stop the Application
 

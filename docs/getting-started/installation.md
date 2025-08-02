@@ -110,7 +110,7 @@ KrakenHashes supports three TLS modes:
 
 1. **self-signed** (default) - Automatically generates self-signed certificates
 2. **user-provided** - Use your own certificates
-3. **certbot** - Automatically obtain Let's Encrypt certificates (not tested)
+3. **certbot** - Automatically obtain Let's Encrypt certificates (tested and working)
 
 ##### Using Your Own Certificates
 
@@ -125,6 +125,9 @@ krakenhashes:
 ```
 
 ##### Using Let's Encrypt (Certbot)
+
+!!! warning "Important Limitation"
+    Certbot cannot add IP addresses to certificates. You must access the system through the domain name for the certificate to be trusted. If you need IP access, use self-signed or user-provided certificates instead.
 
 ```yaml
 krakenhashes:
@@ -155,6 +158,56 @@ Important directories that should be persisted:
 | `TLS_MODE`    | self-signed  | TLS certificate mode          |
 | `PUID`        | 1000         | User ID for file permissions  |
 | `PGID`        | 1000         | Group ID for file permissions |
+
+#### Logging Configuration
+
+KrakenHashes provides comprehensive logging with configurable levels and component-specific debugging:
+
+##### Log Levels
+
+Set the `LOG_LEVEL` environment variable to control logging verbosity:
+
+- `DEBUG` - Detailed debugging information (verbose)
+- `INFO` - General information and status updates (default)
+- `WARNING` - Warning messages that need attention
+- `ERROR` - Error messages only
+
+##### Debug Flags
+
+Enable component-specific debugging with these environment variables:
+
+| Flag | Description |
+|------|-------------|
+| `DEBUG_SQL` | Log all SQL queries and parameters |
+| `DEBUG_HTTP` | Log HTTP requests and responses |
+| `DEBUG_WEBSOCKET` | Log WebSocket messages |
+| `DEBUG_AUTH` | Log authentication attempts and JWT validation |
+| `DEBUG_JOBS` | Log job processing and scheduling |
+
+##### Log Storage
+
+Logs are stored in the following directory structure:
+
+```
+$HOME/krakenhashes/logs/
+├── backend/      # Backend application logs
+├── frontend/     # Nginx access and error logs
+├── nginx/        # Nginx configuration logs
+└── postgres/     # PostgreSQL database logs
+```
+
+To view logs in real-time:
+
+```bash
+# All logs
+docker-compose logs -f
+
+# Specific service
+docker-compose logs -f backend
+
+# Check for errors
+docker-compose logs | grep -i error
+```
 
 ### Production Best Practices
 
