@@ -100,7 +100,7 @@ chmod 644 /etc/krakenhashes/.env
 
 # Wait for PostgreSQL to be ready
 echo "Waiting for PostgreSQL at ${DB_HOST}:${DB_PORT}..."
-until nc -w 1 ${DB_HOST} ${DB_PORT} </dev/null 2>/dev/null; do
+until curl -s --connect-timeout 2 ${DB_HOST}:${DB_PORT} >/dev/null 2>&1; do
     echo "PostgreSQL is unavailable - sleeping"
     sleep 2
 done
