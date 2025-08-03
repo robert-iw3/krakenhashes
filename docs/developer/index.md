@@ -125,7 +125,6 @@ krakenhashes/
 
 ## Need Help?
 
-- Review [CLAUDE.md](https://github.com/ZerkerEOD/krakenhashes/blob/main/CLAUDE.md) for AI assistance
 - Check existing code patterns
 - Review test files for examples
 - Join [Discord](https://discord.gg/taafA9cSFV) development channel

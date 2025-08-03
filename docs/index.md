@@ -4,7 +4,7 @@
 <h2>Distributed Password Cracking System for Security Professionals</h2>
 <p>
 <a href="https://github.com/ZerkerEOD/krakenhashes"><img src="https://img.shields.io/badge/Version-0.1.0--alpha-red.svg" alt="Version"></a>
-<a href="https://github.com/ZerkerEOD/krakenhashes/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-AGPLv3-blue.svg" alt="License"></a>
+<a href="https://github.com/ZerkerEOD/krakenhashes/blob/master/LICENSE"><img src="https://img.shields.io/badge/License-AGPLv3-blue.svg" alt="License"></a>
 <a href="https://discord.gg/taafA9cSFV"><img src="https://img.shields.io/discord/YOUR_DISCORD_ID?label=Discord&logo=discord" alt="Discord"></a>
 </p>
 </div>
@@ -45,14 +45,19 @@ KrakenHashes is a powerful distributed password cracking platform that coordinat
 
 Get KrakenHashes running in under 5 minutes with Docker!
 
+**Requirements:** Docker Engine 19.03.0+ and Docker Compose v2.0+
+
 ```bash
 # Download and run
 mkdir krakenhashes && cd krakenhashes
-wget https://raw.githubusercontent.com/ZerkerEOD/krakenhashes/main/docker-compose.yml
-wget https://raw.githubusercontent.com/ZerkerEOD/krakenhashes/main/.env.example
-cp .env.example .env
-# Edit .env to set passwords
-docker-compose up -d
+wget https://raw.githubusercontent.com/ZerkerEOD/krakenhashes/master/docker-compose.yml
+wget https://raw.githubusercontent.com/ZerkerEOD/krakenhashes/master/.env.example
+cp .env.example .env # Edit .env to set passwords
+```
+
+Once the .env has been edited you can run the following
+```bash
+docker compose up -d  # Note: use 'docker compose' not 'docker-compose'
 ```
 
 [Get Started :material-arrow-right:](getting-started/quick-start.md){ .md-button .md-button--primary }
@@ -176,4 +181,4 @@ See our [GitHub repository](https://github.com/ZerkerEOD/krakenhashes) for the l
 
 ## License
 
-KrakenHashes is open source software licensed under the [GNU Affero General Public License v3.0](https://github.com/ZerkerEOD/krakenhashes/blob/main/LICENSE).
+KrakenHashes is open source software licensed under the [GNU Affero General Public License v3.0](https://github.com/ZerkerEOD/krakenhashes/blob/master/LICENSE).

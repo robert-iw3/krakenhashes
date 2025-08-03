@@ -4,9 +4,20 @@ Get KrakenHashes up and running in under 5 minutes!
 
 ## Prerequisites
 
--   Docker and Docker Compose installed
--   4GB RAM minimum
--   Linux-based system recommended
+- Docker Engine 19.03.0+ and Docker Compose v2.0+ installed
+- 4GB RAM minimum
+- Linux-based system recommended
+
+### Verify Docker Compose Version
+
+```bash
+# Check your version - should be 2.0 or higher
+docker compose version
+
+# If you have the old docker-compose v1, you'll need to upgrade
+```
+
+⚠️ **Important:** This project requires Docker Compose v2 (plugin). The legacy `docker-compose` command will not work.
 
 ## 1. Download configuration template
 
@@ -15,7 +26,7 @@ Get KrakenHashes up and running in under 5 minutes!
 mkdir krakenhashes && cd krakenhashes
 
 # Download the environment template
-wget https://raw.githubusercontent.com/yourusername/krakenhashes/main/.env.example
+wget https://raw.githubusercontent.com/ZerkerEOD/krakenhashes/master/.env.example
 cp .env.example .env
 
 # Edit the .env file and change these at minimum:
@@ -74,10 +85,10 @@ volumes:
 
 ```bash
 # Start the application
-docker-compose up -d
+docker compose up -d
 
 # Wait for initialization (about 30 seconds)
-docker-compose logs -f krakenhashes
+docker compose logs -f krakenhashes
 ```
 
 ## 4. Access the Application
@@ -134,10 +145,10 @@ Log files are stored in `$HOME/krakenhashes/logs/` by default. You can view them
 
 ```bash
 # Live logs from Docker
-docker-compose logs -f
+docker compose logs -f
 
 # Backend logs only
-docker-compose logs -f krakenhashes
+docker compose logs -f krakenhashes
 
 # Check stored log files
 tail -f $HOME/krakenhashes/logs/backend/*.log
@@ -151,7 +162,7 @@ For debugging, you can enable verbose logging by setting `LOG_LEVEL=DEBUG` in yo
 ### Stop the Application
 
 ```bash
-docker-compose down
+docker compose down
 ```
 
 ### Update to Latest Version
@@ -161,7 +172,7 @@ docker-compose down
 docker pull zerkereod/krakenhashes:latest
 
 # Restart with new image
-docker-compose up -d
+docker compose up -d
 ```
 
 ### Backup Database
@@ -174,14 +185,14 @@ docker exec krakenhashes-postgres pg_dump -U krakenhashes krakenhashes > backup.
 
 ### Cannot access the web interface
 
-1. Check if containers are running: `docker-compose ps`
-2. Check logs for errors: `docker-compose logs`
+1. Check if containers are running: `docker compose ps`
+2. Check logs for errors: `docker compose logs`
 3. Ensure ports 443 and 31337 are not in use: `netstat -tlnp | grep -E "443|31337"`
 
 ### Database connection errors
 
-1. Ensure PostgreSQL is healthy: `docker-compose ps`
-2. Check database logs: `docker-compose logs postgres`
+1. Ensure PostgreSQL is healthy: `docker compose ps`
+2. Check database logs: `docker compose logs postgres`
 3. Verify environment variables match in both services
 
 ### Certificate warnings

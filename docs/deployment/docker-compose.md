@@ -1,5 +1,7 @@
 # Docker Compose Deployment Guide
 
+⚠️ **Version Requirement:** Docker Compose v2.0+ is required. Use `docker compose` (space), not `docker-compose` (hyphen).
+
 This guide covers deploying KrakenHashes using Docker Compose, including configuration options, network setup, volume management, and common customizations.
 
 ## Table of Contents

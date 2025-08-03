@@ -11,11 +11,47 @@ This guide covers both production and development installation of KrakenHashes.
 -   20GB+ disk space for hash files, wordlists, and rules (Very dependent on your wordlist size)
 -   Linux host (Ubuntu 20.04+, Debian 11+, RHEL 8+, or similar)
 
+### Docker Compose v2 Requirements
+
+KrakenHashes requires Docker Compose v2.0 or higher due to:
+- Advanced environment variable interpolation syntax
+- Improved health check support
+- Better service dependency handling
+
+The docker compose.yml uses syntax like `${LOG_DIR:-./logs}/postgres` which requires v2.
+
+#### Installing Docker Compose v2
+
+```bash
+# Ubuntu/Debian
+sudo apt-get update
+sudo apt-get install docker compose-plugin
+
+# CentOS/RHEL/Fedora
+sudo yum install docker compose-plugin
+
+# Manual installation (all systems)
+sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker compose
+sudo chmod +x /usr/local/bin/docker compose
+
+# Verify installation
+docker compose version
+```
+
+#### Common Issues
+
+If you see this error:
+```
+ERROR: Invalid interpolation format for "postgres" option in service "services"
+```
+
+You're using the old docker compose v1. Install v2 and use `docker compose` (with a space).
+
 ### Quick Start with Docker Hub
 
 The easiest way to run KrakenHashes is using the pre-built Docker image from Docker Hub.
 
-#### 1. Create a docker-compose.yml file
+#### 1. Create a docker compose.yml file
 
 ```yaml
 services:
@@ -90,10 +126,10 @@ KH_PORT=1337
 docker pull zerkereod/krakenhashes:latest
 
 # Start the services
-docker-compose up -d
+docker compose up -d
 
 # Check logs
-docker-compose logs -f
+docker compose logs -f
 ```
 
 #### 4. Access the Application
@@ -200,13 +236,13 @@ To view logs in real-time:
 
 ```bash
 # All logs
-docker-compose logs -f
+docker compose logs -f
 
 # Specific service
-docker-compose logs -f backend
+docker compose logs -f backend
 
 # Check for errors
-docker-compose logs | grep -i error
+docker compose logs | grep -i error
 ```
 
 ### Production Best Practices
@@ -236,7 +272,7 @@ docker-compose logs | grep -i error
     docker pull zerkereod/krakenhashes:latest
 
     # Recreate container with new image
-    docker-compose up -d --force-recreate krakenhashes
+    docker compose up -d --force-recreate krakenhashes
     ```
 
 ### Troubleshooting Production Issues
@@ -245,7 +281,7 @@ docker-compose logs | grep -i error
 
 ```bash
 # Check logs
-docker-compose logs krakenhashes
+docker compose logs krakenhashes
 
 # Check if ports are already in use
 netstat -tlnp | grep -E "443|31337|1337|5432"
@@ -258,7 +294,7 @@ netstat -tlnp | grep -E "443|31337|1337|5432"
 docker exec krakenhashes-app nc -zv postgres 5432
 
 # Check database logs
-docker-compose logs postgres
+docker compose logs postgres
 ```
 
 #### Permission issues
@@ -297,10 +333,10 @@ This setup provides hot-reloading for both backend and frontend.
 
     ```bash
     # Start all services with hot-reloading
-    docker-compose -f docker-compose.dev.yml up
+    docker compose -f docker compose.dev.yml up
 
     # Or run in background
-    docker-compose -f docker-compose.dev.yml up -d
+    docker compose -f docker compose.dev.yml up -d
     ```
 
 3. **Access the services**
@@ -313,10 +349,10 @@ This setup provides hot-reloading for both backend and frontend.
 
     ```bash
     # All services
-    docker-compose -f docker-compose.dev.yml logs -f
+    docker compose -f docker compose.dev.yml logs -f
 
     # Specific service
-    docker-compose -f docker-compose.dev.yml logs -f backend
+    docker compose -f docker compose.dev.yml logs -f backend
     ```
 
 The development environment features:
@@ -339,7 +375,7 @@ The development environment features:
 
     ```bash
     cd backend
-    docker-compose up -d
+    docker compose up -d
     cd ..
     ```
 
@@ -416,8 +452,8 @@ npm test
 docker build -f Dockerfile.prod -t krakenhashes:local .
 
 # Test production build locally
-docker-compose down
-docker-compose up -d
+docker compose down
+docker compose up -d
 ```
 
 #### Database Migrations
@@ -465,14 +501,14 @@ docker exec krakenhashes-postgres-dev psql -U krakenhashes -d krakenhashes -c "S
 
 ```bash
 # Stop development environment
-docker-compose -f docker-compose.dev.yml down
+docker compose -f docker compose.dev.yml down
 
 # Start production environment
-docker-compose up -d
+docker compose up -d
 
 # Switch back to development
-docker-compose down
-docker-compose -f docker-compose.dev.yml up
+docker compose down
+docker compose -f docker compose.dev.yml up
 ```
 
 ### Common Development Issues
