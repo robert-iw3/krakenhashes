@@ -287,10 +287,17 @@ func (p *SelfSignedProvider) generateNewCertificates() error {
 		return fmt.Errorf("failed to generate CA subject key identifier: %w", err)
 	}
 
+	// Generate random serial number for CA certificate
+	caSerial, err := generateRandomSerial()
+	if err != nil {
+		debug.Error("Failed to generate CA serial number: %v", err)
+		return fmt.Errorf("failed to generate CA serial number: %w", err)
+	}
+
 	// Create CA certificate
 	debug.Debug("Creating CA certificate with validity: %d days", p.config.Validity.CA)
 	caTemplate := &x509.Certificate{
-		SerialNumber: big.NewInt(1),
+		SerialNumber: caSerial,
 		Subject: pkix.Name{
 			Country:            []string{p.config.CADetails.Country},
 			Organization:       []string{p.config.CADetails.Organization},
@@ -369,8 +376,15 @@ func (p *SelfSignedProvider) generateNewCertificates() error {
 		return fmt.Errorf("failed to generate server subject key identifier: %w", err)
 	}
 
+	// Generate random serial number for server certificate
+	serverSerial, err := generateRandomSerial()
+	if err != nil {
+		debug.Error("Failed to generate server serial number: %v", err)
+		return fmt.Errorf("failed to generate server serial number: %w", err)
+	}
+
 	serverTemplate := &x509.Certificate{
-		SerialNumber: big.NewInt(2),
+		SerialNumber: serverSerial,
 		Subject: pkix.Name{
 			Country:            []string{p.config.CADetails.Country},
 			Organization:       []string{p.config.CADetails.Organization},
@@ -419,8 +433,15 @@ func (p *SelfSignedProvider) generateNewCertificates() error {
 		return fmt.Errorf("failed to generate client subject key identifier: %w", err)
 	}
 
+	// Generate random serial number for client certificate
+	clientSerial, err := generateRandomSerial()
+	if err != nil {
+		debug.Error("Failed to generate client serial number: %v", err)
+		return fmt.Errorf("failed to generate client serial number: %w", err)
+	}
+
 	clientTemplate := &x509.Certificate{
-		SerialNumber: big.NewInt(3),
+		SerialNumber: clientSerial,
 		Subject: pkix.Name{
 			Country:            []string{p.config.CADetails.Country},
 			Organization:       []string{p.config.CADetails.Organization},
@@ -588,6 +609,22 @@ func (p *SelfSignedProvider) saveCertificates() error {
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return !os.IsNotExist(err)
+}
+
+// generateRandomSerial generates a cryptographically random serial number for certificates
+func generateRandomSerial() (*big.Int, error) {
+	// Generate 16 bytes (128 bits) of random data
+	serialBytes := make([]byte, 16)
+	if _, err := rand.Read(serialBytes); err != nil {
+		return nil, fmt.Errorf("failed to generate random serial: %w", err)
+	}
+	
+	// Ensure the serial number is positive by clearing the MSB
+	serialBytes[0] &= 0x7F
+	
+	// Convert to big.Int
+	serial := new(big.Int).SetBytes(serialBytes)
+	return serial, nil
 }
 
 // generateSubjectKeyID generates a subject key identifier from public key

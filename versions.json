@@ -1,7 +1,7 @@
 {
-    "backend": "0.9.5",
-    "frontend": "0.9.5",
-    "agent": "0.9.5",
-    "api": "0.9.5",
-    "database": "0.9.5"
+    "backend": "0.9.6",
+    "frontend": "0.9.6",
+    "agent": "0.9.6",
+    "api": "0.9.6",
+    "database": "0.9.6"
 } 
