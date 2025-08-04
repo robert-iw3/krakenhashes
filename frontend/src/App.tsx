@@ -49,6 +49,7 @@ import CertificateCheck from './components/CertificateCheck';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { SnackbarProvider, useSnackbar } from 'notistack';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { getCookie } from './utils/cookies';
 
 // Create a client instance
 const queryClient = new QueryClient();
@@ -86,7 +87,12 @@ const AdminEmailTemplateEditorPage = lazy(() => import('./pages/AdminSettings/Em
 
 const App: React.FC = () => {
   const [certVerified, setCertVerified] = useState(() => {
-    // Check if we've already verified the cert
+    // Check if we have the ignore cookie
+    const ignoreSSL = getCookie('ignoreSSL');
+    if (ignoreSSL === 'true') {
+      return true;
+    }
+    // Otherwise check if we've already verified the cert
     return localStorage.getItem('cert_valid') === 'true';
   });
 

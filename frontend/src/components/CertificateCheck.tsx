@@ -16,8 +16,10 @@ import {
   Download as DownloadIcon,
   Refresh as RefreshIcon,
   CheckCircle as CheckCircleIcon,
-  ContentCopy as ContentCopyIcon
+  ContentCopy as ContentCopyIcon,
+  Warning as WarningIcon
 } from '@mui/icons-material';
+import { setCookie } from '../utils/cookies';
 
 interface CertificateCheckProps {
   onCertVerified: () => void;
@@ -89,6 +91,18 @@ const CertificateCheck: React.FC<CertificateCheckProps> = ({ onCertVerified }) =
       setChecking(false);
     }
   }, [onCertVerified]);
+
+  const handleIgnoreWarning = () => {
+    if (window.confirm(
+      'WARNING: This will bypass SSL certificate validation for 30 days.\n\n' +
+      'This should ONLY be used in development/testing environments.\n' +
+      'Your connection will not be secure.\n\n' +
+      'Are you sure you want to continue?'
+    )) {
+      setCookie('ignoreSSL', 'true', 30);
+      onCertVerified();
+    }
+  };
 
   const copyDownloadUrl = async () => {
     try {
@@ -236,6 +250,15 @@ Then paste it in a new browser tab to download the certificate.`);
                 size="large"
               >
                 Verify Certificate
+              </Button>
+              <Button
+                variant="text"
+                color="warning"
+                startIcon={<WarningIcon />}
+                onClick={handleIgnoreWarning}
+                size="large"
+              >
+                Ignore Warning for 30 Days
               </Button>
             </Box>
             
