@@ -19,8 +19,9 @@ import {
 import { AgentSchedule, AgentScheduleDTO, AgentSchedulingInfo } from '../types/scheduling';
 import { AgentWithTask } from '../types/agent';
 
-// Use HTTPS API URL for all secure endpoints
-const API_URL = process.env.REACT_APP_API_URL || 'https://localhost:31337';
+// Use relative URLs for API endpoints to work through nginx proxy
+// This allows the application to work regardless of hostname/IP
+const API_URL = '';
 
 // Function to fetch and store CA certificate
 const fetchCACertificate = async (): Promise<void> => {
@@ -485,7 +486,7 @@ export const toggleAgentScheduling = async (agentId: number, enabled: boolean, t
 
 // Get the SSE endpoint URL for job streaming
 export const getJobStreamURL = (): string => {
-  return `${API_URL}/api/jobs/stream`;
+  return '/api/jobs/stream';
 };
 
 // Check if SSE is supported by the browser

@@ -88,4 +88,7 @@ agent/main
 
 # Logs
 logs/
-*.log 
+*.log
+
+# Local development configuration
+docker-compose.dev-local.yml 

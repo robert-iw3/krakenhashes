@@ -1,3 +1,4 @@
-// API URLs from environment variables
-export const apiUrl = process.env.REACT_APP_API_URL || 'https://localhost:31337';
-export const wsUrl = process.env.REACT_APP_WS_URL || 'wss://localhost:31337'; 
+// API configuration - using relative URLs to work through nginx proxy
+// This allows the application to work regardless of hostname/IP
+export const apiUrl = '';
+// Note: WebSockets are not used by the frontend - only by agents connecting directly to the backend 

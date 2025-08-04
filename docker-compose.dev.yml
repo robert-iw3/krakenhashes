@@ -1,84 +1,162 @@
+# Development configuration template
+# Copy this file to docker-compose.dev-local.yml and update with your local settings
+# Usage: docker-compose -f docker-compose.dev-local.yml up -d --build
+
+# This file has two options:
+# Option 1: Build and run the full stack (similar to production)
+# Option 2: Run individual services for development (commented out below)
+
+# ============================================
+# OPTION 1: Full Stack Development (Recommended)
+# ============================================
+# This runs the complete application with hot reload for development
+
 services:
   postgres:
     image: postgres:15-alpine
-    container_name: krakenhashes-postgres-dev
+    container_name: krakenhashes-postgres
     volumes:
-      - postgres_dev_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
+      - ${LOG_DIR:-./logs}/postgres:/var/log/postgresql
     environment:
       - POSTGRES_USER=${DB_USER:-krakenhashes}
       - POSTGRES_PASSWORD=${DB_PASSWORD:-krakenhashes}
       - POSTGRES_DB=${DB_NAME:-krakenhashes}
+      - PGDATA=/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "${DB_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-krakenhashes}"]
       interval: 5s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
     networks:
-      - krakenhashes-dev-net
+      - krakenhashes-net
 
-  backend:
-    image: golang:1.23.1-alpine
-    container_name: krakenhashes-backend-dev
-    working_dir: /app/backend
-    command: sh -c "go install github.com/cosmtrek/air@latest && air -c .air.toml"
-    volumes:
-      - ./backend:/app/backend
-      - ./versions.json:/app/versions.json:ro
-      - go_mod_cache:/go/pkg/mod
-      - ${KH_DATA_DIR_HOST:-./data}:/var/lib/krakenhashes
-      - ${KH_CONFIG_DIR_HOST:-./config}:/etc/krakenhashes
-    environment:
-      - DB_HOST=postgres
-      - DB_PORT=5432
-      - DB_NAME=${DB_NAME:-krakenhashes}
-      - DB_USER=${DB_USER:-krakenhashes}
-      - DB_PASSWORD=${DB_PASSWORD:-krakenhashes}
-      - JWT_SECRET=${JWT_SECRET:-dev_jwt_secret}
-      - DEBUG=true
-      - LOG_LEVEL=DEBUG
-      - KH_HTTPS_PORT=31337
-      - KH_HTTP_PORT=1337
-      - CGO_ENABLED=0
-      - GOOS=linux
-    ports:
-      - "31337:31337"
-      - "1337:1337"
+  krakenhashes:
+    build: .
+    container_name: krakenhashes-app
     depends_on:
       postgres:
         condition: service_healthy
-    networks:
-      - krakenhashes-dev-net
-
-  frontend:
-    image: node:20-alpine
-    container_name: krakenhashes-frontend-dev
-    working_dir: /app/frontend
-    command: sh -c "npm install && npm start"
-    volumes:
-      - ./frontend:/app/frontend
-      - ./versions.json:/app/versions.json:ro
-      - node_modules:/app/frontend/node_modules
-    environment:
-      - REACT_APP_API_URL=https://localhost:31337
-      - REACT_APP_WS_URL=wss://localhost:31337
-      - REACT_APP_DEBUG=true
-      - WDS_SOCKET_PORT=3000
-      - CHOKIDAR_USEPOLLING=true
+    env_file:
+      - .env
     ports:
-      - "3000:3000"
+      - "${FRONTEND_PORT:-443}:443"
+      - "${KH_HTTPS_PORT:-31337}:31337"
+      - "${KH_HTTP_PORT:-1337}:1337"
+    volumes:
+      - krakenhashes_data:/var/lib/krakenhashes
+      - ${LOG_DIR:-./logs}:/var/log/krakenhashes
+      - ${KH_CONFIG_DIR_HOST:-./config}:/etc/krakenhashes
+      - ${KH_DATA_DIR_HOST:-./data}:/var/lib/krakenhashes
+    environment:
+      - TZ=UTC
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - DB_HOST=postgres  # Must be 'postgres' for docker networking
+      - DB_PORT=${DB_PORT:-5432}
+      - DB_NAME=${DB_NAME:-krakenhashes}
+      - DB_USER=${DB_USER:-krakenhashes}
+      - DB_PASSWORD=${DB_PASSWORD:-krakenhashes}
+      - DEBUG=${DEBUG:-true}
+      - LOG_LEVEL=${LOG_LEVEL:-DEBUG}
+      # Enable all debug flags for development
+      - DEBUG_SQL=${DEBUG_SQL:-true}
+      - DEBUG_HTTP=${DEBUG_HTTP:-true}
+      - DEBUG_WEBSOCKET=${DEBUG_WEBSOCKET:-true}
+      - DEBUG_AUTH=${DEBUG_AUTH:-true}
+      - DEBUG_JOBS=${DEBUG_JOBS:-true}
+    restart: unless-stopped
     networks:
-      - krakenhashes-dev-net
+      - krakenhashes-net
+
+# ============================================
+# OPTION 2: Individual Services (Advanced)
+# ============================================
+# Uncomment the services below if you want to run backend/frontend separately
+# This allows for hot reload during development
+
+# backend-dev:
+#   image: golang:1.23.1-alpine
+#   container_name: krakenhashes-backend-dev
+#   working_dir: /app/backend
+#   command: sh -c "go install github.com/cosmtrek/air@latest && air -c .air.toml"
+#   volumes:
+#     - ./backend:/app/backend
+#     - ./versions.json:/app/versions.json:ro
+#     - go_mod_cache:/go/pkg/mod
+#     - ${KH_DATA_DIR_HOST:-./data}:/var/lib/krakenhashes
+#     - ${KH_CONFIG_DIR_HOST:-./config}:/etc/krakenhashes
+#   environment:
+#     - DB_HOST=postgres
+#     - DB_PORT=5432
+#     - DB_NAME=${DB_NAME:-krakenhashes}
+#     - DB_USER=${DB_USER:-krakenhashes}
+#     - DB_PASSWORD=${DB_PASSWORD:-krakenhashes}
+#     - JWT_SECRET=${JWT_SECRET:-dev_jwt_secret}
+#     - DEBUG=true
+#     - LOG_LEVEL=DEBUG
+#     - KH_HTTPS_PORT=31337
+#     - KH_HTTP_PORT=1337
+#     - CGO_ENABLED=0
+#     - GOOS=linux
+#   ports:
+#     - "31337:31337"
+#     - "1337:1337"
+#   depends_on:
+#     postgres:
+#       condition: service_healthy
+#   networks:
+#     - krakenhashes-net
+
+# frontend-dev:
+#   image: node:20-alpine
+#   container_name: krakenhashes-frontend-dev
+#   working_dir: /app/frontend
+#   command: sh -c "npm install && npm start"
+#   volumes:
+#     - ./frontend:/app/frontend
+#     - ./versions.json:/app/versions.json:ro
+#     - node_modules:/app/frontend/node_modules
+#   environment:
+#     # Frontend now uses relative URLs through nginx proxy
+#     - REACT_APP_DEBUG=true
+#     - WDS_SOCKET_PORT=3000
+#     - CHOKIDAR_USEPOLLING=true
+#   ports:
+#     - "3000:3000"
+#   networks:
+#     - krakenhashes-net
+
+# nginx-dev:
+#   image: nginx:alpine
+#   container_name: krakenhashes-nginx-dev
+#   volumes:
+#     - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+#     - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+#     # For development, you might want to serve the React dev server
+#     # - ./frontend/build:/usr/share/nginx/html:ro
+#   ports:
+#     - "80:80"
+#     - "443:443"
+#   depends_on:
+#     - backend-dev
+#   networks:
+#     - krakenhashes-net
 
 networks:
-  krakenhashes-dev-net:
+  krakenhashes-net:
     driver: bridge
 
 volumes:
-  postgres_dev_data:
-    name: krakenhashes_postgres_data  # Use same volume as production
-  go_mod_cache:
-    name: krakenhashes_go_mod_cache
-  node_modules:
-    name: krakenhashes_node_modules
+  postgres_data:
+    name: krakenhashes_postgres_data
+  krakenhashes_data:
+    name: krakenhashes_app_data
+  # Uncomment these if using individual services
+  # go_mod_cache:
+  #   name: krakenhashes_go_mod_cache
+  # node_modules:
+  #   name: krakenhashes_node_modules
