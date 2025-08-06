@@ -28,34 +28,33 @@ RUN VERSION=$(jq -r .backend versions.json) && \
     CGO_ENABLED=0 GOOS=linux go build -ldflags="-X main.Version=$VERSION" -o krakenhashes ./cmd/server
 
 # Final stage
-FROM postgres:15-alpine
+FROM debian:bookworm-slim
 
 # Install required packages
-RUN apk add --no-cache \
-    postgresql15 \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     nginx \
     supervisor \
     certbot \
     logrotate \
     tzdata \
     jq \
-    musl-locales \
-    musl-locales-lang \
     openssl \
-    p7zip \
-    shadow \
-    libcap \
-    su-exec
+    p7zip-full \
+    libcap2-bin \
+    gosu \
+    curl \
+    ca-certificates \
+    procps \
+    netcat-openbsd \
+    && rm -rf /var/lib/apt/lists/*
 
 # Create krakenhashes user and group with default UID/GID 1000
-RUN addgroup -g 1000 -S krakenhashes && \
-    adduser -u 1000 -S -G krakenhashes -h /home/krakenhashes -s /bin/sh krakenhashes
+RUN groupadd -g 1000 krakenhashes && \
+    useradd -u 1000 -g krakenhashes -d /home/krakenhashes -s /bin/sh -m krakenhashes
 
 # Create necessary directories and set permissions
 RUN set -ex && \
-    # Add nginx and postgres users/groups if they don't exist
-    addgroup -S nginx 2>/dev/null || true && \
-    adduser -S -D -H -h /var/cache/nginx -s /sbin/nologin -G nginx -g nginx nginx 2>/dev/null || true && \
+    # nginx user is already created by nginx package on Debian
     # Create base directories
     mkdir -p /var/log/krakenhashes && \
     mkdir -p /etc/krakenhashes && \
@@ -65,13 +64,10 @@ RUN set -ex && \
     # Create log directories with proper ownership
     install -d -m 755 -o krakenhashes -g krakenhashes /var/log/krakenhashes/backend && \
     install -d -m 755 -o root -g root /var/log/krakenhashes/frontend && \
-    install -d -m 755 -o nginx -g nginx /var/log/krakenhashes/nginx && \
-    install -d -m 755 -o postgres -g postgres /var/log/krakenhashes/postgres && \
+    install -d -m 755 -o www-data -g www-data /var/log/krakenhashes/nginx && \
     # Create log files with proper ownership
-    install -m 644 -o postgres -g postgres /dev/null /var/log/krakenhashes/postgres/stdout.log && \
-    install -m 644 -o postgres -g postgres /dev/null /var/log/krakenhashes/postgres/stderr.log && \
     install -m 644 -o krakenhashes -g krakenhashes /dev/null /var/log/krakenhashes/backend/backend.log && \
-    install -m 644 -o nginx -g nginx /dev/null /var/log/krakenhashes/nginx/access.log && \
+    install -m 644 -o www-data -g www-data /dev/null /var/log/krakenhashes/nginx/access.log && \
     install -m 644 -o root -g root /dev/null /var/log/krakenhashes/logrotate.log && \
     install -m 644 -o root -g root /dev/null /var/log/krakenhashes/logrotate.err && \
     install -m 644 -o root -g root /dev/null /var/log/krakenhashes/supervisord.log
@@ -89,9 +85,6 @@ RUN VERSION=$(jq -r .backend /usr/local/share/krakenhashes/versions.json)
 LABEL org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.description="KrakenHashes - Password Cracking Management System" \
       org.opencontainers.image.source="https://github.com/ZerkerEOD/krakenhashes"
-
-# Copy PostgreSQL configuration
-COPY docker/postgres/postgresql.conf /etc/postgresql/postgresql.conf
 
 # Copy Nginx configuration
 COPY docker/nginx/nginx.conf /etc/nginx/nginx.conf
@@ -123,13 +116,11 @@ COPY docker/scripts/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 # Set environment variables
-ENV PGDATA=/var/lib/postgresql/data \
-    POSTGRES_HOST_AUTH_METHOD=trust \
-    KH_IN_DOCKER=TRUE \
+ENV KH_IN_DOCKER=TRUE \
     KH_HOST=0.0.0.0
 
 # Expose ports
-EXPOSE 443 1337 31337 5432
+EXPOSE 443 1337 31337
 
 # Set entrypoint
 ENTRYPOINT ["/entrypoint.sh"]

@@ -701,6 +701,23 @@ func (r *JobTaskRepository) UpdateCrackCountTx(tx *sql.Tx, id uuid.UUID, additio
 	return nil
 }
 
+// IncrementPotfileEntriesAddedTx increments the potfile_entries_added counter for a task within a transaction
+func (r *JobTaskRepository) IncrementPotfileEntriesAddedTx(tx *sql.Tx, id uuid.UUID) error {
+	query := `
+		UPDATE job_tasks 
+		SET 
+			potfile_entries_added = COALESCE(potfile_entries_added, 0) + 1,
+			updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1`
+
+	_, err := tx.ExecContext(context.Background(), query, id)
+	if err != nil {
+		return fmt.Errorf("failed to increment potfile entries added: %w", err)
+	}
+
+	return nil
+}
+
 // GetActiveTaskForAgentAndHashlist finds the active task for a specific agent and hashlist
 func (r *JobTaskRepository) GetActiveTaskForAgentAndHashlist(ctx context.Context, agentID int, hashlistID int64) (*models.JobTask, error) {
 	query := `

@@ -177,6 +177,7 @@ func main() {
 	systemSettingsRepo := repository.NewSystemSettingsRepository(dbWrapper)
 	jobExecutionRepo := repository.NewJobExecutionRepository(dbWrapper)
 	jobTaskRepo := repository.NewJobTaskRepository(dbWrapper)
+	presetJobRepo := repository.NewPresetJobRepository(sqlDB)
 	
 	// Initialize services with dependencies
 	agentService := services.NewAgentService(agentRepo, repository.NewClaimVoucherRepository(dbWrapper), repository.NewFileRepository(dbWrapper, appConfig.DataDir), deviceRepo, jobTaskRepo, jobExecutionRepo)
@@ -313,6 +314,28 @@ func main() {
 		}
 	}()
 
+	// Initialize pot-file service
+	debug.Info("=== POT-FILE SERVICE INITIALIZATION STARTING ===")
+	debug.Info("About to initialize pot-file service")
+	debug.Info("Initializing pot-file service...")
+	potfileService := services.NewPotfileService(
+		dbWrapper,
+		appConfig.DataDir,
+		systemSettingsRepo,
+		presetJobRepo,
+		wordlistStore,
+		hashRepo,
+	)
+	
+	// Start pot-file service
+	if err := potfileService.Start(context.Background()); err != nil {
+		debug.Error("Failed to start pot-file service: %v", err)
+		// Continue without pot-file service - not fatal
+	} else {
+		debug.Info("Pot-file service started successfully")
+		defer potfileService.Stop()
+	}
+
 	// Create routers
 	debug.Info("Creating routers")
 	httpRouter := mux.NewRouter()  // For HTTP server (CA certificate)
@@ -324,7 +347,7 @@ func main() {
 
 	// Setup routes
 	debug.Info("Setting up routes")
-	routes.SetupRoutes(httpsRouter, sqlDB, tlsProvider, agentService, wordlistManager, ruleManager, binaryManager)
+	routes.SetupRoutes(httpsRouter, sqlDB, tlsProvider, agentService, wordlistManager, ruleManager, binaryManager, potfileService)
 
 	// Setup CA certificate route on HTTP router
 	debug.Info("Setting up CA certificate route")

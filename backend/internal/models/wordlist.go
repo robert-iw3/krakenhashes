@@ -44,6 +44,7 @@ type Wordlist struct {
 	UpdatedBy          uuid.UUID `json:"updated_by,omitempty"`
 	LastVerifiedAt     time.Time `json:"last_verified_at,omitempty"`
 	VerificationStatus string    `json:"verification_status"` // e.g., "pending", "verified", "failed"
+	IsPotfile          bool      `json:"is_potfile" db:"is_potfile"`
 	Tags               []string  `json:"tags,omitempty"`
 }
 

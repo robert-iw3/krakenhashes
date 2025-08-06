@@ -184,6 +184,12 @@ func (m *DirectoryMonitor) checkWordlistDirectory() {
 			return nil
 		}
 
+		// Skip potfile explicitly
+		if info.Name() == "potfile.txt" || strings.Contains(relPath, "custom/potfile.txt") {
+			debug.Debug("Skipping pot-file from directory monitoring: %s", relPath)
+			return nil
+		}
+
 		// Skip if already being processed
 		if _, isProcessing := m.processingFiles.Load(relPath); isProcessing {
 			debug.Debug("Skipping file that is already being processed: %s", relPath)
@@ -242,6 +248,13 @@ func (m *DirectoryMonitor) checkWordlistDirectory() {
 			if existingWordlist != nil && existingWordlist.MD5Hash == md5Hash {
 				debug.Debug("Skipping wordlist with unchanged hash: %s", relPath)
 				m.fileStatuses.Store(relPath, "unchanged")
+				return
+			}
+			
+			// Skip pot-file from monitoring
+			if existingWordlist != nil && existingWordlist.IsPotfile {
+				debug.Info("Skipping pot-file from monitoring due to is_potfile flag: %s (ID: %d)", relPath, existingWordlist.ID)
+				m.fileStatuses.Store(relPath, "potfile-excluded")
 				return
 			}
 

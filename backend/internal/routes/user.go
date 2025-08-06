@@ -3,7 +3,6 @@ package routes
 import (
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"time"
 
@@ -86,10 +85,7 @@ func CreateJobsHandler(database *db.DB, dataDir string, binaryManager binary.Man
 
 // SetupUserRoutes configures all user-related routes
 func SetupUserRoutes(router *mux.Router, database *db.DB, dataDir string, binaryManager binary.Manager, agentService *services.AgentService) {
-	// Force logging to ensure we can see execution
-	fmt.Printf("[STARTUP] ===== SetupUserRoutes CALLED =====\n")
 	debug.Info("Setting up user routes")
-	fmt.Printf("[STARTUP] Debug logging test from SetupUserRoutes\n")
 
 	// Create handlers
 	jobsHandler := CreateJobsHandler(database, dataDir, binaryManager)

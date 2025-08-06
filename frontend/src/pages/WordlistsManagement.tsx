@@ -549,7 +549,7 @@ export default function WordlistsManagement() {
       {/* Upload Dialog */}
       <Dialog
         open={uploadDialogOpen}
-        onClose={() => setUploadDialogOpen(false)}
+        onClose={() => !isLoading && setUploadDialogOpen(false)}
         maxWidth="md"
         fullWidth
       >
@@ -582,7 +582,7 @@ export default function WordlistsManagement() {
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setUploadDialogOpen(false)} color="primary">
+          <Button onClick={() => setUploadDialogOpen(false)} color="primary" disabled={isLoading}>
             Cancel
           </Button>
         </DialogActions>

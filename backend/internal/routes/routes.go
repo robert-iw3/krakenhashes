@@ -142,7 +142,7 @@ func CORSMiddleware(next http.Handler) http.Handler {
  *   - JWT authentication (protected routes)
  *   - API Key authentication (agent routes)
  */
-func SetupRoutes(r *mux.Router, sqlDB *sql.DB, tlsProvider tls.Provider, agentService *services.AgentService, wordlistManager wordlist.Manager, ruleManager rule.Manager, binaryManager binary.Manager) {
+func SetupRoutes(r *mux.Router, sqlDB *sql.DB, tlsProvider tls.Provider, agentService *services.AgentService, wordlistManager wordlist.Manager, ruleManager rule.Manager, binaryManager binary.Manager, potfileService *services.PotfileService) {
 	debug.Info("Initializing route configuration")
 
 	// Create our custom DB wrapper
@@ -241,7 +241,15 @@ func SetupRoutes(r *mux.Router, sqlDB *sql.DB, tlsProvider tls.Provider, agentSe
 	debug.Info("Setting up WebSocket routes...")
 	// Agent Update Handler (for cracked hashes)
 	jobTaskRepo := repository.NewJobTaskRepository(database)
-	updateHandler := websocket.NewAgentUpdateHandler(database, agentService, repository.NewHashRepository(database), repository.NewHashListRepository(database), jobTaskRepo)
+	updateHandler := websocket.NewAgentUpdateHandler(
+		database, 
+		agentService, 
+		repository.NewHashRepository(database), 
+		repository.NewHashListRepository(database), 
+		jobTaskRepo,
+		potfileService,
+		systemSettingsRepo,
+	)
 	websocket.RegisterAgentUpdateRoutes(r, updateHandler)
 
 	debug.Info("Route configuration completed successfully")

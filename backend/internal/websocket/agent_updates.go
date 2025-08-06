@@ -27,15 +27,25 @@ type CrackUpdateMessage struct {
 }
 
 type AgentUpdateHandler struct {
-	db           *db.DB
-	agentService *services.AgentService
-	hashRepo     *repository.HashRepository
-	hashlistRepo *repository.HashListRepository
-	jobTaskRepo  *repository.JobTaskRepository
-	upgrader     websocket.Upgrader
+	db              *db.DB
+	agentService    *services.AgentService
+	hashRepo        *repository.HashRepository
+	hashlistRepo    *repository.HashListRepository
+	jobTaskRepo     *repository.JobTaskRepository
+	potfileService  *services.PotfileService
+	systemSettings  *repository.SystemSettingsRepository
+	upgrader        websocket.Upgrader
 }
 
-func NewAgentUpdateHandler(database *db.DB, agentService *services.AgentService, hashRepo *repository.HashRepository, hashlistRepo *repository.HashListRepository, jobTaskRepo *repository.JobTaskRepository) *AgentUpdateHandler {
+func NewAgentUpdateHandler(
+	database *db.DB,
+	agentService *services.AgentService,
+	hashRepo *repository.HashRepository,
+	hashlistRepo *repository.HashListRepository,
+	jobTaskRepo *repository.JobTaskRepository,
+	potfileService *services.PotfileService,
+	systemSettings *repository.SystemSettingsRepository,
+) *AgentUpdateHandler {
 	// Configure the upgrader
 	upgrader := websocket.Upgrader{
 		ReadBufferSize:  1024,
@@ -51,12 +61,14 @@ func NewAgentUpdateHandler(database *db.DB, agentService *services.AgentService,
 		},
 	}
 	return &AgentUpdateHandler{
-		db:           database,
-		agentService: agentService,
-		hashRepo:     hashRepo,
-		hashlistRepo: hashlistRepo,
-		jobTaskRepo:  jobTaskRepo,
-		upgrader:     upgrader,
+		db:             database,
+		agentService:   agentService,
+		hashRepo:       hashRepo,
+		hashlistRepo:   hashlistRepo,
+		jobTaskRepo:    jobTaskRepo,
+		potfileService: potfileService,
+		systemSettings: systemSettings,
+		upgrader:       upgrader,
 	}
 }
 
@@ -242,6 +254,13 @@ func (h *AgentUpdateHandler) processCrackUpdate(ctx context.Context, agentID int
 		} else {
 			debug.Debug("Updated crack count for task %s", activeTask.ID)
 		}
+		
+		// Increment pot-file entries added counter
+		err = h.jobTaskRepo.IncrementPotfileEntriesAddedTx(tx, activeTask.ID)
+		if err != nil {
+			debug.Warning("Failed to increment potfile entries counter for task %s: %v", activeTask.ID, err)
+			// Don't fail the entire transaction, just log the warning
+		}
 	} else {
 		debug.Debug("No active task found for agent %d and hashlist %d", agentID, msg.HashlistID)
 	}
@@ -252,6 +271,19 @@ func (h *AgentUpdateHandler) processCrackUpdate(ctx context.Context, agentID int
 		debug.Error("Failed to commit transaction for crack update (Hashlist: %d, Hash: %s): %v", msg.HashlistID, hash.ID, err)
 		// err is already set
 		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	// 4. Stage password for pot-file (non-blocking, after transaction commit)
+	if h.potfileService != nil && h.systemSettings != nil {
+		// Check if pot-file is enabled
+		potfileEnabled, err := h.systemSettings.GetSetting(ctx, "potfile_enabled")
+		if err == nil && potfileEnabled != nil && potfileEnabled.Value != nil && *potfileEnabled.Value == "true" {
+			// Stage the password - this is non-blocking
+			if err := h.potfileService.StagePassword(ctx, msg.Password, msg.HashValue); err != nil {
+				debug.Warning("Failed to stage password for pot-file: %v", err)
+				// Don't fail the crack update, just log the error
+			}
+		}
 	}
 
 	debug.Info("Successfully processed crack update: Hashlist=%d, Hash=%s", msg.HashlistID, msg.HashValue)

@@ -26,7 +26,8 @@ func (s *Store) ListWordlists(ctx context.Context, filters map[string]interface{
 	query := `
 		SELECT w.id, w.name, w.description, w.wordlist_type, w.format, w.file_name, 
 		       w.md5_hash, w.file_size, w.word_count, w.created_at, w.created_by, 
-		       w.updated_at, w.updated_by, w.last_verified_at, w.verification_status
+		       w.updated_at, w.updated_by, w.last_verified_at, w.verification_status,
+		       w.is_potfile
 		FROM wordlists w
 		WHERE 1=1
 	`
@@ -74,6 +75,7 @@ func (s *Store) ListWordlists(ctx context.Context, filters map[string]interface{
 			&w.ID, &w.Name, &w.Description, &w.WordlistType, &w.Format, &w.FileName,
 			&w.MD5Hash, &w.FileSize, &w.WordCount, &w.CreatedAt, &w.CreatedBy,
 			&w.UpdatedAt, &w.UpdatedBy, &lastVerifiedAt, &w.VerificationStatus,
+			&w.IsPotfile,
 		)
 		if err != nil {
 			debug.Error("Failed to scan wordlist row: %v", err)
@@ -109,7 +111,8 @@ func (s *Store) GetWordlist(ctx context.Context, id int) (*models.Wordlist, erro
 	query := `
 		SELECT w.id, w.name, w.description, w.wordlist_type, w.format, w.file_name, 
 		       w.md5_hash, w.file_size, w.word_count, w.created_at, w.created_by, 
-		       w.updated_at, w.updated_by, w.last_verified_at, w.verification_status
+		       w.updated_at, w.updated_by, w.last_verified_at, w.verification_status,
+		       w.is_potfile
 		FROM wordlists w
 		WHERE w.id = $1
 	`
@@ -121,6 +124,7 @@ func (s *Store) GetWordlist(ctx context.Context, id int) (*models.Wordlist, erro
 		&w.ID, &w.Name, &w.Description, &w.WordlistType, &w.Format, &w.FileName,
 		&w.MD5Hash, &w.FileSize, &w.WordCount, &w.CreatedAt, &w.CreatedBy,
 		&w.UpdatedAt, &w.UpdatedBy, &lastVerifiedAt, &w.VerificationStatus,
+		&w.IsPotfile,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -151,7 +155,8 @@ func (s *Store) GetWordlistByFilename(ctx context.Context, filename string) (*mo
 	query := `
 		SELECT w.id, w.name, w.description, w.wordlist_type, w.format, w.file_name, 
 		       w.md5_hash, w.file_size, w.word_count, w.created_at, w.created_by, 
-		       w.updated_at, w.updated_by, w.last_verified_at, w.verification_status
+		       w.updated_at, w.updated_by, w.last_verified_at, w.verification_status,
+		       w.is_potfile
 		FROM wordlists w
 		WHERE w.file_name = $1
 	`
@@ -163,6 +168,7 @@ func (s *Store) GetWordlistByFilename(ctx context.Context, filename string) (*mo
 		&w.ID, &w.Name, &w.Description, &w.WordlistType, &w.Format, &w.FileName,
 		&w.MD5Hash, &w.FileSize, &w.WordCount, &w.CreatedAt, &w.CreatedBy,
 		&w.UpdatedAt, &w.UpdatedBy, &lastVerifiedAt, &w.VerificationStatus,
+		&w.IsPotfile,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -193,7 +199,8 @@ func (s *Store) GetWordlistByMD5Hash(ctx context.Context, md5Hash string) (*mode
 	query := `
 		SELECT w.id, w.name, w.description, w.wordlist_type, w.format, w.file_name, 
 		       w.md5_hash, w.file_size, w.word_count, w.created_at, w.created_by, 
-		       w.updated_at, w.updated_by, w.last_verified_at, w.verification_status
+		       w.updated_at, w.updated_by, w.last_verified_at, w.verification_status,
+		       w.is_potfile
 		FROM wordlists w
 		WHERE w.md5_hash = $1
 	`
@@ -205,6 +212,7 @@ func (s *Store) GetWordlistByMD5Hash(ctx context.Context, md5Hash string) (*mode
 		&w.ID, &w.Name, &w.Description, &w.WordlistType, &w.Format, &w.FileName,
 		&w.MD5Hash, &w.FileSize, &w.WordCount, &w.CreatedAt, &w.CreatedBy,
 		&w.UpdatedAt, &w.UpdatedBy, &lastVerifiedAt, &w.VerificationStatus,
+		&w.IsPotfile,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -235,14 +243,15 @@ func (s *Store) CreateWordlist(ctx context.Context, wordlist *models.Wordlist) e
 	query := `
 		INSERT INTO wordlists (
 			name, description, wordlist_type, format, file_name, 
-			md5_hash, file_size, word_count, created_by, verification_status
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+			md5_hash, file_size, word_count, created_by, verification_status, is_potfile
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		RETURNING id, created_at, updated_at
 	`
 
 	err := s.db.QueryRowContext(ctx, query,
 		wordlist.Name, wordlist.Description, wordlist.WordlistType, wordlist.Format, wordlist.FileName,
 		wordlist.MD5Hash, wordlist.FileSize, wordlist.WordCount, wordlist.CreatedBy, wordlist.VerificationStatus,
+		wordlist.IsPotfile,
 	).Scan(&wordlist.ID, &wordlist.CreatedAt, &wordlist.UpdatedAt)
 	if err != nil {
 		debug.Error("Failed to create wordlist: %v", err)
