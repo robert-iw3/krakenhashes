@@ -485,7 +485,10 @@ func (s *JobSchedulingService) assignWorkToAgent(ctx context.Context, agent *mod
 		if nextJob.RuleSplitCount > 0 {
 			// Get total rules from job metadata
 			// This should be stored during initial analysis
-			presetJob, err := s.jobExecutionService.presetJobRepo.GetByID(ctx, nextJob.PresetJobID)
+			if nextJob.PresetJobID == nil {
+				return nil, interruptedJobs, fmt.Errorf("job was not created from a preset job")
+			}
+			presetJob, err := s.jobExecutionService.presetJobRepo.GetByID(ctx, *nextJob.PresetJobID)
 			if err != nil {
 				return nil, interruptedJobs, fmt.Errorf("failed to get preset job: %w", err)
 			}
@@ -581,7 +584,10 @@ func (s *JobSchedulingService) assignWorkToAgent(ctx context.Context, agent *mod
 		}
 
 		// Create rule chunk file on-demand
-		presetJob, _ := s.jobExecutionService.presetJobRepo.GetByID(ctx, nextJob.PresetJobID)
+		if nextJob.PresetJobID == nil {
+			return nil, interruptedJobs, fmt.Errorf("job was not created from a preset job")
+		}
+		presetJob, _ := s.jobExecutionService.presetJobRepo.GetByID(ctx, *nextJob.PresetJobID)
 		rulePath, _ := s.jobExecutionService.resolveRulePath(ctx, presetJob.RuleIDs[0])
 		chunk, err := s.jobExecutionService.ruleSplitManager.CreateSingleRuleChunk(
 			ctx, nextJob.ID, rulePath, nextRuleStart, nextRuleEnd-nextRuleStart)
@@ -750,10 +756,9 @@ func (s *JobSchedulingService) assignWorkToAgent(ctx context.Context, agent *mod
 
 // getChunkDuration gets the chunk duration for a job from preset job or settings
 func (s *JobSchedulingService) getChunkDuration(ctx context.Context, jobExecution *models.JobExecution) (int, error) {
-	// First try to get from preset job
-	presetJob, err := s.jobExecutionService.presetJobRepo.GetByID(ctx, jobExecution.PresetJobID)
-	if err == nil && presetJob.ChunkSizeSeconds > 0 {
-		return presetJob.ChunkSizeSeconds, nil
+	// First try to get from job execution itself
+	if jobExecution.ChunkSizeSeconds > 0 {
+		return jobExecution.ChunkSizeSeconds, nil
 	}
 
 	// Fall back to system setting

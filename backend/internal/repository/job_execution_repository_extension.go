@@ -83,7 +83,7 @@ func (r *JobExecutionRepository) ListWithFilters(ctx context.Context, limit, off
 			je.total_keyspace, je.processed_keyspace, je.attack_mode, je.created_by,
 			je.created_at, je.started_at, je.completed_at, je.error_message, je.interrupted_by, je.updated_at
 		FROM job_executions je
-		JOIN preset_jobs pj ON je.preset_job_id = pj.id
+		LEFT JOIN preset_jobs pj ON je.preset_job_id = pj.id
 		JOIN hashlists h ON je.hashlist_id = h.id
 		LEFT JOIN users u ON je.created_by = u.id
 		WHERE 1=1`
@@ -105,10 +105,10 @@ func (r *JobExecutionRepository) ListWithFilters(ctx context.Context, limit, off
 		args = append(args, *filter.Priority)
 	}
 
-	// Apply search filter (search in preset job name and hashlist name)
+	// Apply search filter (search in job name, preset job name and hashlist name)
 	if filter.Search != nil && *filter.Search != "" {
 		argCount++
-		query += fmt.Sprintf(" AND (pj.name ILIKE $%d OR h.name ILIKE $%d)", argCount, argCount)
+		query += fmt.Sprintf(" AND (je.name ILIKE $%d OR pj.name ILIKE $%d OR h.name ILIKE $%d)", argCount, argCount, argCount)
 		searchPattern := "%" + *filter.Search + "%"
 		args = append(args, searchPattern)
 	}
@@ -190,7 +190,7 @@ func (r *JobExecutionRepository) GetFilteredCount(ctx context.Context, filter Jo
 	query := `
 		SELECT COUNT(*) 
 		FROM job_executions je
-		JOIN preset_jobs pj ON je.preset_job_id = pj.id
+		LEFT JOIN preset_jobs pj ON je.preset_job_id = pj.id
 		JOIN hashlists h ON je.hashlist_id = h.id
 		WHERE 1=1`
 
@@ -417,7 +417,7 @@ func (r *JobExecutionRepository) ListWithFiltersAndUser(ctx context.Context, lim
 			je.rule_split_count, je.overall_progress_percent, je.dispatched_keyspace,
 			u.username as created_by_username
 		FROM job_executions je
-		JOIN preset_jobs pj ON je.preset_job_id = pj.id
+		LEFT JOIN preset_jobs pj ON je.preset_job_id = pj.id
 		JOIN hashlists h ON je.hashlist_id = h.id
 		LEFT JOIN users u ON je.created_by = u.id
 		WHERE 1=1`
@@ -439,10 +439,10 @@ func (r *JobExecutionRepository) ListWithFiltersAndUser(ctx context.Context, lim
 		args = append(args, *filter.Priority)
 	}
 
-	// Apply search filter (search in preset job name and hashlist name)
+	// Apply search filter (search in job name, preset job name and hashlist name)
 	if filter.Search != nil && *filter.Search != "" {
 		argCount++
-		query += fmt.Sprintf(" AND (pj.name ILIKE $%d OR h.name ILIKE $%d)", argCount, argCount)
+		query += fmt.Sprintf(" AND (je.name ILIKE $%d OR pj.name ILIKE $%d OR h.name ILIKE $%d)", argCount, argCount, argCount)
 		searchPattern := "%" + *filter.Search + "%"
 		args = append(args, searchPattern)
 	}

@@ -104,7 +104,9 @@ export default function CreateJobDialog({
     mask: '',
     priority: 5,
     max_agents: 0,
-    binary_version_id: 1
+    binary_version_id: 1,
+    is_small_job: false,
+    allow_high_priority_override: false
   });
   
   // Available data
@@ -130,9 +132,11 @@ export default function CreateJobDialog({
       
       // Set default binary version if available
       if (response.data.form_data?.binary_versions?.length > 0) {
+        const firstBinaryId = response.data.form_data.binary_versions[0].id;
+        console.log('Setting default binary version to:', firstBinaryId);
         setCustomJob(prev => ({ 
           ...prev, 
-          binary_version_id: response.data.form_data.binary_versions[0].id 
+          binary_version_id: firstBinaryId 
         }));
       }
     } catch (err: any) {
@@ -253,7 +257,9 @@ export default function CreateJobDialog({
         mask: '',
         priority: 5,
         max_agents: 0,
-        binary_version_id: 1
+        binary_version_id: 1,
+        is_small_job: false,
+        allow_high_priority_override: false
       });
       setTabValue(0);
       onClose();
@@ -473,7 +479,7 @@ export default function CreateJobDialog({
                       <InputLabel>Binary Version</InputLabel>
                       <Select
                         value={customJob.binary_version_id}
-                        onChange={(e) => setCustomJob(prev => ({ ...prev, binary_version_id: e.target.value as number }))}
+                        onChange={(e) => setCustomJob(prev => ({ ...prev, binary_version_id: Number(e.target.value) }))}
                         label="Binary Version"
                       >
                         {formData?.binary_versions?.map(version => (
@@ -577,6 +583,32 @@ export default function CreateJobDialog({
                       }}
                       inputProps={{ min: 0 }}
                       helperText="Maximum number of agents (0 = unlimited)"
+                    />
+                  </Grid>
+
+                  <Grid item xs={12} sm={6}>
+                    <FormControlLabel
+                      control={
+                        <Checkbox
+                          checked={customJob.is_small_job}
+                          onChange={(e) => setCustomJob(prev => ({ ...prev, is_small_job: e.target.checked }))}
+                        />
+                      }
+                      label="Small Job (Process in single chunk)"
+                      sx={{ mt: 1 }}
+                    />
+                  </Grid>
+
+                  <Grid item xs={12} sm={6}>
+                    <FormControlLabel
+                      control={
+                        <Checkbox
+                          checked={customJob.allow_high_priority_override}
+                          onChange={(e) => setCustomJob(prev => ({ ...prev, allow_high_priority_override: e.target.checked }))}
+                        />
+                      }
+                      label="Allow High Priority Override"
+                      sx={{ mt: 1 }}
                     />
                   </Grid>
                 </Grid>

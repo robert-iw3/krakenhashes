@@ -24,8 +24,12 @@ func NewJobExecutionRepository(db *db.DB) *JobExecutionRepository {
 // Create creates a new job execution
 func (r *JobExecutionRepository) Create(ctx context.Context, exec *models.JobExecution) error {
 	query := `
-		INSERT INTO job_executions (preset_job_id, hashlist_id, status, priority, max_agents, attack_mode, total_keyspace, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO job_executions (
+			preset_job_id, hashlist_id, status, priority, max_agents, attack_mode, total_keyspace, created_by,
+			name, wordlist_ids, rule_ids, mask, binary_version_id, hash_type,
+			chunk_size_seconds, status_updates_enabled, is_small_job, allow_high_priority_override, additional_args
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
 		RETURNING id, created_at`
 
 	err := r.db.QueryRowContext(ctx, query,
@@ -37,6 +41,17 @@ func (r *JobExecutionRepository) Create(ctx context.Context, exec *models.JobExe
 		exec.AttackMode,
 		exec.TotalKeyspace,
 		exec.CreatedBy,
+		exec.Name,
+		exec.WordlistIDs,
+		exec.RuleIDs,
+		exec.Mask,
+		exec.BinaryVersionID,
+		exec.HashType,
+		exec.ChunkSizeSeconds,
+		exec.StatusUpdatesEnabled,
+		exec.IsSmallJob,
+		exec.AllowHighPriorityOverride,
+		exec.AdditionalArgs,
 	).Scan(&exec.ID, &exec.CreatedAt)
 
 	if err != nil {

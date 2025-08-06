@@ -99,12 +99,6 @@ func (s *JobWebSocketIntegration) SendJobAssignment(ctx context.Context, task *m
 		"job_id":   jobExecution.ID,
 	})
 
-	// Get preset job details
-	presetJob, err := s.presetJobRepo.GetByID(ctx, jobExecution.PresetJobID)
-	if err != nil {
-		return fmt.Errorf("failed to get preset job: %w", err)
-	}
-
 	// Get hashlist details
 	hashlist, err := s.hashlistRepo.GetByID(ctx, jobExecution.HashlistID)
 	if err != nil {
@@ -120,9 +114,9 @@ func (s *JobWebSocketIntegration) SendJobAssignment(ctx context.Context, task *m
 		return fmt.Errorf("failed to get agent: %w", err)
 	}
 
-	// Build wordlist and rule paths
+	// Build wordlist and rule paths using job execution's self-contained configuration
 	var wordlistPaths []string
-	for _, wordlistIDStr := range presetJob.WordlistIDs {
+	for _, wordlistIDStr := range jobExecution.WordlistIDs {
 		// Convert string ID to int
 		wordlistID, err := strconv.Atoi(wordlistIDStr)
 		if err != nil {
@@ -177,7 +171,7 @@ func (s *JobWebSocketIntegration) SendJobAssignment(ctx context.Context, task *m
 		})
 	} else {
 		// Standard rule processing
-		for _, ruleIDStr := range presetJob.RuleIDs {
+		for _, ruleIDStr := range jobExecution.RuleIDs {
 			// Convert string ID to int
 			ruleID, err := strconv.Atoi(ruleIDStr)
 			if err != nil {
@@ -200,12 +194,12 @@ func (s *JobWebSocketIntegration) SendJobAssignment(ctx context.Context, task *m
 	}
 
 	// Get binary path from binary version
-	binaryVersion, err := s.binaryManager.GetVersion(ctx, int64(presetJob.BinaryVersionID))
+	binaryVersion, err := s.binaryManager.GetVersion(ctx, int64(jobExecution.BinaryVersionID))
 	if err != nil {
-		return fmt.Errorf("failed to get binary version %d: %w", presetJob.BinaryVersionID, err)
+		return fmt.Errorf("failed to get binary version %d: %w", jobExecution.BinaryVersionID, err)
 	}
 	if binaryVersion == nil {
-		return fmt.Errorf("binary version %d not found", presetJob.BinaryVersionID)
+		return fmt.Errorf("binary version %d not found", jobExecution.BinaryVersionID)
 	}
 
 	// Use the actual binary path - the ID is used as the directory name
@@ -253,7 +247,7 @@ func (s *JobWebSocketIntegration) SendJobAssignment(ctx context.Context, task *m
 		KeyspaceEnd:     task.KeyspaceEnd,
 		WordlistPaths:   wordlistPaths,
 		RulePaths:       rulePaths,
-		Mask:            presetJob.Mask,
+		Mask:            jobExecution.Mask,
 		BinaryPath:      binaryPath,
 		ChunkDuration:   task.ChunkDuration,
 		ReportInterval:  reportInterval,
@@ -434,12 +428,6 @@ func (s *JobWebSocketIntegration) SendBenchmarkRequest(ctx context.Context, agen
 
 // RequestAgentBenchmark implements the JobWebSocketIntegration interface for requesting benchmarks
 func (s *JobWebSocketIntegration) RequestAgentBenchmark(ctx context.Context, agentID int, jobExecution *models.JobExecution) error {
-	// Get preset job details to find binary version and attack configuration
-	presetJob, err := s.presetJobRepo.GetByID(ctx, jobExecution.PresetJobID)
-	if err != nil {
-		return fmt.Errorf("failed to get preset job: %w", err)
-	}
-
 	// Get hashlist to get hash type
 	hashlist, err := s.hashlistRepo.GetByID(ctx, jobExecution.HashlistID)
 	if err != nil {
@@ -454,7 +442,7 @@ func (s *JobWebSocketIntegration) RequestAgentBenchmark(ctx context.Context, age
 
 	// Build wordlist and rule paths for a more accurate benchmark
 	var wordlistPaths []string
-	for _, wordlistIDStr := range presetJob.WordlistIDs {
+	for _, wordlistIDStr := range jobExecution.WordlistIDs {
 		// Convert string ID to int
 		wordlistID, err := strconv.Atoi(wordlistIDStr)
 		if err != nil {
@@ -473,7 +461,7 @@ func (s *JobWebSocketIntegration) RequestAgentBenchmark(ctx context.Context, age
 	}
 
 	var rulePaths []string
-	for _, ruleIDStr := range presetJob.RuleIDs {
+	for _, ruleIDStr := range jobExecution.RuleIDs {
 		// Convert string ID to int
 		ruleID, err := strconv.Atoi(ruleIDStr)
 		if err != nil {
@@ -492,12 +480,12 @@ func (s *JobWebSocketIntegration) RequestAgentBenchmark(ctx context.Context, age
 	}
 
 	// Get binary path from binary version
-	binaryVersion, err := s.binaryManager.GetVersion(ctx, int64(presetJob.BinaryVersionID))
+	binaryVersion, err := s.binaryManager.GetVersion(ctx, int64(jobExecution.BinaryVersionID))
 	if err != nil {
-		return fmt.Errorf("failed to get binary version %d: %w", presetJob.BinaryVersionID, err)
+		return fmt.Errorf("failed to get binary version %d: %w", jobExecution.BinaryVersionID, err)
 	}
 	if binaryVersion == nil {
-		return fmt.Errorf("binary version %d not found", presetJob.BinaryVersionID)
+		return fmt.Errorf("binary version %d not found", jobExecution.BinaryVersionID)
 	}
 
 	// Use the actual binary path - the ID is used as the directory name
@@ -534,7 +522,7 @@ func (s *JobWebSocketIntegration) RequestAgentBenchmark(ctx context.Context, age
 		"request_id":      requestID,
 		"wordlist_count":  len(wordlistPaths),
 		"rule_count":      len(rulePaths),
-		"has_mask":        presetJob.Mask != "",
+		"has_mask":        jobExecution.Mask != "",
 		"enabled_devices": enabledDeviceIDs,
 	})
 
@@ -559,7 +547,7 @@ func (s *JobWebSocketIntegration) RequestAgentBenchmark(ctx context.Context, age
 		HashlistPath:    fmt.Sprintf("hashlists/%d.hash", jobExecution.HashlistID),
 		WordlistPaths:   wordlistPaths,
 		RulePaths:       rulePaths,
-		Mask:            presetJob.Mask,
+		Mask:            jobExecution.Mask,
 		TestDuration:    30,                    // 30-second benchmark for accuracy
 		TimeoutDuration: speedtestTimeout,      // Configurable timeout for speedtest
 		ExtraParameters: agent.ExtraParameters, // Agent-specific hashcat parameters

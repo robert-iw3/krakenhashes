@@ -85,6 +85,20 @@ func NewJobExecutionService(
 	}
 }
 
+// CustomJobConfig contains the configuration for a custom job
+type CustomJobConfig struct {
+	Name                      string
+	WordlistIDs               models.IDArray
+	RuleIDs                   models.IDArray
+	AttackMode                models.AttackMode
+	Mask                      string
+	Priority                  int
+	MaxAgents                 int
+	BinaryVersionID           int
+	IsSmallJob                bool
+	AllowHighPriorityOverride bool
+}
+
 // CreateJobExecution creates a new job execution from a preset job and hashlist
 func (s *JobExecutionService) CreateJobExecution(ctx context.Context, presetJobID uuid.UUID, hashlistID int64, createdBy *uuid.UUID) (*models.JobExecution, error) {
 	debug.Log("Creating job execution", map[string]interface{}{
@@ -122,9 +136,9 @@ func (s *JobExecutionService) CreateJobExecution(ctx context.Context, presetJobI
 		}
 	}
 
-	// Create job execution
+	// Create job execution with all configuration copied from preset
 	jobExecution := &models.JobExecution{
-		PresetJobID:       presetJobID,
+		PresetJobID:       &presetJobID, // Keep reference for audit trail
 		HashlistID:        hashlistID,
 		Status:            models.JobExecutionStatusPending,
 		Priority:          presetJob.Priority,
@@ -133,6 +147,19 @@ func (s *JobExecutionService) CreateJobExecution(ctx context.Context, presetJobI
 		AttackMode:        presetJob.AttackMode,
 		MaxAgents:         presetJob.MaxAgents,
 		CreatedBy:         createdBy,
+		
+		// Copy all configuration from preset to make job self-contained
+		Name:                      presetJob.Name,
+		WordlistIDs:               presetJob.WordlistIDs,
+		RuleIDs:                   presetJob.RuleIDs,
+		HashType:                  hashlist.HashTypeID,
+		ChunkSizeSeconds:          presetJob.ChunkSizeSeconds,
+		StatusUpdatesEnabled:      presetJob.StatusUpdatesEnabled,
+		IsSmallJob:                presetJob.IsSmallJob,
+		AllowHighPriorityOverride: presetJob.AllowHighPriorityOverride,
+		BinaryVersionID:           presetJob.BinaryVersionID,
+		Mask:                      presetJob.Mask,
+		AdditionalArgs:            presetJob.AdditionalArgs,
 	}
 
 	err = s.jobExecRepo.Create(ctx, jobExecution)
@@ -162,6 +189,108 @@ func (s *JobExecutionService) CreateJobExecution(ctx context.Context, presetJobI
 	}
 
 	debug.Log("Job execution created", map[string]interface{}{
+		"job_execution_id":      jobExecution.ID,
+		"total_keyspace":        totalKeyspace,
+		"effective_keyspace":    jobExecution.EffectiveKeyspace,
+		"multiplication_factor": jobExecution.MultiplicationFactor,
+		"uses_rule_splitting":   jobExecution.UsesRuleSplitting,
+	})
+
+	return jobExecution, nil
+}
+
+// CreateCustomJobExecution creates a new job execution directly from custom configuration
+func (s *JobExecutionService) CreateCustomJobExecution(ctx context.Context, config CustomJobConfig, hashlistID int64, createdBy *uuid.UUID) (*models.JobExecution, error) {
+	debug.Log("Creating custom job execution", map[string]interface{}{
+		"name":        config.Name,
+		"hashlist_id": hashlistID,
+		"attack_mode": config.AttackMode,
+	})
+
+	// Get the hashlist
+	hashlist, err := s.hashlistRepo.GetByID(ctx, hashlistID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get hashlist: %w", err)
+	}
+
+	// Create a temporary preset job structure for keyspace calculation
+	// This ensures we use EXACTLY the same calculation logic as preset jobs
+	tempPreset := &models.PresetJob{
+		Name:                      config.Name,
+		WordlistIDs:               config.WordlistIDs,
+		RuleIDs:                   config.RuleIDs,
+		AttackMode:                config.AttackMode,
+		HashType:                  hashlist.HashTypeID,
+		BinaryVersionID:           config.BinaryVersionID,
+		Mask:                      config.Mask,
+		Priority:                  config.Priority,
+		MaxAgents:                 config.MaxAgents,
+		IsSmallJob:                config.IsSmallJob,
+		AllowHighPriorityOverride: config.AllowHighPriorityOverride,
+		ChunkSizeSeconds:          900, // Default chunk size
+		StatusUpdatesEnabled:      true,
+	}
+
+	// Use the same keyspace calculation as preset jobs
+	totalKeyspace, err := s.calculateKeyspace(ctx, tempPreset, hashlist)
+	if err != nil {
+		debug.Error("Failed to calculate keyspace for custom job: %v", err)
+		return nil, fmt.Errorf("keyspace calculation is required for job execution: %w", err)
+	}
+
+	// Create self-contained job execution
+	jobExecution := &models.JobExecution{
+		PresetJobID:       nil, // NULL for custom jobs
+		HashlistID:        hashlistID,
+		Status:            models.JobExecutionStatusPending,
+		Priority:          config.Priority,
+		TotalKeyspace:     totalKeyspace,
+		ProcessedKeyspace: 0,
+		AttackMode:        config.AttackMode,
+		MaxAgents:         config.MaxAgents,
+		CreatedBy:         createdBy,
+		
+		// Direct configuration (not from preset)
+		Name:                      config.Name,
+		WordlistIDs:               config.WordlistIDs,
+		RuleIDs:                   config.RuleIDs,
+		HashType:                  hashlist.HashTypeID,
+		ChunkSizeSeconds:          900, // Default
+		StatusUpdatesEnabled:      true,
+		IsSmallJob:                config.IsSmallJob,
+		AllowHighPriorityOverride: config.AllowHighPriorityOverride,
+		BinaryVersionID:           config.BinaryVersionID,
+		Mask:                      config.Mask,
+		AdditionalArgs:            nil,
+	}
+
+	err = s.jobExecRepo.Create(ctx, jobExecution)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create custom job execution: %w", err)
+	}
+
+	// Use the same effective keyspace calculation
+	err = s.calculateEffectiveKeyspace(ctx, jobExecution, tempPreset)
+	if err != nil {
+		debug.Error("Failed to calculate effective keyspace", map[string]interface{}{
+			"job_execution_id": jobExecution.ID,
+			"error":            err.Error(),
+		})
+		// Log the error but continue - we'll handle this in the scheduling logic
+	}
+
+	// Use the same rule splitting logic
+	if jobExecution.AttackMode == models.AttackModeStraight && jobExecution.EffectiveKeyspace != nil {
+		err = s.determineRuleSplitting(ctx, jobExecution, tempPreset)
+		if err != nil {
+			debug.Log("Failed to determine rule splitting", map[string]interface{}{
+				"job_execution_id": jobExecution.ID,
+				"error":            err.Error(),
+			})
+		}
+	}
+
+	debug.Log("Custom job execution created", map[string]interface{}{
 		"job_execution_id":      jobExecution.ID,
 		"total_keyspace":        totalKeyspace,
 		"effective_keyspace":    jobExecution.EffectiveKeyspace,
@@ -1961,8 +2090,11 @@ func (s *JobExecutionService) InitializeRuleSplitting(ctx context.Context, job *
 		return fmt.Errorf("job does not use rule splitting")
 	}
 
-	// Get the preset job
-	presetJob, err := s.presetJobRepo.GetByID(ctx, job.PresetJobID)
+	// Get the preset job (if this job was created from a preset)
+	if job.PresetJobID == nil {
+		return fmt.Errorf("job was not created from a preset job")
+	}
+	presetJob, err := s.presetJobRepo.GetByID(ctx, *job.PresetJobID)
 	if err != nil {
 		return fmt.Errorf("failed to get preset job: %w", err)
 	}
@@ -2068,8 +2200,11 @@ func (s *JobExecutionService) GetNextRuleSplitTask(ctx context.Context, job *mod
 
 // buildRuleSplitAttackCommand builds the hashcat command for a rule split task
 func (s *JobExecutionService) buildRuleSplitAttackCommand(ctx context.Context, job *models.JobExecution, task *models.JobTask) (string, error) {
-	// Get the preset job
-	presetJob, err := s.presetJobRepo.GetByID(ctx, job.PresetJobID)
+	// Get the preset job (if this job was created from a preset)
+	if job.PresetJobID == nil {
+		return "", fmt.Errorf("job was not created from a preset job")
+	}
+	presetJob, err := s.presetJobRepo.GetByID(ctx, *job.PresetJobID)
 	if err != nil {
 		return "", fmt.Errorf("failed to get preset job: %w", err)
 	}

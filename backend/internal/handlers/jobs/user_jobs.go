@@ -315,7 +315,11 @@ func (h *UserJobsHandler) ListJobs(w http.ResponseWriter, r *http.Request) {
 
 // getJobName generates a display name for a job
 func getJobName(job models.JobExecution, hashlist *models.HashList) string {
-	// Just use the hashlist name as the job name
+	// For custom jobs, use the job's name field if available
+	if job.Name != "" {
+		return job.Name
+	}
+	// For preset jobs, use the hashlist name
 	return hashlist.Name
 }
 
@@ -458,14 +462,16 @@ func (h *UserJobsHandler) CreateJobFromHashlist(w http.ResponseWriter, r *http.R
 		var req struct {
 			Type      string `json:"type"`
 			CustomJob struct {
-				Name            string   `json:"name"`
-				AttackMode      int      `json:"attack_mode"`
-				WordlistIDs     []string `json:"wordlist_ids"`
-				RuleIDs         []string `json:"rule_ids"`
-				Mask            string   `json:"mask"`
-				Priority        int      `json:"priority"`
-				MaxAgents       int      `json:"max_agents"`
-				BinaryVersionID int      `json:"binary_version_id"`
+				Name                      string   `json:"name"`
+				AttackMode                int      `json:"attack_mode"`
+				WordlistIDs               []string `json:"wordlist_ids"`
+				RuleIDs                   []string `json:"rule_ids"`
+				Mask                      string   `json:"mask"`
+				Priority                  int      `json:"priority"`
+				MaxAgents                 int      `json:"max_agents"`
+				BinaryVersionID           int      `json:"binary_version_id"`
+				IsSmallJob                bool     `json:"is_small_job"`
+				AllowHighPriorityOverride bool     `json:"allow_high_priority_override"`
 			} `json:"custom_job"`
 		}
 		if err := json.Unmarshal(rawReq, &req); err != nil {
@@ -473,35 +479,24 @@ func (h *UserJobsHandler) CreateJobFromHashlist(w http.ResponseWriter, r *http.R
 			return
 		}
 
-		// Create a custom preset job first
-		customPresetJob := models.PresetJob{
-			ID:              uuid.New(),
-			Name:            req.CustomJob.Name,
-			AttackMode:      models.AttackMode(req.CustomJob.AttackMode),
-			Priority:        req.CustomJob.Priority,
-			MaxAgents:       req.CustomJob.MaxAgents,
-			Mask:            req.CustomJob.Mask,
-			BinaryVersionID: req.CustomJob.BinaryVersionID,
-			CreatedAt:       time.Now(),
-			UpdatedAt:       time.Now(),
+		// Create custom job configuration (NO preset job creation)
+		config := services.CustomJobConfig{
+			Name:                      req.CustomJob.Name,
+			AttackMode:                models.AttackMode(req.CustomJob.AttackMode),
+			WordlistIDs:               models.IDArray(req.CustomJob.WordlistIDs),
+			RuleIDs:                   models.IDArray(req.CustomJob.RuleIDs),
+			Mask:                      req.CustomJob.Mask,
+			Priority:                  req.CustomJob.Priority,
+			MaxAgents:                 req.CustomJob.MaxAgents,
+			BinaryVersionID:           req.CustomJob.BinaryVersionID,
+			IsSmallJob:                req.CustomJob.IsSmallJob,
+			AllowHighPriorityOverride: req.CustomJob.AllowHighPriorityOverride,
 		}
 
-		// WordlistIDs and RuleIDs are already strings, just assign them
-		customPresetJob.WordlistIDs = models.IDArray(req.CustomJob.WordlistIDs)
-		customPresetJob.RuleIDs = models.IDArray(req.CustomJob.RuleIDs)
-
-		// Save the custom preset job
-		_, err = h.presetJobRepo.Create(ctx, customPresetJob)
+		// Create job execution directly without saving preset
+		jobExecution, err := h.jobExecutionService.CreateCustomJobExecution(ctx, config, hashlistID, &userID)
 		if err != nil {
-			debug.Error("Failed to create custom preset job: %v", err)
-			http.Error(w, "Failed to create custom job", http.StatusInternalServerError)
-			return
-		}
-
-		// Use CreateJobExecution to create job with keyspace calculation
-		jobExecution, err := h.jobExecutionService.CreateJobExecution(ctx, customPresetJob.ID, hashlistID, &userID)
-		if err != nil {
-			debug.Error("Failed to create job execution: %v", err)
+			debug.Error("Failed to create custom job execution: %v", err)
 			http.Error(w, "Failed to create job", http.StatusInternalServerError)
 			return
 		}
@@ -700,8 +695,8 @@ func (h *UserJobsHandler) GetJobDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Add preset job details if available
-	if job.PresetJobID != uuid.Nil {
-		presetJob, err := h.presetJobRepo.GetByID(ctx, job.PresetJobID)
+	if job.PresetJobID != nil {
+		presetJob, err := h.presetJobRepo.GetByID(ctx, *job.PresetJobID)
 		if err == nil {
 			response["preset_job"] = map[string]interface{}{
 				"id":   presetJob.ID.String(),
@@ -1201,8 +1196,8 @@ func (h *UserJobsHandler) ListUserJobs(w http.ResponseWriter, r *http.Request) {
 
 		// Get preset job name
 		presetJobName := "Custom Job"
-		if job.PresetJobID != uuid.Nil {
-			presetJob, err := h.presetJobRepo.GetByID(ctx, job.PresetJobID)
+		if job.PresetJobID != nil {
+			presetJob, err := h.presetJobRepo.GetByID(ctx, *job.PresetJobID)
 			if err == nil && presetJob != nil {
 				presetJobName = presetJob.Name
 			}

@@ -128,7 +128,7 @@ const (
 // JobExecution represents an actual running instance of a preset job
 type JobExecution struct {
 	ID                  uuid.UUID          `json:"id" db:"id"`
-	PresetJobID         uuid.UUID          `json:"preset_job_id" db:"preset_job_id"`
+	PresetJobID         *uuid.UUID         `json:"preset_job_id" db:"preset_job_id"` // Nullable for custom jobs
 	HashlistID          int64              `json:"hashlist_id" db:"hashlist_id"`
 	Status              JobExecutionStatus `json:"status" db:"status"`
 	Priority            int                `json:"priority" db:"priority"`
@@ -144,6 +144,19 @@ type JobExecution struct {
 	ErrorMessage        *string            `json:"error_message" db:"error_message"`
 	InterruptedBy       *uuid.UUID         `json:"interrupted_by" db:"interrupted_by"`
 	ConsecutiveFailures int                `json:"consecutive_failures" db:"consecutive_failures"` // Track consecutive task failures
+
+	// Self-contained configuration fields (no need to look up preset)
+	Name                      string  `json:"name" db:"name"`
+	WordlistIDs               IDArray `json:"wordlist_ids" db:"wordlist_ids"`
+	RuleIDs                   IDArray `json:"rule_ids" db:"rule_ids"`
+	HashType                  int     `json:"hash_type" db:"hash_type"`
+	ChunkSizeSeconds          int     `json:"chunk_size_seconds" db:"chunk_size_seconds"`
+	StatusUpdatesEnabled      bool    `json:"status_updates_enabled" db:"status_updates_enabled"`
+	IsSmallJob                bool    `json:"is_small_job" db:"is_small_job"`
+	AllowHighPriorityOverride bool    `json:"allow_high_priority_override" db:"allow_high_priority_override"`
+	BinaryVersionID           int     `json:"binary_version_id" db:"binary_version_id"`
+	Mask                      string  `json:"mask,omitempty" db:"mask"`
+	AdditionalArgs            *string `json:"additional_args,omitempty" db:"additional_args"`
 
 	// Enhanced chunking fields
 	BaseKeyspace         *int64 `json:"base_keyspace" db:"base_keyspace"`                 // Wordlist-only keyspace
