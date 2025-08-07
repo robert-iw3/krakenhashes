@@ -315,12 +315,39 @@ func (h *UserJobsHandler) ListJobs(w http.ResponseWriter, r *http.Request) {
 
 // getJobName generates a display name for a job
 func getJobName(job models.JobExecution, hashlist *models.HashList) string {
-	// For custom jobs, use the job's name field if available
+	// Job name should always be set during creation now
 	if job.Name != "" {
 		return job.Name
 	}
-	// For preset jobs, use the hashlist name
+	// This is a fallback for legacy jobs without names
 	return hashlist.Name
+}
+
+// generateJobName creates a job name based on the provided parameters
+func generateJobName(client *models.Client, presetName string, hashTypeID int, customName string) string {
+	if customName != "" && presetName != "" {
+		// User provided custom name with preset job
+		return fmt.Sprintf("%s - %s", customName, presetName)
+	}
+	
+	if customName != "" {
+		// Custom job with user-provided name
+		return customName
+	}
+	
+	// Default naming format
+	clientName := "Unknown"
+	if client != nil && client.Name != "" {
+		clientName = client.Name
+	}
+	
+	if presetName != "" {
+		// Preset job: [client]-[presetname]-[hashmode]
+		return fmt.Sprintf("%s-%s-%d", clientName, presetName, hashTypeID)
+	}
+	
+	// Custom job without name: [client]-[hashmode]
+	return fmt.Sprintf("%s-%d", clientName, hashTypeID)
 }
 
 // CreateJobFromHashlist handles POST /api/hashlists/{id}/create-job
@@ -364,12 +391,23 @@ func (h *UserJobsHandler) CreateJobFromHashlist(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	// Verify the hashlist exists
-	_, err = h.hashlistRepo.GetByID(ctx, hashlistID)
+	// Verify the hashlist exists and get its details
+	hashlist, err := h.hashlistRepo.GetByID(ctx, hashlistID)
 	if err != nil {
 		debug.Error("Failed to get hashlist %d: %v", hashlistID, err)
 		http.Error(w, "Hashlist not found", http.StatusNotFound)
 		return
+	}
+	
+	// Get client info if available
+	var client *models.Client
+	if hashlist.ClientID != uuid.Nil {
+		client, err = h.clientRepo.GetByID(ctx, hashlist.ClientID)
+		if err != nil {
+			debug.Warning("Failed to get client %s: %v", hashlist.ClientID, err)
+			// Don't fail, just continue without client info
+			client = nil
+		}
 	}
 
 	var createdJobs []string
@@ -378,8 +416,9 @@ func (h *UserJobsHandler) CreateJobFromHashlist(w http.ResponseWriter, r *http.R
 	case "preset":
 		// Handle preset jobs
 		var req struct {
-			Type         string   `json:"type"`
-			PresetJobIDs []string `json:"preset_job_ids"`
+			Type          string   `json:"type"`
+			PresetJobIDs  []string `json:"preset_job_ids"`
+			CustomJobName string   `json:"custom_job_name"`
 		}
 		if err := json.Unmarshal(rawReq, &req); err != nil {
 			http.Error(w, "Invalid preset job request", http.StatusBadRequest)
@@ -394,15 +433,18 @@ func (h *UserJobsHandler) CreateJobFromHashlist(w http.ResponseWriter, r *http.R
 				continue
 			}
 
-			// Get the preset job to verify it exists
-			_, err = h.presetJobRepo.GetByID(ctx, presetJobID)
+			// Get the preset job to verify it exists and get its name
+			presetJob, err := h.presetJobRepo.GetByID(ctx, presetJobID)
 			if err != nil {
 				debug.Error("Failed to get preset job %s: %v", presetJobID, err)
 				continue
 			}
+			
+			// Generate job name
+			jobName := generateJobName(client, presetJob.Name, hashlist.HashTypeID, req.CustomJobName)
 
 			// Use CreateJobExecution to create job with keyspace calculation
-			jobExecution, err := h.jobExecutionService.CreateJobExecution(ctx, presetJobID, hashlistID, &userID)
+			jobExecution, err := h.jobExecutionService.CreateJobExecution(ctx, presetJobID, hashlistID, &userID, jobName)
 			if err != nil {
 				debug.Error("Failed to create job execution for preset %s: %v", presetJobID, err)
 				continue
@@ -414,8 +456,9 @@ func (h *UserJobsHandler) CreateJobFromHashlist(w http.ResponseWriter, r *http.R
 	case "workflow":
 		// Handle workflows
 		var req struct {
-			Type        string   `json:"type"`
-			WorkflowIDs []string `json:"workflow_ids"`
+			Type          string   `json:"type"`
+			WorkflowIDs   []string `json:"workflow_ids"`
+			CustomJobName string   `json:"custom_job_name"`
 		}
 		if err := json.Unmarshal(rawReq, &req); err != nil {
 			http.Error(w, "Invalid workflow request", http.StatusBadRequest)
@@ -439,15 +482,18 @@ func (h *UserJobsHandler) CreateJobFromHashlist(w http.ResponseWriter, r *http.R
 
 			// Create a job for each step in order
 			for _, step := range steps {
-				// Verify the preset job exists
-				_, err := h.presetJobRepo.GetByID(ctx, step.PresetJobID)
+				// Verify the preset job exists and get its name
+				presetJob, err := h.presetJobRepo.GetByID(ctx, step.PresetJobID)
 				if err != nil {
 					debug.Error("Failed to get preset job %s for workflow step: %v", step.PresetJobID, err)
 					continue
 				}
+				
+				// Generate job name for workflow step
+				jobName := generateJobName(client, presetJob.Name, hashlist.HashTypeID, req.CustomJobName)
 
 				// Use CreateJobExecution to create job with keyspace calculation
-				jobExecution, err := h.jobExecutionService.CreateJobExecution(ctx, step.PresetJobID, hashlistID, &userID)
+				jobExecution, err := h.jobExecutionService.CreateJobExecution(ctx, step.PresetJobID, hashlistID, &userID, jobName)
 				if err != nil {
 					debug.Error("Failed to create job execution for workflow step: %v", err)
 					continue
@@ -460,7 +506,8 @@ func (h *UserJobsHandler) CreateJobFromHashlist(w http.ResponseWriter, r *http.R
 	case "custom":
 		// Handle custom job
 		var req struct {
-			Type      string `json:"type"`
+			Type          string `json:"type"`
+			CustomJobName string `json:"custom_job_name"`
 			CustomJob struct {
 				Name                      string   `json:"name"`
 				AttackMode                int      `json:"attack_mode"`
@@ -493,8 +540,12 @@ func (h *UserJobsHandler) CreateJobFromHashlist(w http.ResponseWriter, r *http.R
 			AllowHighPriorityOverride: req.CustomJob.AllowHighPriorityOverride,
 		}
 
+		// Generate job name for custom job
+		// For custom jobs, prefer the top-level custom_job_name, fall back to the job's own name
+		jobName := generateJobName(client, "", hashlist.HashTypeID, req.CustomJobName)
+		
 		// Create job execution directly without saving preset
-		jobExecution, err := h.jobExecutionService.CreateCustomJobExecution(ctx, config, hashlistID, &userID)
+		jobExecution, err := h.jobExecutionService.CreateCustomJobExecution(ctx, config, hashlistID, &userID, jobName)
 		if err != nil {
 			debug.Error("Failed to create custom job execution: %v", err)
 			http.Error(w, "Failed to create job", http.StatusInternalServerError)
@@ -1194,18 +1245,9 @@ func (h *UserJobsHandler) ListUserJobs(w http.ResponseWriter, r *http.Request) {
 			searchedPercent = overallProgressPercent
 		}
 
-		// Get preset job name
-		presetJobName := "Custom Job"
-		if job.PresetJobID != nil {
-			presetJob, err := h.presetJobRepo.GetByID(ctx, *job.PresetJobID)
-			if err == nil && presetJob != nil {
-				presetJobName = presetJob.Name
-			}
-		}
-
 		summary := JobSummary{
 			ID:                     job.ID.String(),
-			Name:                   presetJobName,
+			Name:                   getJobName(job, hashlist),
 			HashlistID:             job.HashlistID,
 			HashlistName:           hashlist.Name,
 			Status:                 string(job.Status),

@@ -100,7 +100,7 @@ type CustomJobConfig struct {
 }
 
 // CreateJobExecution creates a new job execution from a preset job and hashlist
-func (s *JobExecutionService) CreateJobExecution(ctx context.Context, presetJobID uuid.UUID, hashlistID int64, createdBy *uuid.UUID) (*models.JobExecution, error) {
+func (s *JobExecutionService) CreateJobExecution(ctx context.Context, presetJobID uuid.UUID, hashlistID int64, createdBy *uuid.UUID, customJobName string) (*models.JobExecution, error) {
 	debug.Log("Creating job execution", map[string]interface{}{
 		"preset_job_id": presetJobID,
 		"hashlist_id":   hashlistID,
@@ -149,7 +149,7 @@ func (s *JobExecutionService) CreateJobExecution(ctx context.Context, presetJobI
 		CreatedBy:         createdBy,
 		
 		// Copy all configuration from preset to make job self-contained
-		Name:                      presetJob.Name,
+		Name:                      customJobName, // Will be set after getting client info
 		WordlistIDs:               presetJob.WordlistIDs,
 		RuleIDs:                   presetJob.RuleIDs,
 		HashType:                  hashlist.HashTypeID,
@@ -200,7 +200,7 @@ func (s *JobExecutionService) CreateJobExecution(ctx context.Context, presetJobI
 }
 
 // CreateCustomJobExecution creates a new job execution directly from custom configuration
-func (s *JobExecutionService) CreateCustomJobExecution(ctx context.Context, config CustomJobConfig, hashlistID int64, createdBy *uuid.UUID) (*models.JobExecution, error) {
+func (s *JobExecutionService) CreateCustomJobExecution(ctx context.Context, config CustomJobConfig, hashlistID int64, createdBy *uuid.UUID, customJobName string) (*models.JobExecution, error) {
 	debug.Log("Creating custom job execution", map[string]interface{}{
 		"name":        config.Name,
 		"hashlist_id": hashlistID,
@@ -251,7 +251,7 @@ func (s *JobExecutionService) CreateCustomJobExecution(ctx context.Context, conf
 		CreatedBy:         createdBy,
 		
 		// Direct configuration (not from preset)
-		Name:                      config.Name,
+		Name:                      customJobName, // Will be set with proper naming logic
 		WordlistIDs:               config.WordlistIDs,
 		RuleIDs:                   config.RuleIDs,
 		HashType:                  hashlist.HashTypeID,

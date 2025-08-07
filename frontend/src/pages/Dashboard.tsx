@@ -78,6 +78,7 @@ import { JobSummary, PaginationInfo } from '../types/jobs';
 import { AgentWithTask } from '../types/agent';
 import { calculateJobProgress, formatKeyspace } from '../utils/jobProgress';
 import { useNavigate } from 'react-router-dom';
+import HashlistOverview from '../components/dashboard/HashlistOverview';
 // import JobStatusMonitor from '../components/JobStatusMonitor'; // Removed to improve page load performance
 
 /**
@@ -350,60 +351,8 @@ const Dashboard: React.FC = () => {
   // Memoize grid items to prevent unnecessary re-renders
   const gridItems = useMemo(() => (
     <>
-      <Grid item xs={12} md={4}>
-        <Paper sx={{ p: 2, display: 'flex', flexDirection: 'column' }}>
-          <Typography variant="h6" gutterBottom>
-            Active Jobs Overview
-          </Typography>
-          {(() => {
-            const activeJobs = jobs.filter(job => 
-              ['pending', 'running'].includes(job.status.toLowerCase())
-            );
-            
-            if (activeJobs.length === 0) {
-              return (
-                <Typography variant="body2" color="text.secondary">
-                  No active jobs
-                </Typography>
-              );
-            }
-            
-            return (
-              <Stack spacing={1}>
-                {activeJobs.slice(0, 3).map(job => {
-                  const progress = calculateJobProgress(job);
-                  return (
-                    <Box key={job.id}>
-                      <Typography variant="body2" noWrap>
-                        {job.name}
-                      </Typography>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <LinearProgress 
-                          variant="determinate" 
-                          value={progress.percentage} 
-                          sx={{ flexGrow: 1, height: 4 }}
-                        />
-                        <Typography variant="caption" color="text.secondary">
-                          {progress.percentage.toFixed(3)}%
-                        </Typography>
-                      </Box>
-                      {progress.hasMultiplier && (
-                        <Typography variant="caption" color="primary">
-                          {progress.multiplierText}
-                        </Typography>
-                      )}
-                    </Box>
-                  );
-                })}
-                {activeJobs.length > 3 && (
-                  <Typography variant="caption" color="text.secondary">
-                    +{activeJobs.length - 3} more...
-                  </Typography>
-                )}
-              </Stack>
-            );
-          })()}
-        </Paper>
+      <Grid item xs={12} md={8}>
+        <HashlistOverview />
       </Grid>
 
       <Grid item xs={12} md={4}>

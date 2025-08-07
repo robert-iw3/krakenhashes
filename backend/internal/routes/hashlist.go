@@ -135,6 +135,10 @@ func registerHashlistRoutes(r *mux.Router, sqlDB *sql.DB, cfg *config.Config, ag
 	hashSearchRouter := r.PathPrefix("/hashes").Subrouter() // Use 'r' directly
 	hashSearchRouter.HandleFunc("/search", h.handleSearchHashes).Methods(http.MethodPost)
 
+	// 2.5. User-specific routes
+	userRouter := r.PathPrefix("/user").Subrouter() // Use 'r' directly
+	userRouter.HandleFunc("/hashlists", h.handleListUserHashlists).Methods(http.MethodGet, http.MethodOptions)
+
 	// Agent routes are handled in filesync.go with proper API key authentication
 
 	debug.Info("Registered hashlist, hash type, client, and hash search routes under JWT router")
@@ -446,6 +450,69 @@ func (h *hashlistHandler) handleListHashlists(w http.ResponseWriter, r *http.Req
 	debug.Debug("[handleListHashlists] Final response structure to be sent: %+v", response)
 	if len(response.Data) > 0 {
 		debug.Debug("[handleListHashlists] First hashlist in response data: ClientID=%s, ClientName=%v", response.Data[0].ClientID, response.Data[0].ClientName)
+	}
+
+	jsonResponse(w, http.StatusOK, response)
+}
+
+// handleListUserHashlists returns hashlists created by the authenticated user
+func (h *hashlistHandler) handleListUserHashlists(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	userID, err := getUserIDFromContext(ctx)
+	if err != nil {
+		jsonError(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Parse query parameters
+	queryVals := r.URL.Query()
+
+	// Pagination
+	limitStr := queryVals.Get("limit")
+	offsetStr := queryVals.Get("offset")
+	limit, err := strconv.Atoi(limitStr)
+	if err != nil || limit <= 0 {
+		limit = 10 // Default limit for dashboard
+	}
+	offset, err := strconv.Atoi(offsetStr)
+	if err != nil || offset < 0 {
+		offset = 0 // Default offset
+	}
+
+	// Filtering
+	params := repository.ListHashlistsParams{
+		Limit:  limit,
+		Offset: offset,
+		UserID: &userID, // Filter by authenticated user
+	}
+
+	// Support additional filters
+	if status := queryVals.Get("status"); status != "" {
+		params.Status = &status
+	}
+	if name := queryVals.Get("name"); name != "" {
+		params.NameLike = &name
+	}
+
+	// Fetch data from repository
+	hashlists, totalCount, err := h.hashlistRepo.List(ctx, params)
+	if err != nil {
+		debug.Error("Error fetching user hashlists for user %s: %v", userID, err)
+		jsonError(w, "Failed to retrieve hashlists", http.StatusInternalServerError)
+		return
+	}
+
+	// Prepare response with pagination metadata
+	response := struct {
+		Data       []models.HashList `json:"data"`
+		TotalCount int               `json:"total_count"`
+		Limit      int               `json:"limit"`
+		Offset     int               `json:"offset"`
+	}{
+		Data:       hashlists,
+		TotalCount: totalCount,
+		Limit:      limit,
+		Offset:     offset,
 	}
 
 	jsonResponse(w, http.StatusOK, response)

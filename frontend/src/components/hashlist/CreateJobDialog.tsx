@@ -94,6 +94,7 @@ export default function CreateJobDialog({
   // Form state
   const [selectedPresetJobs, setSelectedPresetJobs] = useState<string[]>([]);
   const [selectedWorkflows, setSelectedWorkflows] = useState<string[]>([]);
+  const [customJobName, setCustomJobName] = useState<string>('');
   
   // Custom job state
   const [customJob, setCustomJob] = useState({
@@ -164,7 +165,8 @@ export default function CreateJobDialog({
         }
         payload = {
           type: 'preset',
-          preset_job_ids: selectedPresetJobs
+          preset_job_ids: selectedPresetJobs,
+          custom_job_name: customJobName
         };
       } else if (tabValue === 1) {
         // Workflows
@@ -175,15 +177,12 @@ export default function CreateJobDialog({
         }
         payload = {
           type: 'workflow',
-          workflow_ids: selectedWorkflows
+          workflow_ids: selectedWorkflows,
+          custom_job_name: customJobName
         };
       } else if (tabValue === 2) {
         // Custom job
-        if (!customJob.name) {
-          setError('Please provide a name for the custom job');
-          setLoading(false);
-          return;
-        }
+        // Name is now optional - will use default format if not provided
         
         // Validate attack mode requirements
         if ([0, 1, 6, 7].includes(customJob.attack_mode) && customJob.wordlist_ids.length === 0) {
@@ -203,7 +202,8 @@ export default function CreateJobDialog({
         
         payload = {
           type: 'custom',
-          custom_job: customJob
+          custom_job: customJob,
+          custom_job_name: customJobName || customJob.name
         };
       }
 
@@ -262,6 +262,7 @@ export default function CreateJobDialog({
         allow_high_priority_override: false
       });
       setTabValue(0);
+      setCustomJobName('');
       onClose();
     }
   };
@@ -282,6 +283,16 @@ export default function CreateJobDialog({
     );
   };
 
+  const getJobNameHelperText = () => {
+    if (tabValue === 0 || tabValue === 1) {
+      // Preset or Workflow tabs
+      return "Your name will be appended with each job type (e.g., 'My Name - Potfile Run')";
+    } else {
+      // Custom tab
+      return "Leave empty to use format: ClientName-HashMode";
+    }
+  };
+
   return (
     <Dialog open={open} onClose={handleClose} maxWidth="md" fullWidth>
       <DialogTitle>
@@ -300,6 +311,16 @@ export default function CreateJobDialog({
             Job(s) created successfully! Redirecting to jobs page...
           </Alert>
         )}
+
+        <TextField
+          fullWidth
+          label="Job Name (Optional)"
+          placeholder="Leave empty for auto-generated name"
+          value={customJobName}
+          onChange={(e) => setCustomJobName(e.target.value)}
+          helperText={getJobNameHelperText()}
+          sx={{ mb: 3 }}
+        />
 
         <Tabs value={tabValue} onChange={handleTabChange} sx={{ mb: 3 }}>
           <Tab icon={<WorkIcon />} label="Preset Jobs" />
@@ -450,10 +471,10 @@ export default function CreateJobDialog({
                   <Grid item xs={12}>
                     <TextField
                       fullWidth
-                      label="Job Name"
+                      label="Job Name (Optional)"
+                      placeholder="Leave empty to use ClientName-HashMode format"
                       value={customJob.name}
                       onChange={(e) => setCustomJob(prev => ({ ...prev, name: e.target.value }))}
-                      required
                     />
                   </Grid>
 
@@ -627,8 +648,7 @@ export default function CreateJobDialog({
           variant="contained"
           disabled={loading || (
             tabValue === 0 && selectedPresetJobs.length === 0 ||
-            tabValue === 1 && selectedWorkflows.length === 0 ||
-            tabValue === 2 && !customJob.name
+            tabValue === 1 && selectedWorkflows.length === 0
           )}
           startIcon={loading && <CircularProgress size={20} />}
         >
