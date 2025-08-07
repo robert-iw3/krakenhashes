@@ -48,7 +48,6 @@ import {
   Typography,
   Grid,
   Paper,
-  Container,
   Divider,
   Alert,
   CircularProgress,
@@ -439,9 +438,8 @@ const Dashboard: React.FC = () => {
   ), [jobs, agents, agentsLoading, agentsError, navigate]);
 
   return (
-    <Container maxWidth="lg">
-      <Box sx={{ mt: 4, mb: 4 }}>
-        <Grid container spacing={3}>
+    <Box sx={{ p: 3 }}>
+      <Grid container spacing={3}>
           <Grid item xs={12}>
             <Typography variant="h4" component="h1" gutterBottom>
               Dashboard
@@ -605,7 +603,6 @@ const Dashboard: React.FC = () => {
             </Paper>
           </Grid>
         </Grid>
-      </Box>
       
       {/* Delete confirmation dialog */}
       <DeleteConfirm
@@ -616,7 +613,7 @@ const Dashboard: React.FC = () => {
         title="Delete All Finished Jobs"
         message="This will permanently delete all completed and failed jobs. This action cannot be undone."
       />
-    </Container>
+    </Box>
   );
 };
 

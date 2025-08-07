@@ -110,10 +110,10 @@ const PresetJobListPage: React.FC = () => {
   const hasJobsWithoutKeyspace = presetJobs?.some(job => job.keyspace === null || job.keyspace === undefined) || false;
 
   return (
-    <Box>
+    <Box sx={{ p: 3 }}>
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
         <Typography variant="h4">
-          Preset Jobs Management
+          Preset Job Management
         </Typography>
         <Box display="flex" gap={2}>
           {hasJobsWithoutKeyspace && (

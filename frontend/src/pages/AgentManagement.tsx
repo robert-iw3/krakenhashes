@@ -15,7 +15,6 @@ import { Link } from 'react-router-dom';
 import {
   Box,
   Button,
-  Container,
   Typography,
   Paper,
   Table,
@@ -159,35 +158,37 @@ export default function AgentManagement() {
 
   if (loading) {
     return (
-      <Container maxWidth="lg">
-        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
-          <CircularProgress />
-        </Box>
-      </Container>
+      <Box sx={{ p: 3, display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
+        <CircularProgress />
+      </Box>
     );
   }
 
   return (
-    <Container maxWidth="lg">
-      <Box sx={{ my: 4 }}>
-        <Typography variant="h4" component="h1" gutterBottom>
-          Agent Management
-        </Typography>
+    <Box sx={{ p: 3 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+          <Box>
+            <Typography variant="h4" component="h1" gutterBottom>
+              Agent Management
+            </Typography>
+            <Typography variant="body1" color="text.secondary">
+              Manage and monitor KrakenHashes agents
+            </Typography>
+          </Box>
+          <Button
+            variant="contained"
+            color="primary"
+            onClick={() => setOpenDialog(true)}
+          >
+            Register New Agent
+          </Button>
+        </Box>
 
         {error && (
           <Alert severity="error" sx={{ mb: 2 }}>
             {error}
           </Alert>
         )}
-        
-        <Button
-          variant="contained"
-          color="primary"
-          onClick={() => setOpenDialog(true)}
-          sx={{ mb: 3 }}
-        >
-          Register New Agent
-        </Button>
 
         {/* Active Claim Vouchers Table */}
         <Typography variant="h5" sx={{ mt: 4, mb: 2 }}>
@@ -380,7 +381,6 @@ export default function AgentManagement() {
             )}
           </DialogActions>
         </Dialog>
-      </Box>
-    </Container>
+    </Box>
   );
 } 

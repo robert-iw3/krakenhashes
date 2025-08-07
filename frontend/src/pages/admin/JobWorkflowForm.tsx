@@ -265,7 +265,7 @@ const JobWorkflowFormPage: React.FC = () => {
   }
 
   return (
-    <Box>
+    <Box sx={{ p: 3 }}>
       <Box mb={3} display="flex" alignItems="center">
         <IconButton 
           onClick={() => navigate('/admin/job-workflows')} 

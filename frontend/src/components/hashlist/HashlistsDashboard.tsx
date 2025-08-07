@@ -83,14 +83,18 @@ const getFilenameFromContentDisposition = (contentDisposition: string | undefine
   return null;
 };
 
-export default function HashlistsDashboard() {
+interface HashlistsDashboardProps {
+  uploadDialogOpen: boolean;
+  setUploadDialogOpen: (open: boolean) => void;
+}
+
+export default function HashlistsDashboard({ uploadDialogOpen, setUploadDialogOpen }: HashlistsDashboardProps) {
   const [order, setOrder] = useState<'asc' | 'desc'>('desc');
   const [orderBy, setOrderBy] = useState<OrderBy>('createdAt');
   const [nameFilter, setNameFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState<HashlistStatus | '' >(''); // Allow empty string for 'All'
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [hashlistToDelete, setHashlistToDelete] = useState<Hashlist | null>(null);
-  const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [downloadingId, setDownloadingId] = useState<string | null>(null); // Track download state
 
   const debouncedNameFilter = useDebounce(nameFilter, 500); // Debounce name filter input
@@ -172,11 +176,7 @@ export default function HashlistsDashboard() {
     setHashlistToDelete(null);
   };
 
-  // Handlers for upload dialog
-  const handleUploadClickOpen = () => {
-    setUploadDialogOpen(true);
-  };
-
+  // Handler for closing upload dialog
   const handleUploadClose = () => {
     setUploadDialogOpen(false);
   };
@@ -262,21 +262,8 @@ export default function HashlistsDashboard() {
   // --- End Download Handler ---
 
   return (
-    <Paper sx={{ p: 3, mt: 3 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-        <Typography variant="h6" gutterBottom component="div" sx={{ mb: 0 }}>
-          Hashlists
-        </Typography>
-        <Button 
-          variant="contained" 
-          startIcon={<AddIcon />} 
-          onClick={handleUploadClickOpen}
-        >
-          Upload Hashlist
-        </Button>
-      </Box>
-
-      <Box sx={{ mb: 2, mt: 1 }}>
+    <Paper sx={{ width: '100%', overflow: 'hidden' }}>
+      <Box sx={{ p: 2 }}>
         <Grid container spacing={2} alignItems="center">
           <Grid item xs={12} sm={4}>
             <TextField

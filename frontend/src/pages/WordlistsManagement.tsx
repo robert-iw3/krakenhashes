@@ -12,7 +12,6 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Button,
-  Container,
   Typography,
   Paper,
   Table,
@@ -346,12 +345,11 @@ export default function WordlistsManagement() {
   };
 
   return (
-    <Container maxWidth="xl">
-      <Box sx={{ pt: 3, pb: 3 }}>
-        <Grid container spacing={2} alignItems="center" sx={{ mb: 3 }}>
+    <Box sx={{ p: 3 }}>
+      <Grid container spacing={2} alignItems="center" sx={{ mb: 3 }}>
           <Grid item xs={12} sm={6}>
             <Typography variant="h4" component="h1" gutterBottom>
-              Wordlists Management
+              Wordlist Management
             </Typography>
             <Typography variant="body1" color="text.secondary">
               Manage wordlists for password cracking
@@ -544,7 +542,6 @@ export default function WordlistsManagement() {
             </Table>
           </TableContainer>
         </Paper>
-      </Box>
 
       {/* Upload Dialog */}
       <Dialog
@@ -667,6 +664,6 @@ export default function WordlistsManagement() {
           </Button>
         </DialogActions>
       </Dialog>
-    </Container>
+    </Box>
   );
 } 

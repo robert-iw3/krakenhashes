@@ -1,5 +1,5 @@
 import React from 'react';
-import { Container, Typography, Box } from '@mui/material';
+import { Typography, Box } from '@mui/material';
 import PotTable from '../components/pot/PotTable';
 import { potService } from '../services/pot';
 
@@ -9,7 +9,7 @@ export default function Pot() {
   };
 
   return (
-    <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
+    <Box sx={{ p: 3 }}>
       <Box sx={{ mb: 3 }}>
         <Typography variant="h4" component="h1" gutterBottom>
           Cracked Hashes (Pot)
@@ -25,6 +25,6 @@ export default function Pot() {
         contextType="master"
         contextName="master"
       />
-    </Container>
+    </Box>
   );
 }

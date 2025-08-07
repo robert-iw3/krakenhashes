@@ -546,10 +546,11 @@ const PresetJobFormPage: React.FC = () => {
   };
 
   return (
-    <Box component="form" onSubmit={handleSubmit} sx={{ maxWidth: 800, mx: 'auto' }}>
-      <Typography variant="h4" gutterBottom>
-        {isEditing ? 'Edit Preset Job' : 'Create New Preset Job'}
-      </Typography>
+    <Box sx={{ p: 3 }}>
+      <Box component="form" onSubmit={handleSubmit} sx={{ maxWidth: 800, mx: 'auto' }}>
+        <Typography variant="h4" gutterBottom>
+          {isEditing ? 'Edit Preset Job' : 'Create New Preset Job'}
+        </Typography>
 
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>
@@ -915,6 +916,7 @@ const PresetJobFormPage: React.FC = () => {
           </Button>
         </Grid>
       </Grid>
+      </Box>
     </Box>
   );
 };

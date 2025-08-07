@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Container, Typography, Box, Button, Alert, CircularProgress } from '@mui/material';
+import { Typography, Box, Button, Alert, CircularProgress } from '@mui/material';
 import { ArrowBack as ArrowBackIcon } from '@mui/icons-material';
 import PotTable from '../components/pot/PotTable';
 import { potService } from '../services/pot';
@@ -43,29 +43,29 @@ export default function PotHashlist() {
 
   if (loading) {
     return (
-      <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
+      <Box sx={{ p: 3 }}>
         <Box display="flex" justifyContent="center" alignItems="center" minHeight={400}>
           <CircularProgress />
         </Box>
-      </Container>
+      </Box>
     );
   }
 
   if (error) {
     return (
-      <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
+      <Box sx={{ p: 3 }}>
         <Alert severity="error">{error}</Alert>
         <Box sx={{ mt: 2 }}>
           <Button startIcon={<ArrowBackIcon />} onClick={handleBack}>
             Back to All Cracked Hashes
           </Button>
         </Box>
-      </Container>
+      </Box>
     );
   }
 
   return (
-    <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
+    <Box sx={{ p: 3 }}>
       <Box sx={{ mb: 3 }}>
         <Button
           startIcon={<ArrowBackIcon />}
@@ -92,6 +92,6 @@ export default function PotHashlist() {
         contextName={hashlistName}
         contextId={id}
       />
-    </Container>
+    </Box>
   );
 }

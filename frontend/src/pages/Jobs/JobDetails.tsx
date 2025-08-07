@@ -1,7 +1,6 @@
 import React from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
-  Container,
   Box,
   Typography,
   Paper,
@@ -19,8 +18,7 @@ const JobDetails: React.FC = () => {
   const navigate = useNavigate();
 
   return (
-    <Container maxWidth="lg">
-      <Box sx={{ mt: 4, mb: 4 }}>
+    <Box sx={{ p: 3 }}>
         <Button
           startIcon={<ArrowBack />}
           onClick={() => navigate(-1)}
@@ -54,8 +52,7 @@ const JobDetails: React.FC = () => {
             </Typography>
           </Stack>
         </Paper>
-      </Box>
-    </Container>
+    </Box>
   );
 };
 

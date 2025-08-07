@@ -77,7 +77,7 @@ const JobWorkflowListPage: React.FC = () => {
   };
 
   return (
-    <Box>
+    <Box sx={{ p: 3 }}>
       <ConfirmDialog />
       
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>

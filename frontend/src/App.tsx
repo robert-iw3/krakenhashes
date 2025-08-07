@@ -62,7 +62,7 @@ const JobDetails = lazy(() => import('./pages/Jobs/JobDetails'));
 const AgentManagementPage = lazy(() => import('./pages/AgentManagement'));
 const WordlistsManagementPage = lazy(() => import('./pages/WordlistsManagement'));
 const RulesManagementPage = lazy(() => import('./pages/RulesManagement'));
-const HashlistsDashboardPage = lazy(() => import('./components/hashlist/HashlistsDashboard'));
+const HashlistsPage = lazy(() => import('./pages/Hashlists'));
 const HashlistDetailViewPage = lazy(() => import('./components/hashlist/HashlistDetailView'));
 const AboutPage = lazy(() => import('./pages/About'));
 const ProfileSettingsPage = lazy(() => import('./pages/settings/ProfileSettings'));
@@ -134,7 +134,7 @@ const App: React.FC = () => {
                     <Route path="/jobs/:id" element={<JobDetails />} />
                     <Route path="/agents" element={<AgentManagementPage />} />
                     <Route path="/agents/:id" element={<AgentDetailsPage />} />
-                    <Route path="/hashlists" element={<HashlistsDashboardPage />} />
+                    <Route path="/hashlists" element={<HashlistsPage />} />
                     <Route path="/hashlists/:id" element={<HashlistDetailViewPage />} />
                     <Route path="/wordlists" element={<WordlistsManagementPage />} />
                     <Route path="/rules" element={<RulesManagementPage />} />

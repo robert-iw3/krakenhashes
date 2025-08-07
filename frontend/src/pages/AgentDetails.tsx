@@ -15,7 +15,6 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Box,
-  Container,
   Typography,
   Paper,
   Grid,
@@ -437,25 +436,23 @@ const AgentDetails: React.FC = () => {
 
   if (loading) {
     return (
-      <Container>
-        <Box display="flex" justifyContent="center" alignItems="center" height="50vh">
-          <CircularProgress />
-        </Box>
-      </Container>
+      <Box sx={{ p: 3, display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
+        <CircularProgress />
+      </Box>
     );
   }
 
   if (!agent) {
     return (
-      <Container>
+      <Box sx={{ p: 3 }}>
         <Alert severity="error">Agent not found</Alert>
-      </Container>
+      </Box>
     );
   }
 
 
   return (
-    <Container maxWidth="lg">
+    <Box sx={{ p: 3 }}>
       <Box mb={3}>
         <IconButton onClick={() => navigate('/agents')} sx={{ mr: 2 }}>
           <ArrowBackIcon />
@@ -732,7 +729,7 @@ const AgentDetails: React.FC = () => {
           </>
         )}
       </Grid>
-    </Container>
+    </Box>
   );
 };
 
