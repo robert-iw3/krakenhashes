@@ -138,6 +138,12 @@ nav:
       - Preset Jobs & Workflows: admin-guide/advanced/presets.md
       - Job Chunking System: admin-guide/advanced/chunking.md
       - Performance Tuning: admin-guide/advanced/performance.md
+  - Agent Guide:
+    - agent-guide/index.md
+    - Installation: agent-guide/installation.md
+    - Configuration: agent-guide/configuration.md
+    - Scheduling: agent-guide/scheduling.md
+    - File Synchronization: agent-guide/file-sync.md
   - Deployment:
     - deployment/index.md
     - Docker Deployment: deployment/docker.md
@@ -152,6 +158,10 @@ nav:
     - Agent Development: developer/agent.md
   - Reference:
     - reference/index.md
+    - Architecture:
+      - Chunking System: reference/architecture/chunking.md
+      - Rule Splitting: reference/architecture/rule-splitting.md
+      - Benchmark Workflow: reference/architecture/benchmark-workflow.md
     - Environment Variables: reference/environment.md
     - Database Schema: reference/database.md
     - Error Codes: reference/errors.md
