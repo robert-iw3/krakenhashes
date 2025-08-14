@@ -15,6 +15,7 @@ import (
 type RegistrationRequest struct {
 	ClaimCode string `json:"claim_code"`
 	Hostname  string `json:"hostname"`
+	Version   string `json:"version,omitempty"` // Agent version (optional for backward compatibility)
 }
 
 // RegistrationResponse represents the data sent back to the agent after successful registration
@@ -55,10 +56,10 @@ func (h *RegistrationHandler) HandleRegistration(w http.ResponseWriter, r *http.
 		return
 	}
 
-	debug.Debug("Registration request - Claim Code: %s, Hostname: %s", req.ClaimCode, req.Hostname)
+	debug.Debug("Registration request - Claim Code: %s, Hostname: %s, Version: %s", req.ClaimCode, req.Hostname, req.Version)
 
-	// Register agent
-	agent, err := h.agentService.RegisterAgent(r.Context(), req.ClaimCode, req.Hostname)
+	// Register agent with version if provided
+	agent, err := h.agentService.RegisterAgentWithVersion(r.Context(), req.ClaimCode, req.Hostname, req.Version)
 	if err != nil {
 		debug.Error("Failed to register agent: %v", err)
 		http.Error(w, fmt.Sprintf("Failed to register agent: %v", err), http.StatusBadRequest)

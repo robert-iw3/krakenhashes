@@ -637,6 +637,27 @@ func (r *AgentRepository) UpdateAgentSettings(ctx context.Context, agentID int, 
 	return nil
 }
 
+// UpdateVersion updates the version field for an agent
+func (r *AgentRepository) UpdateVersion(ctx context.Context, id int, version string) error {
+	query := `UPDATE agents SET version = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1`
+	
+	result, err := r.db.ExecContext(ctx, query, id, version)
+	if err != nil {
+		return fmt.Errorf("failed to update agent version: %w", err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rows == 0 {
+		return fmt.Errorf("agent not found")
+	}
+
+	return nil
+}
+
 // UpdateOSInfo updates an agent's OS information
 func (r *AgentRepository) UpdateOSInfo(ctx context.Context, agentID int, osInfo map[string]interface{}) error {
 	// Convert OS info to JSON

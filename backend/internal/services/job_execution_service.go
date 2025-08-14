@@ -1886,10 +1886,18 @@ func (s *JobExecutionService) createJobTasksWithRuleSplitting(ctx context.Contex
 	return nil
 }
 
-// buildAttackCommand builds the hashcat attack command from a preset job
+// buildAttackCommand builds the hashcat attack command from a job execution
+// Job executions are self-contained and no longer require preset lookups
+// The presetJob parameter is deprecated and should always be nil
 func (s *JobExecutionService) buildAttackCommand(ctx context.Context, presetJob *models.PresetJob, job *models.JobExecution) (string, error) {
+	// Use binary version ID from job (job_executions are self-contained)
+	if job.BinaryVersionID == 0 {
+		return "", fmt.Errorf("no binary version ID available in job execution")
+	}
+	binaryVersionID := int64(job.BinaryVersionID)
+
 	// Get the hashcat binary path
-	hashcatPath, err := s.binaryManager.GetLocalBinaryPath(ctx, int64(presetJob.BinaryVersionID))
+	hashcatPath, err := s.binaryManager.GetLocalBinaryPath(ctx, binaryVersionID)
 	if err != nil {
 		return "", fmt.Errorf("failed to get hashcat binary path: %w", err)
 	}
@@ -1904,20 +1912,30 @@ func (s *JobExecutionService) buildAttackCommand(ctx context.Context, presetJob 
 	// Build the command
 	var args []string
 
+	// Use attack mode directly from job (0 is valid for AttackModeStraight)
+	attackMode := job.AttackMode
+
+	// Use hash type directly from job (job_executions are self-contained)
+	hashType := job.HashType
+
 	// Attack mode
-	args = append(args, "-a", strconv.Itoa(int(presetJob.AttackMode)))
+	args = append(args, "-a", strconv.Itoa(int(attackMode)))
 
 	// Hash type
-	args = append(args, "-m", strconv.Itoa(presetJob.HashType))
+	args = append(args, "-m", strconv.Itoa(hashType))
 
 	// Hashlist
 	args = append(args, hashlistPath)
 
+	// Use wordlist and rule IDs directly from job (job_executions are self-contained)
+	wordlistIDs := job.WordlistIDs
+	ruleIDs := job.RuleIDs
+
 	// Attack-specific arguments
-	switch presetJob.AttackMode {
+	switch attackMode {
 	case models.AttackModeStraight, models.AttackModeAssociation:
 		// Add wordlists
-		for _, wordlistIDStr := range presetJob.WordlistIDs {
+		for _, wordlistIDStr := range wordlistIDs {
 			wordlistPath, err := s.resolveWordlistPath(ctx, wordlistIDStr)
 			if err != nil {
 				return "", fmt.Errorf("failed to resolve wordlist path: %w", err)
@@ -1925,7 +1943,7 @@ func (s *JobExecutionService) buildAttackCommand(ctx context.Context, presetJob 
 			args = append(args, wordlistPath)
 		}
 		// Add rules
-		for _, ruleIDStr := range presetJob.RuleIDs {
+		for _, ruleIDStr := range ruleIDs {
 			rulePath, err := s.resolveRulePath(ctx, ruleIDStr)
 			if err != nil {
 				return "", fmt.Errorf("failed to resolve rule path: %w", err)
@@ -1935,12 +1953,12 @@ func (s *JobExecutionService) buildAttackCommand(ctx context.Context, presetJob 
 
 	case models.AttackModeCombination:
 		// Add two wordlists
-		if len(presetJob.WordlistIDs) >= 2 {
-			wordlist1Path, err := s.resolveWordlistPath(ctx, presetJob.WordlistIDs[0])
+		if len(wordlistIDs) >= 2 {
+			wordlist1Path, err := s.resolveWordlistPath(ctx, wordlistIDs[0])
 			if err != nil {
 				return "", fmt.Errorf("failed to resolve wordlist1 path: %w", err)
 			}
-			wordlist2Path, err := s.resolveWordlistPath(ctx, presetJob.WordlistIDs[1])
+			wordlist2Path, err := s.resolveWordlistPath(ctx, wordlistIDs[1])
 			if err != nil {
 				return "", fmt.Errorf("failed to resolve wordlist2 path: %w", err)
 			}
@@ -1948,35 +1966,37 @@ func (s *JobExecutionService) buildAttackCommand(ctx context.Context, presetJob 
 		}
 
 	case models.AttackModeBruteForce:
-		// Add mask
-		if presetJob.Mask != "" {
-			args = append(args, presetJob.Mask)
+		// Add mask from job (job_executions are self-contained)
+		if job.Mask != "" {
+			args = append(args, job.Mask)
 		}
 
 	case models.AttackModeHybridWordlistMask:
 		// Add wordlist and mask
-		if len(presetJob.WordlistIDs) > 0 && presetJob.Mask != "" {
-			wordlistPath, err := s.resolveWordlistPath(ctx, presetJob.WordlistIDs[0])
+		mask := job.Mask
+		if len(wordlistIDs) > 0 && mask != "" {
+			wordlistPath, err := s.resolveWordlistPath(ctx, wordlistIDs[0])
 			if err != nil {
 				return "", fmt.Errorf("failed to resolve wordlist path: %w", err)
 			}
-			args = append(args, wordlistPath, presetJob.Mask)
+			args = append(args, wordlistPath, mask)
 		}
 
 	case models.AttackModeHybridMaskWordlist:
 		// Add mask and wordlist
-		if presetJob.Mask != "" && len(presetJob.WordlistIDs) > 0 {
-			wordlistPath, err := s.resolveWordlistPath(ctx, presetJob.WordlistIDs[0])
+		mask := job.Mask
+		if mask != "" && len(wordlistIDs) > 0 {
+			wordlistPath, err := s.resolveWordlistPath(ctx, wordlistIDs[0])
 			if err != nil {
 				return "", fmt.Errorf("failed to resolve wordlist path: %w", err)
 			}
-			args = append(args, presetJob.Mask, wordlistPath)
+			args = append(args, mask, wordlistPath)
 		}
 	}
 
-	// Add any additional arguments
-	if presetJob.AdditionalArgs != nil && *presetJob.AdditionalArgs != "" {
-		additionalArgs := strings.Fields(*presetJob.AdditionalArgs)
+	// Add any additional arguments from job (job_executions are self-contained)
+	if job.AdditionalArgs != nil && *job.AdditionalArgs != "" {
+		additionalArgs := strings.Fields(*job.AdditionalArgs)
 		args = append(args, additionalArgs...)
 	}
 

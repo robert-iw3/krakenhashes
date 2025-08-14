@@ -41,10 +41,10 @@ func (h *Handler) HandleRegistration(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	debug.Debug("Registration request - Claim Code: %s, Hostname: %s", req.ClaimCode, req.Hostname)
+	debug.Debug("Registration request - Claim Code: %s, Hostname: %s, Version: %s", req.ClaimCode, req.Hostname, req.Version)
 
-	// Register agent
-	agent, err := h.agentService.RegisterAgent(r.Context(), req.ClaimCode, req.Hostname)
+	// Register agent with version if provided
+	agent, err := h.agentService.RegisterAgentWithVersion(r.Context(), req.ClaimCode, req.Hostname, req.Version)
 	if err != nil {
 		debug.Error("Agent registration failed: %v", err)
 		http.Error(w, "Registration failed", http.StatusBadRequest)

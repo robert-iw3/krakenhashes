@@ -1240,7 +1240,22 @@ func (e *HashcatExecutor) RunSpeedTest(ctx context.Context, assignment *JobTaskA
 				}
 				
 				statusUpdates = append(statusUpdates, status)
-				// We want to get at least 3 updates
+				
+				// Check if hashcat has completed (status 5 = exhausted)
+				// Parse the status field to see if the job is done
+				var statusCheck struct {
+					Status int `json:"status"`
+				}
+				if err := json.Unmarshal([]byte(status), &statusCheck); err == nil {
+					if statusCheck.Status == 5 {
+						debug.Info("[Speed test] Hashcat exhausted (status 5) after %d updates, stopping collection", len(statusUpdates))
+						timer.Stop()
+						close(statusCollected)
+						return
+					}
+				}
+				
+				// We want to get at least 3 updates for stability
 				if len(statusUpdates) >= 3 {
 					debug.Info("[Speed test] Collected 3 updates, stopping collection")
 					timer.Stop()
@@ -1274,13 +1289,14 @@ func (e *HashcatExecutor) RunSpeedTest(ctx context.Context, assignment *JobTaskA
 			return 0, nil, fmt.Errorf("no status updates received during speed test")
 		}
 		
-		// Try to parse the last status update one more time
+		// Try to parse from the best available update
+		// Use 3rd update if available, otherwise use the last update
 		statusIndex := len(statusUpdates) - 1
 		if len(statusUpdates) >= 3 {
-			statusIndex = 2 // Third update (0-indexed)
+			statusIndex = 2 // Third update (0-indexed) for stability
 		}
 		
-		debug.Debug("[Speed test] Attempting to parse update %d: %s", statusIndex+1, statusUpdates[statusIndex])
+		debug.Debug("[Speed test] Attempting to parse update %d of %d: %s", statusIndex+1, len(statusUpdates), statusUpdates[statusIndex])
 		totalSpeed, deviceSpeeds, err := e.parseSpeedFromJSON(statusUpdates[statusIndex])
 		if err != nil {
 			// Log the actual content that failed to parse
@@ -1289,7 +1305,12 @@ func (e *HashcatExecutor) RunSpeedTest(ctx context.Context, assignment *JobTaskA
 		}
 		
 		if totalSpeed == 0 {
-			return 0, nil, fmt.Errorf("speed test returned 0 H/s after %d updates", len(statusUpdates))
+			// For exhausted jobs with only 1 update, this might be expected
+			debug.Warning("[Speed test] Speed is 0 H/s after %d updates - job may have exhausted immediately", len(statusUpdates))
+			// Still try to return if we have device speeds
+			if len(deviceSpeeds) > 0 {
+				debug.Info("[Speed test] Using device speeds even though total is 0")
+			}
 		}
 		
 		lastValidSpeed = totalSpeed

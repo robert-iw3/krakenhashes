@@ -87,18 +87,10 @@ func (r *FileRepository) GetWordlists(ctx context.Context, category string) ([]F
 			continue
 		}
 
-		// The fileName from database may already include the category path
-		// Check if fileName already contains the category to avoid duplication
-		var nameForAgent string
-		if strings.HasPrefix(fileName, wordlistType+"/") {
-			// fileName already includes category, use as-is
-			nameForAgent = fileName
-		} else {
-			// fileName doesn't include category, add it
-			nameForAgent = fmt.Sprintf("%s/%s", wordlistType, fileName)
-		}
+		// Use fileName directly as it already contains the correct relative path
+		// e.g., "general/crackstation.txt"
 		files = append(files, FileInfo{
-			Name:      nameForAgent,
+			Name:      fileName,
 			MD5Hash:   md5Hash,
 			Size:      size,
 			FileType:  "wordlist",
@@ -163,18 +155,10 @@ func (r *FileRepository) GetRules(ctx context.Context, category string) ([]FileI
 			continue
 		}
 
-		// The fileName from database may already include the category path
-		// Check if fileName already contains the category to avoid duplication
-		var nameForAgent string
-		if strings.HasPrefix(fileName, ruleType+"/") {
-			// fileName already includes category, use as-is
-			nameForAgent = fileName
-		} else {
-			// fileName doesn't include category, add it
-			nameForAgent = fmt.Sprintf("%s/%s", ruleType, fileName)
-		}
+		// Use fileName directly as it already contains the correct relative path
+		// e.g., "hashcat/_nsakey.v2.dive.rule"
 		files = append(files, FileInfo{
-			Name:      nameForAgent,
+			Name:      fileName,
 			MD5Hash:   md5Hash,
 			Size:      size,
 			FileType:  "rule",

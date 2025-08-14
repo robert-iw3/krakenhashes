@@ -116,8 +116,8 @@ func (h *AgentHandler) RegisterAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate claim code and register agent
-	agent, err := h.service.RegisterAgent(r.Context(), req.ClaimCode, req.Hostname)
+	// Validate claim code and register agent with version if provided
+	agent, err := h.service.RegisterAgentWithVersion(r.Context(), req.ClaimCode, req.Hostname, req.Version)
 	if err != nil {
 		debug.Error("Failed to register agent: %v", err)
 		http.Error(w, "Registration failed", http.StatusUnauthorized)

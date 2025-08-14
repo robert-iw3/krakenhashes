@@ -593,9 +593,9 @@ func (r *JobTaskRepository) ResetTaskForRetry(ctx context.Context, id uuid.UUID)
 			completed_at = NULL,
 			error_message = NULL,
 			keyspace_processed = 0,
+			effective_keyspace_processed = 0,
 			progress_percent = 0,
 			agent_id = NULL,
-			assigned_at = NULL,
 			last_checkpoint = NULL,
 			updated_at = CURRENT_TIMESTAMP
 		WHERE id = $1`

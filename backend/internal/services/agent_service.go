@@ -166,6 +166,111 @@ func (s *AgentService) RegisterAgent(ctx context.Context, claimCode, hostname st
 	return agent, nil
 }
 
+// RegisterAgentWithVersion registers a new agent with a claim code and includes the agent version
+//
+// This function validates the claim code, generates API credentials, and creates the agent record
+// with the specified version. If no version is provided, it defaults to "unknown".
+//
+// Parameters:
+//   - ctx: The context for the operation
+//   - claimCode: The voucher code for registering the agent
+//   - hostname: The hostname of the agent
+//   - version: The version of the agent software
+//
+// Returns:
+//   - *models.Agent: The newly registered agent
+//   - error: Any errors encountered during registration
+func (s *AgentService) RegisterAgentWithVersion(ctx context.Context, claimCode, hostname, version string) (*models.Agent, error) {
+	debug.Info("Starting agent registration with claim code: %s, hostname: %s, version: %s", claimCode, hostname, version)
+
+	// Normalize claim code by removing hyphens and converting to uppercase
+	normalizedCode := strings.ToUpper(strings.ReplaceAll(claimCode, "-", ""))
+	debug.Debug("Normalized claim code: %s", normalizedCode)
+
+	// Validate claim code
+	voucher, err := s.voucherRepo.GetByCode(ctx, normalizedCode)
+	if err != nil {
+		debug.Error("Invalid claim code: %v", err)
+		return nil, fmt.Errorf("invalid claim code")
+	}
+
+	if !voucher.IsValid() {
+		debug.Error("Claim code is not active")
+		return nil, fmt.Errorf("claim code is not active")
+	}
+	debug.Info("Claim code validated successfully")
+
+	// Check for existing agent with same name and modify if needed
+	name := hostname
+	for i := 2; ; i++ {
+		exists, err := s.agentRepo.ExistsByName(ctx, name)
+		if err != nil {
+			debug.Error("Failed to check agent name: %v", err)
+			return nil, fmt.Errorf("failed to check agent name: %w", err)
+		}
+		if !exists {
+			break
+		}
+		debug.Debug("Agent name %s already exists, trying %s%d", name, hostname, i)
+		name = fmt.Sprintf("%s%d", hostname, i)
+	}
+	debug.Info("Using agent name: %s", name)
+
+	// Generate API key (64-character hex string)
+	apiKeyBytes := make([]byte, 32) // 32 bytes = 64 hex characters
+	if _, err := rand.Read(apiKeyBytes); err != nil {
+		debug.Error("Failed to generate API key: %v", err)
+		return nil, fmt.Errorf("failed to generate API key: %w", err)
+	}
+	apiKey := hex.EncodeToString(apiKeyBytes)
+	debug.Debug("Generated API key for agent")
+
+	now := time.Now()
+
+	// Use provided version or default to "unknown"
+	if version == "" {
+		version = "unknown"
+		debug.Debug("No version provided, defaulting to 'unknown'")
+	}
+
+	// Create new agent
+	agent := &models.Agent{
+		Name:          name,
+		Status:        models.AgentStatusPending,
+		CreatedByID:   voucher.CreatedByID,
+		OwnerID:       &voucher.CreatedByID, // Set owner to creator initially
+		CreatedAt:     now,
+		UpdatedAt:     now,
+		LastHeartbeat: now,     // Initialize heartbeat timestamp
+		Version:       version, // Use provided version
+		APIKey: sql.NullString{
+			String: apiKey,
+			Valid:  true,
+		},
+		APIKeyCreatedAt: sql.NullTime{
+			Time:  now,
+			Valid: true,
+		},
+	}
+
+	// Create agent record
+	if err := s.agentRepo.Create(ctx, agent); err != nil {
+		debug.Error("Failed to create agent: %v", err)
+		return nil, fmt.Errorf("failed to create agent: %w", err)
+	}
+	debug.Info("Successfully created agent with ID: %d and version: %s", agent.ID, agent.Version)
+
+	// Mark claim code as used if it's a single-use code
+	if !voucher.IsContinuous {
+		if err := s.MarkClaimCodeUsed(ctx, claimCode, agent.ID); err != nil {
+			debug.Warning("Failed to mark claim code as used: %v", err)
+			// Continue anyway as the agent is already created
+		}
+	}
+
+	return agent, nil
+}
+
 // MarkClaimCodeUsed marks a claim code as used by an agent after successful connection
 func (s *AgentService) MarkClaimCodeUsed(ctx context.Context, claimCode string, agentID int) error {
 	// Normalize claim code
@@ -344,6 +449,18 @@ func (s *AgentService) handleMetrics(ctx context.Context, conn *websocket.Conn, 
 // UpdateAgentStatus updates an agent's status and last error
 func (s *AgentService) UpdateAgentStatus(ctx context.Context, id int, status string, lastError *string) error {
 	return s.agentRepo.UpdateStatus(ctx, id, status, lastError)
+}
+
+// UpdateAgentVersion updates an agent's version
+func (s *AgentService) UpdateAgentVersion(ctx context.Context, id int, version string) error {
+	// Don't update if version is empty
+	if version == "" {
+		debug.Debug("Skipping version update for agent %d - empty version", id)
+		return nil
+	}
+	
+	debug.Debug("Updating agent %d version to %s", id, version)
+	return s.agentRepo.UpdateVersion(ctx, id, version)
 }
 
 // UpdateLastSeen updates the last seen timestamp for an agent

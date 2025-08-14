@@ -4,6 +4,7 @@ package agent
 type RegistrationRequest struct {
 	ClaimCode string `json:"claim_code"`
 	Hostname  string `json:"hostname"`
+	Version   string `json:"version,omitempty"` // Agent version (optional for backward compatibility)
 }
 
 // RegistrationResponse represents the data sent back to the agent after successful registration

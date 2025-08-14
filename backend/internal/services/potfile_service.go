@@ -3,9 +3,12 @@ package services
 import (
 	"bufio"
 	"context"
+	"crypto/md5"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -190,6 +193,12 @@ func (s *PotfileService) InitializePotfile(ctx context.Context) error {
 		}
 	}
 
+	// Ensure MD5 hash is up to date after initialization
+	if err := s.updatePotfileMetadata(ctx); err != nil {
+		debug.Warning("Failed to update potfile metadata after initialization: %v", err)
+		// Don't fail initialization if metadata update fails
+	}
+
 	return nil
 }
 
@@ -260,6 +269,12 @@ func (s *PotfileService) ProcessStagedEntries(ctx context.Context) {
 			return
 		}
 		debug.Info("Added %d new unique entries to pot-file", len(newEntries))
+		
+		// Update MD5 hash and file size in the database
+		if err := s.updatePotfileMetadata(ctx); err != nil {
+			debug.Error("Failed to update potfile metadata: %v", err)
+			// Don't return - this is not critical for the operation
+		}
 	}
 
 	// Mark entries as processed
@@ -417,6 +432,22 @@ func (s *PotfileService) markEntriesProcessed(ctx context.Context, entries []pot
 	return nil
 }
 
+// calculatePotfileMD5 calculates the MD5 hash of the potfile
+func (s *PotfileService) calculatePotfileMD5() (string, error) {
+	file, err := os.Open(s.potfilePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to open potfile for MD5 calculation: %w", err)
+	}
+	defer file.Close()
+	
+	hash := md5.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return "", fmt.Errorf("failed to calculate MD5: %w", err)
+	}
+	
+	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
 // getOrCreatePotfileWordlist gets or creates the pot-file wordlist entry
 func (s *PotfileService) getOrCreatePotfileWordlist(ctx context.Context) (int, error) {
 	debug.Info("getOrCreatePotfileWordlist called")
@@ -426,6 +457,28 @@ func (s *PotfileService) getOrCreatePotfileWordlist(ctx context.Context) (int, e
 	err := s.db.QueryRowContext(ctx, query).Scan(&wordlistID)
 	if err == nil {
 		debug.Info("Found existing pot-file wordlist with ID: %d", wordlistID)
+		
+		// Update the MD5 hash and file size for the existing wordlist
+		md5Hash, err := s.calculatePotfileMD5()
+		if err != nil {
+			debug.Warning("Failed to calculate potfile MD5 for update: %v", err)
+			md5Hash = "68b329da9893e34099c7d8ad5cb9c940" // MD5 of "\n"
+		}
+		
+		// Get file size
+		fileInfo, err := os.Stat(s.potfilePath)
+		fileSize := int64(0)
+		if err == nil {
+			fileSize = fileInfo.Size()
+		}
+		
+		// Update the wordlist with correct MD5 and file size
+		debug.Info("Updating existing pot-file wordlist MD5: %s, size: %d", md5Hash, fileSize)
+		if err := s.wordlistStore.UpdateWordlistFileInfo(ctx, wordlistID, md5Hash, fileSize); err != nil {
+			debug.Error("Failed to update pot-file wordlist info: %v", err)
+			// Don't fail completely, just log the error
+		}
+		
 		return wordlistID, nil
 	}
 	if err != sql.ErrNoRows {
@@ -439,6 +492,21 @@ func (s *PotfileService) getOrCreatePotfileWordlist(ctx context.Context) (int, e
 		return 0, fmt.Errorf("failed to get system user ID: %w", err)
 	}
 
+	// Calculate the actual MD5 hash of the potfile
+	md5Hash, err := s.calculatePotfileMD5()
+	if err != nil {
+		// If we can't calculate MD5 (file might not exist yet), use a fallback
+		debug.Warning("Failed to calculate potfile MD5, using default: %v", err)
+		md5Hash = "68b329da9893e34099c7d8ad5cb9c940" // MD5 of "\n"
+	}
+	
+	// Get file size
+	fileInfo, err := os.Stat(s.potfilePath)
+	fileSize := int64(0)
+	if err == nil {
+		fileSize = fileInfo.Size()
+	}
+	
 	// Create new wordlist entry
 	wordlist := &models.Wordlist{
 		Name:               "Pot-file",
@@ -446,8 +514,8 @@ func (s *PotfileService) getOrCreatePotfileWordlist(ctx context.Context) (int, e
 		WordlistType:       "custom",
 		Format:             "plaintext",
 		FileName:           "custom/potfile.txt", // Relative path without "wordlists/" prefix
-		MD5Hash:            "pending", // Will be updated later
-		FileSize:           0,         // Will be updated later
+		MD5Hash:            md5Hash,
+		FileSize:           fileSize,
 		WordCount:          1,         // Start with 1 for the blank line
 		CreatedBy:          systemUserID,
 		VerificationStatus: "verified",
@@ -762,4 +830,39 @@ func (s *PotfileService) monitorForBinaryAndCreatePresetJob(ctx context.Context,
 			}
 		}
 	}()
+}
+
+// updatePotfileMetadata updates the MD5 hash and file size of the potfile in the database
+func (s *PotfileService) updatePotfileMetadata(ctx context.Context) error {
+	// Calculate the current MD5 hash of the potfile
+	md5Hash, err := s.calculatePotfileMD5()
+	if err != nil {
+		return fmt.Errorf("failed to calculate potfile MD5: %w", err)
+	}
+	
+	// Get the current file size
+	fileInfo, err := os.Stat(s.potfilePath)
+	if err != nil {
+		return fmt.Errorf("failed to get potfile info: %w", err)
+	}
+	fileSize := fileInfo.Size()
+	
+	// Get the potfile wordlist ID from system settings
+	wordlistIDSetting, err := s.systemSettingsRepo.GetSetting(ctx, "potfile_wordlist_id")
+	if err != nil || wordlistIDSetting == nil || wordlistIDSetting.Value == nil || *wordlistIDSetting.Value == "" {
+		return fmt.Errorf("failed to get potfile wordlist ID: %w", err)
+	}
+	
+	wordlistID, err := strconv.Atoi(*wordlistIDSetting.Value)
+	if err != nil {
+		return fmt.Errorf("failed to parse potfile wordlist ID: %w", err)
+	}
+	
+	// Update the wordlist entry in the database with the new MD5 and file size
+	if err := s.wordlistStore.UpdateWordlistFileInfo(ctx, wordlistID, md5Hash, fileSize); err != nil {
+		return fmt.Errorf("failed to update potfile wordlist info: %w", err)
+	}
+	
+	debug.Info("Updated potfile metadata - MD5: %s, Size: %d bytes", md5Hash, fileSize)
+	return nil
 }

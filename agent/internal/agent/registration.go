@@ -21,6 +21,7 @@ import (
 
 	"github.com/ZerkerEOD/krakenhashes/agent/internal/auth"
 	"github.com/ZerkerEOD/krakenhashes/agent/internal/config"
+	"github.com/ZerkerEOD/krakenhashes/agent/internal/version"
 	"github.com/ZerkerEOD/krakenhashes/agent/pkg/debug"
 )
 
@@ -73,6 +74,7 @@ func verifyChecksum(data []byte, expectedChecksum string) bool {
 type RegistrationRequest struct {
 	ClaimCode string `json:"claim_code"`
 	Hostname  string `json:"hostname"`
+	Version   string `json:"version"` // Agent version
 }
 
 // RegistrationResponse represents the server's response to registration
@@ -362,11 +364,13 @@ func RegisterAgent(claimCode string, urlConfig *config.URLConfig) error {
 		debug.Warning("Could not get hostname, using 'unknown': %v", err)
 	}
 
-	// Send registration request
-	debug.Info("Sending registration request for hostname: %s", hostname)
+	// Send registration request with version
+	agentVersion := version.GetVersion()
+	debug.Info("Sending registration request for hostname: %s with version: %s", hostname, agentVersion)
 	resp, err := sendRegistrationRequest(urlConfig, &RegistrationRequest{
 		ClaimCode: claimCode,
 		Hostname:  hostname,
+		Version:   agentVersion,
 	})
 	if err != nil {
 		debug.Error("Registration request failed: %v", err)

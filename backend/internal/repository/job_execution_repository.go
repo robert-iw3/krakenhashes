@@ -595,14 +595,18 @@ func (r *JobExecutionRepository) GetJobsWithPendingWork(ctx context.Context) ([]
 			je.base_keyspace, je.effective_keyspace, je.multiplication_factor,
 			je.uses_rule_splitting, je.rule_split_count,
 			je.overall_progress_percent, je.last_progress_update,
-			pj.name as preset_job_name,
+			je.dispatched_keyspace,
+			je.name, je.wordlist_ids, je.rule_ids, je.mask,
+			je.binary_version_id, je.chunk_size_seconds, je.status_updates_enabled,
+			je.is_small_job, je.allow_high_priority_override, je.additional_args,
+			je.hash_type,
+			je.name as preset_job_name,
 			h.name as hashlist_name,
 			h.total_hashes as total_hashes,
 			h.cracked_hashes as cracked_hashes,
 			COALESCE(js.active_agents, 0) as active_agents,
 			COALESCE(js.pending_tasks, 0) + COALESCE(js.retryable_tasks, 0) as pending_work
 		FROM job_executions je
-		JOIN preset_jobs pj ON je.preset_job_id = pj.id
 		JOIN hashlists h ON je.hashlist_id = h.id
 		LEFT JOIN job_stats js ON je.id = js.id
 		WHERE je.status IN ('pending', 'running')
@@ -612,12 +616,12 @@ func (r *JobExecutionRepository) GetJobsWithPendingWork(ctx context.Context) ([]
 				OR
 				-- Job has pending work and is not at max capacity
 				(COALESCE(js.pending_tasks, 0) + COALESCE(js.retryable_tasks, 0) > 0 
-				 AND COALESCE(js.active_agents, 0) < COALESCE(je.max_agents, 999))
+				 AND COALESCE(js.active_agents, 0) < COALESCE(NULLIF(je.max_agents, 0), 999))
 				OR
 				-- Rule-split job with more keyspace to dispatch
 				(je.uses_rule_splitting = true 
 				 AND je.dispatched_keyspace < je.effective_keyspace
-				 AND COALESCE(js.active_agents, 0) < COALESCE(je.max_agents, 999))
+				 AND COALESCE(js.active_agents, 0) < COALESCE(NULLIF(je.max_agents, 0), 999))
 			)
 		ORDER BY je.priority DESC, je.created_at ASC`
 
@@ -639,6 +643,11 @@ func (r *JobExecutionRepository) GetJobsWithPendingWork(ctx context.Context) ([]
 			&exec.BaseKeyspace, &exec.EffectiveKeyspace, &exec.MultiplicationFactor,
 			&exec.UsesRuleSplitting, &exec.RuleSplitCount,
 			&exec.OverallProgressPercent, &exec.LastProgressUpdate,
+			&exec.DispatchedKeyspace,
+			&exec.Name, &exec.WordlistIDs, &exec.RuleIDs, &exec.Mask,
+			&exec.BinaryVersionID, &exec.ChunkSizeSeconds, &exec.StatusUpdatesEnabled,
+			&exec.IsSmallJob, &exec.AllowHighPriorityOverride, &exec.AdditionalArgs,
+			&exec.HashType,
 			&exec.PresetJobName, &exec.HashlistName, &exec.TotalHashes, &exec.CrackedHashes,
 			&exec.ActiveAgents, &exec.PendingWork,
 		)

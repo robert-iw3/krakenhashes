@@ -1,11 +1,35 @@
 #!/bin/sh
 set -e
 
+# Clean environment variables by removing comments
+# Docker Compose sometimes includes comments from .env file
+clean_env_var() {
+    var_name=$1
+    var_value=$(eval echo \$$var_name)
+    # Remove everything after the first # (comment)
+    cleaned_value=$(echo "$var_value" | sed 's/#.*//' | sed 's/[[:space:]]*$//')
+    export $var_name="$cleaned_value"
+}
+
+# Clean all potentially affected environment variables
+clean_env_var DEBUG
+clean_env_var LOG_LEVEL
+clean_env_var DEBUG_SQL
+clean_env_var DEBUG_HTTP
+clean_env_var DEBUG_WEBSOCKET
+clean_env_var DEBUG_AUTH
+clean_env_var DEBUG_JOBS
+clean_env_var JWT_EXPIRATION
+clean_env_var KH_TLS_MODE
+
 # Set default PUID/PGID if not provided
 PUID=${PUID:-1000}
 PGID=${PGID:-1000}
 
 echo "Starting with UID: $PUID and GID: $PGID"
+echo "Cleaned environment variables:"
+echo "  DEBUG=$DEBUG"
+echo "  LOG_LEVEL=$LOG_LEVEL"
 
 # Update krakenhashes user and group IDs
 if [ "$PUID" != "1000" ] || [ "$PGID" != "1000" ]; then
@@ -47,10 +71,31 @@ for dir in backend nginx; do
     mkdir -p "/var/log/krakenhashes/$dir"
 done
 
-# Set permissions for log paths (but keep backend owned by krakenhashes)
+# Pre-create log files with correct ownership before supervisord starts
+# This ensures supervisord doesn't create them as root
+echo "Creating log files with correct ownership (PUID=$PUID, PGID=$PGID)..."
+touch /var/log/krakenhashes/backend/backend.log
+touch /var/log/krakenhashes/nginx/access.log
+touch /var/log/krakenhashes/supervisord.log
+touch /var/log/krakenhashes/logrotate.log
+touch /var/log/krakenhashes/logrotate.err
+
+# Set ownership based on PUID/PGID
+chown "$PUID:$PGID" /var/log/krakenhashes/backend/backend.log
+chown www-data:www-data /var/log/krakenhashes/nginx/access.log
+chown "$PUID:$PGID" /var/log/krakenhashes/supervisord.log
+chown "$PUID:$PGID" /var/log/krakenhashes/logrotate.log
+chown "$PUID:$PGID" /var/log/krakenhashes/logrotate.err
+
+# Set permissions
+chmod 644 /var/log/krakenhashes/backend/backend.log
+chmod 644 /var/log/krakenhashes/nginx/access.log
+chmod 644 /var/log/krakenhashes/supervisord.log
+chmod 644 /var/log/krakenhashes/logrotate.log
+chmod 644 /var/log/krakenhashes/logrotate.err
+
+# Set directory permissions
 chmod -R 755 "/var/log/krakenhashes"
-chown -R www-data:www-data "/var/log/krakenhashes/nginx"
-# Backend logs should remain owned by krakenhashes (already set above)
 
 # Create backend .env file
 cat > /etc/krakenhashes/.env << EOF

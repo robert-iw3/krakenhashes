@@ -97,7 +97,9 @@ func (s *JobSchedulingService) ScheduleJobs(ctx context.Context) (*ScheduleJobsR
 	for _, agent := range availableAgents {
 		taskAssigned, interruptedJobs, err := s.assignWorkToAgent(ctx, &agent)
 		if err != nil {
-			result.Errors = append(result.Errors, fmt.Errorf("failed to assign work to agent %s: %w", agent.ID, err))
+			assignErr := fmt.Errorf("failed to assign work to agent %s: %w", agent.ID, err)
+			result.Errors = append(result.Errors, assignErr)
+			debug.Error("Failed to assign work to agent: %v", assignErr)
 			continue
 		}
 
@@ -217,9 +219,10 @@ func (s *JobSchedulingService) assignWorkToAgent(ctx context.Context, agent *mod
 
 	if needsBenchmark {
 		debug.Log("Agent needs benchmark before assignment", map[string]interface{}{
-			"agent_id":    agent.ID,
-			"attack_mode": nextJob.AttackMode,
-			"hash_type":   hashlist.HashTypeID,
+			"agent_id":         agent.ID,
+			"attack_mode":      nextJob.AttackMode,
+			"hash_type":        hashlist.HashTypeID,
+			"binary_version_id": nextJob.BinaryVersionID,
 		})
 
 		// Request benchmark from agent if WebSocket integration is available
@@ -484,18 +487,11 @@ func (s *JobSchedulingService) assignWorkToAgent(ctx context.Context, agent *mod
 		totalRules := 0
 		if nextJob.RuleSplitCount > 0 {
 			// Get total rules from job metadata
-			// This should be stored during initial analysis
-			if nextJob.PresetJobID == nil {
-				return nil, interruptedJobs, fmt.Errorf("job was not created from a preset job")
-			}
-			presetJob, err := s.jobExecutionService.presetJobRepo.GetByID(ctx, *nextJob.PresetJobID)
-			if err != nil {
-				return nil, interruptedJobs, fmt.Errorf("failed to get preset job: %w", err)
-			}
-
+			// The job_executions table contains all needed information
+			
 			// Get the rule file to count total rules
-			if len(presetJob.RuleIDs) > 0 {
-				rulePath, err := s.jobExecutionService.resolveRulePath(ctx, presetJob.RuleIDs[0])
+			if len(nextJob.RuleIDs) > 0 {
+				rulePath, err := s.jobExecutionService.resolveRulePath(ctx, nextJob.RuleIDs[0])
 				if err != nil {
 					return nil, interruptedJobs, fmt.Errorf("failed to resolve rule path: %w", err)
 				}
@@ -584,11 +580,11 @@ func (s *JobSchedulingService) assignWorkToAgent(ctx context.Context, agent *mod
 		}
 
 		// Create rule chunk file on-demand
-		if nextJob.PresetJobID == nil {
-			return nil, interruptedJobs, fmt.Errorf("job was not created from a preset job")
+		// Get the rule path from the job execution (which has all needed data)
+		var rulePath string
+		if len(nextJob.RuleIDs) > 0 {
+			rulePath, _ = s.jobExecutionService.resolveRulePath(ctx, nextJob.RuleIDs[0])
 		}
-		presetJob, _ := s.jobExecutionService.presetJobRepo.GetByID(ctx, *nextJob.PresetJobID)
-		rulePath, _ := s.jobExecutionService.resolveRulePath(ctx, presetJob.RuleIDs[0])
 		chunk, err := s.jobExecutionService.ruleSplitManager.CreateSingleRuleChunk(
 			ctx, nextJob.ID, rulePath, nextRuleStart, nextRuleEnd-nextRuleStart)
 		if err != nil {
@@ -596,16 +592,44 @@ func (s *JobSchedulingService) assignWorkToAgent(ctx context.Context, agent *mod
 		}
 
 		// Get next chunk number
+		debug.Log("Getting next chunk number", map[string]interface{}{
+			"job_id": nextJob.ID,
+		})
 		chunkNumber, err := s.jobExecutionService.jobTaskRepo.GetNextChunkNumber(ctx, nextJob.ID)
 		if err != nil {
+			debug.Error("Failed to get next chunk number: %v", err)
+			fmt.Printf("ERROR in assignWorkToAgent: Failed to get next chunk number for job %s: %v\n", nextJob.ID, err)
 			return nil, interruptedJobs, fmt.Errorf("failed to get next chunk number: %w", err)
 		}
+		debug.Log("Got chunk number", map[string]interface{}{
+			"job_id":       nextJob.ID,
+			"chunk_number": chunkNumber,
+		})
 
 		// Build attack command
-		attackCmd, err := s.jobExecutionService.buildAttackCommand(ctx, presetJob, nextJob)
+		// For custom jobs, pass nil for presetJob since all data is in nextJob
+		debug.Log("Building attack command", map[string]interface{}{
+			"job_id":            nextJob.ID,
+			"binary_version_id": nextJob.BinaryVersionID,
+			"attack_mode":       nextJob.AttackMode,
+			"hash_type":         nextJob.HashType,
+			"wordlist_ids":      nextJob.WordlistIDs,
+			"rule_ids":          nextJob.RuleIDs,
+		})
+		attackCmd, err := s.jobExecutionService.buildAttackCommand(ctx, nil, nextJob)
 		if err != nil {
+			debug.Error("Failed to build attack command: %v", err)
+			fmt.Printf("ERROR in assignWorkToAgent: Failed to build attack command for job %s: %v\n", nextJob.ID, err)
 			return nil, interruptedJobs, fmt.Errorf("failed to build attack command: %w", err)
 		}
+		cmdPreview := attackCmd
+		if len(attackCmd) > 100 {
+			cmdPreview = attackCmd[:100] + "..."
+		}
+		debug.Log("Built attack command", map[string]interface{}{
+			"job_id":      nextJob.ID,
+			"cmd_preview": cmdPreview,
+		})
 		// Replace rule file with chunk path
 		attackCmd = strings.Replace(attackCmd, rulePath, chunk.Path, 1)
 
@@ -635,10 +659,25 @@ func (s *JobSchedulingService) assignWorkToAgent(ctx context.Context, agent *mod
 		}
 
 		// Save task
+		debug.Log("Creating job task", map[string]interface{}{
+			"job_id":          nextJob.ID,
+			"agent_id":        agent.ID,
+			"chunk_number":    chunkNumber,
+			"keyspace_start":  task.KeyspaceStart,
+			"keyspace_end":    task.KeyspaceEnd,
+			"chunk_duration":  task.ChunkDuration,
+			"benchmark_speed": benchmarkSpeed,
+		})
 		err = s.jobExecutionService.jobTaskRepo.Create(ctx, task)
 		if err != nil {
+			debug.Error("Failed to create job task: %v", err)
+			fmt.Printf("ERROR in assignWorkToAgent: Failed to create task for job %s: %v\n", nextJob.ID, err)
 			return nil, interruptedJobs, fmt.Errorf("failed to create task: %w", err)
 		}
+		debug.Log("Successfully created job task", map[string]interface{}{
+			"task_id": task.ID,
+			"job_id":  nextJob.ID,
+		})
 
 		// Update dispatched keyspace
 		// For rule splitting, we need to account for the number of rules in this chunk

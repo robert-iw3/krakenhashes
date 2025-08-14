@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/ZerkerEOD/krakenhashes/agent/internal/auth"
+	"github.com/ZerkerEOD/krakenhashes/agent/internal/buffer"
 	"github.com/ZerkerEOD/krakenhashes/agent/internal/config"
 	"github.com/ZerkerEOD/krakenhashes/agent/internal/hardware"
 	"github.com/ZerkerEOD/krakenhashes/agent/internal/hardware/types"
@@ -54,6 +55,10 @@ const (
 	// Device detection message types
 	WSTypeDeviceDetection  WSMessageType = "device_detection"
 	WSTypeDeviceUpdate     WSMessageType = "device_update"
+	
+	// Buffer-related message types
+	WSTypeBufferedMessages WSMessageType = "buffered_messages"
+	WSTypeBufferAck        WSMessageType = "buffer_ack"
 )
 
 // WSMessage represents a WebSocket message
@@ -254,6 +259,12 @@ type Connection struct {
 
 	// Once for ensuring single close
 	closeOnce sync.Once
+	
+	// Message buffer for handling disconnections
+	messageBuffer *buffer.MessageBuffer
+	
+	// Agent ID for buffer identification
+	agentID int
 }
 
 // JobManager interface defines the methods required for job management
@@ -516,12 +527,35 @@ func (c *Connection) connect() error {
 	debug.Info("Starting WebSocket connection attempt")
 
 	// Load API key and agent ID
-	apiKey, agentID, err := auth.LoadAgentKey(config.GetConfigDir())
+	apiKey, agentIDStr, err := auth.LoadAgentKey(config.GetConfigDir())
 	if err != nil {
 		debug.Error("Failed to load API key: %v", err)
 		return fmt.Errorf("failed to load API key: %w", err)
 	}
 	debug.Info("Successfully loaded API key")
+	
+	// Convert agent ID to int for internal use
+	agentIDInt := 0
+	if agentIDStr != "" {
+		if _, err := fmt.Sscanf(agentIDStr, "%d", &agentIDInt); err != nil {
+			debug.Warning("Failed to parse agent ID as integer: %v", err)
+		}
+	}
+	c.agentID = agentIDInt
+	
+	// Initialize message buffer if not already initialized
+	if c.messageBuffer == nil && c.agentID > 0 {
+		cfg := config.NewConfig()
+		if mb, err := buffer.NewMessageBuffer(cfg.DataDirectory, c.agentID); err != nil {
+			debug.Error("Failed to create message buffer: %v", err)
+		} else {
+			c.messageBuffer = mb
+			debug.Info("Message buffer initialized for agent %d", c.agentID)
+			
+			// Send any buffered messages from previous sessions
+			c.sendBufferedMessages()
+		}
+	}
 
 	// Get WebSocket URL from config
 	wsURL := c.urlConfig.GetWebSocketURL()
@@ -544,7 +578,7 @@ func (c *Connection) connect() error {
 	// Setup headers with API key
 	header := http.Header{}
 	header.Set("X-API-Key", apiKey)
-	header.Set("X-Agent-ID", agentID)
+	header.Set("X-Agent-ID", agentIDStr)
 
 	// Configure WebSocket dialer with TLS
 	dialer := websocket.Dialer{
@@ -1274,6 +1308,11 @@ func (c *Connection) readPump() {
 				debug.Info("Successfully updated device %d to enabled=%v", updatePayload.DeviceID, updatePayload.Enabled)
 			}
 
+		case WSTypeBufferAck:
+			// Server acknowledged buffered messages
+			debug.Info("Received buffer acknowledgment")
+			c.handleBufferAck(msg.Payload)
+			
 		default:
 			debug.Warning("Received unknown message type: %s", msg.Type)
 		}
@@ -1455,6 +1494,16 @@ func (c *Connection) writePump() {
 			if err := c.ws.WriteJSON(message); err != nil {
 				debug.Error("Failed to send message type %s: %v", message.Type, err)
 				c.writeMux.Unlock()
+				
+				// Buffer critical messages on send failure
+				if c.messageBuffer != nil && c.shouldBufferMessage(message) {
+					if bufferErr := c.bufferMessage(message); bufferErr != nil {
+						debug.Error("Failed to buffer message: %v", bufferErr)
+					} else {
+						debug.Info("Buffered message type %s for later delivery", message.Type)
+					}
+				}
+				
 				c.isConnected.Store(false)
 				return
 			}
@@ -1924,4 +1973,87 @@ func (c *Connection) DetectAndSendDevices() error {
 	debug.Info("Successfully sent device detection result with %d devices", len(result.Devices))
 	
 	return nil
+}
+
+// shouldBufferMessage determines if a message should be buffered
+func (c *Connection) shouldBufferMessage(msg *WSMessage) bool {
+	switch msg.Type {
+	case WSTypeJobProgress, WSTypeHashcatOutput, WSTypeBenchmarkResult:
+		// Check if message contains crack information
+		if msg.Type == WSTypeJobProgress || msg.Type == WSTypeHashcatOutput {
+			return buffer.HasCrackedHashes(msg.Payload)
+		}
+		return true
+	default:
+		return false
+	}
+}
+
+// bufferMessage adds a message to the buffer
+func (c *Connection) bufferMessage(msg *WSMessage) error {
+	if c.messageBuffer == nil {
+		return fmt.Errorf("message buffer not initialized")
+	}
+	
+	return c.messageBuffer.Add(buffer.MessageType(msg.Type), msg.Payload)
+}
+
+// sendBufferedMessages sends all buffered messages to the server
+func (c *Connection) sendBufferedMessages() {
+	if c.messageBuffer == nil || c.messageBuffer.Count() == 0 {
+		return
+	}
+	
+	debug.Info("Sending %d buffered messages", c.messageBuffer.Count())
+	
+	// Get all buffered messages
+	messages := c.messageBuffer.GetAll()
+	
+	// Create payload with all buffered messages
+	payload, err := json.Marshal(map[string]interface{}{
+		"messages": messages,
+		"agent_id": c.agentID,
+	})
+	if err != nil {
+		debug.Error("Failed to marshal buffered messages: %v", err)
+		return
+	}
+	
+	// Send buffered messages
+	msg := WSMessage{
+		Type:      WSTypeBufferedMessages,
+		Payload:   payload,
+		Timestamp: time.Now(),
+	}
+	
+	// Use safeSendMessage to avoid blocking
+	if c.safeSendMessage(&msg, 10000) { // 10 second timeout for buffered messages
+		debug.Info("Successfully sent buffered messages, waiting for ACK")
+		// Note: Buffer will be cleared when we receive the ACK
+	} else {
+		debug.Error("Failed to send buffered messages - will retry on next connection")
+	}
+}
+
+// handleBufferAck processes acknowledgment from server for buffered messages
+func (c *Connection) handleBufferAck(payload json.RawMessage) {
+	var ack struct {
+		MessageIDs []string `json:"message_ids"`
+	}
+	
+	if err := json.Unmarshal(payload, &ack); err != nil {
+		debug.Error("Failed to unmarshal buffer ACK: %v", err)
+		return
+	}
+	
+	if c.messageBuffer == nil {
+		return
+	}
+	
+	// Remove acknowledged messages from buffer
+	if err := c.messageBuffer.RemoveMessages(ack.MessageIDs); err != nil {
+		debug.Error("Failed to remove acknowledged messages from buffer: %v", err)
+	} else {
+		debug.Info("Removed %d acknowledged messages from buffer", len(ack.MessageIDs))
+	}
 }

@@ -32,9 +32,10 @@ const (
 	TypeHardwareInfo    MessageType = "hardware_info"
 	TypeSyncResponse    MessageType = "file_sync_response"
 	TypeSyncStatus      MessageType = "file_sync_status"
-	TypeHashcatOutput   MessageType = "hashcat_output"
-	TypeDeviceDetection MessageType = "device_detection"
-	TypeDeviceUpdate    MessageType = "device_update"
+	TypeHashcatOutput    MessageType = "hashcat_output"
+	TypeDeviceDetection  MessageType = "device_detection"
+	TypeDeviceUpdate     MessageType = "device_update"
+	TypeBufferedMessages MessageType = "buffered_messages"
 
 	// Server -> Agent messages
 	TypeTaskAssignment   MessageType = "task_assignment"
@@ -45,6 +46,7 @@ const (
 	TypeSyncRequest      MessageType = "file_sync_request"
 	TypeSyncCommand      MessageType = "file_sync_command"
 	TypeForceCleanup     MessageType = "force_cleanup"
+	TypeBufferAck        MessageType = "buffer_ack"
 )
 
 // Client represents a connected agent
@@ -330,6 +332,16 @@ func (s *Service) handleAgentStatus(ctx context.Context, agent *models.Agent, ms
 
 	if err := s.agentService.UpdateAgentStatus(ctx, agent.ID, payload.Status, lastError); err != nil {
 		return fmt.Errorf("failed to update agent status: %w", err)
+	}
+
+	// Update agent version if provided
+	if payload.Version != "" {
+		if err := s.agentService.UpdateAgentVersion(ctx, agent.ID, payload.Version); err != nil {
+			// Log error but don't fail the status update
+			debug.Error("Failed to update agent version: %v", err)
+		} else {
+			debug.Info("Updated agent %d version to %s", agent.ID, payload.Version)
+		}
 	}
 
 	// Update OS info if provided

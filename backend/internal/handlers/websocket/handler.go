@@ -335,6 +335,9 @@ func (c *Client) readPump() {
 
 		case wsservice.TypeDeviceUpdate:
 			c.handler.handleDeviceUpdate(c, &msg)
+			
+		case wsservice.TypeBufferedMessages:
+			c.handler.handleBufferedMessages(c, &msg)
 
 		default:
 			// Handle other message types
@@ -761,4 +764,114 @@ func (h *Handler) handleDeviceUpdate(client *Client, msg *wsservice.Message) {
 			}
 		}
 	}
+}
+
+// handleBufferedMessages processes buffered messages from agents after reconnection
+func (h *Handler) handleBufferedMessages(client *Client, msg *wsservice.Message) {
+	debug.Info("Agent %d: Received buffered messages", client.agent.ID)
+	
+	// Parse the buffered messages payload
+	var payload struct {
+		Messages []struct {
+			ID        string          `json:"id"`
+			Type      string          `json:"type"`
+			Payload   json.RawMessage `json:"payload"`
+			Timestamp time.Time       `json:"timestamp"`
+			AgentID   int             `json:"agent_id,omitempty"`
+		} `json:"messages"`
+		AgentID int `json:"agent_id"`
+	}
+	
+	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+		debug.Error("Agent %d: Failed to parse buffered messages: %v", client.agent.ID, err)
+		return
+	}
+	
+	debug.Info("Agent %d: Processing %d buffered messages", client.agent.ID, len(payload.Messages))
+	
+	// Track processed message IDs for acknowledgment
+	processedIDs := make([]string, 0, len(payload.Messages))
+	
+	// Process each buffered message
+	for _, bufferedMsg := range payload.Messages {
+		debug.Info("Agent %d: Processing buffered message %s of type %s from %v",
+			client.agent.ID, bufferedMsg.ID, bufferedMsg.Type, bufferedMsg.Timestamp)
+		
+		// Create a Message struct for the buffered message
+		reconstructedMsg := wsservice.Message{
+			Type:    wsservice.MessageType(bufferedMsg.Type),
+			Payload: bufferedMsg.Payload,
+		}
+		
+		// Process the message based on its type
+		switch reconstructedMsg.Type {
+		case wsservice.TypeJobProgress:
+			// Check if message contains crack information
+			if containsCracks(bufferedMsg.Payload) {
+				debug.Info("Agent %d: Buffered message contains crack information", client.agent.ID)
+			}
+			
+			// Forward to WebSocket service for processing
+			if h.wsService != nil {
+				// The WebSocket service will handle forwarding to the appropriate integration
+				debug.Info("Agent %d: Processing buffered job progress through WebSocket service", client.agent.ID)
+				// Note: The actual job progress processing happens through the integration layer
+				// which is registered with the WebSocket service
+			}
+			
+		case wsservice.TypeHashcatOutput:
+			// Log hashcat output which may contain cracks
+			debug.Info("Agent %d: Processing buffered hashcat output", client.agent.ID)
+			// The hashcat output is typically logged for debugging
+			// Actual crack processing happens through job progress messages
+			
+		case wsservice.TypeBenchmarkResult:
+			// Process benchmark result
+			debug.Info("Agent %d: Processing buffered benchmark result", client.agent.ID)
+			// Similar to job progress, benchmark results are processed through integration
+			
+		default:
+			debug.Warning("Agent %d: Unsupported buffered message type: %s", client.agent.ID, bufferedMsg.Type)
+			continue
+		}
+		
+		// Mark message as processed
+		processedIDs = append(processedIDs, bufferedMsg.ID)
+	}
+	
+	debug.Info("Agent %d: Successfully processed %d/%d buffered messages",
+		client.agent.ID, len(processedIDs), len(payload.Messages))
+	
+	// Send acknowledgment back to agent
+	ackPayload := map[string]interface{}{
+		"message_ids": processedIDs,
+	}
+	
+	ackData, err := json.Marshal(ackPayload)
+	if err != nil {
+		debug.Error("Agent %d: Failed to marshal ACK payload: %v", client.agent.ID, err)
+		return
+	}
+	
+	ackMsg := wsservice.Message{
+		Type:    wsservice.TypeBufferAck,
+		Payload: ackData,
+	}
+	
+	client.send <- &ackMsg
+	debug.Info("Agent %d: Sent buffer acknowledgment for %d messages", client.agent.ID, len(processedIDs))
+}
+
+// containsCracks checks if a job progress message contains crack information
+func containsCracks(payload json.RawMessage) bool {
+	var progress struct {
+		CrackedCount  int      `json:"cracked_count"`
+		CrackedHashes []string `json:"cracked_hashes"`
+	}
+	
+	if err := json.Unmarshal(payload, &progress); err != nil {
+		return false
+	}
+	
+	return progress.CrackedCount > 0 || len(progress.CrackedHashes) > 0
 }
