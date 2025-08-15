@@ -417,58 +417,6 @@ const JobExecutionSettingsComponent: React.FC = () => {
         </Grid>
 
         {/* Metrics Retention Settings */}
-        <Grid item xs={12}>
-          <Paper sx={{ p: 3 }}>
-            <Typography variant="subtitle1" gutterBottom fontWeight="bold">
-              Metrics Retention
-            </Typography>
-            <Divider sx={{ mb: 2 }} />
-            <Grid container spacing={2}>
-              <Grid item xs={12} md={4}>
-                <TextField
-                  fullWidth
-                  type="number"
-                  label="Real-time Metrics"
-                  value={settings.metrics_retention_realtime_days}
-                  onChange={handleChange('metrics_retention_realtime_days')}
-                  helperText="Days to retain real-time metrics"
-                  InputProps={{
-                    inputProps: { min: 1 },
-                    endAdornment: <InputAdornment position="end">days</InputAdornment>,
-                  }}
-                />
-              </Grid>
-              <Grid item xs={12} md={4}>
-                <TextField
-                  fullWidth
-                  type="number"
-                  label="Daily Aggregated Metrics"
-                  value={settings.metrics_retention_daily_days}
-                  onChange={handleChange('metrics_retention_daily_days')}
-                  helperText="Days to retain daily metrics"
-                  InputProps={{
-                    inputProps: { min: 7 },
-                    endAdornment: <InputAdornment position="end">days</InputAdornment>,
-                  }}
-                />
-              </Grid>
-              <Grid item xs={12} md={4}>
-                <TextField
-                  fullWidth
-                  type="number"
-                  label="Weekly Aggregated Metrics"
-                  value={settings.metrics_retention_weekly_days}
-                  onChange={handleChange('metrics_retention_weekly_days')}
-                  helperText="Days to retain weekly metrics"
-                  InputProps={{
-                    inputProps: { min: 30 },
-                    endAdornment: <InputAdornment position="end">days</InputAdornment>,
-                  }}
-                />
-              </Grid>
-            </Grid>
-          </Paper>
-        </Grid>
 
         {/* Save Button */}
         <Grid item xs={12}>

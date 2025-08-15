@@ -28,6 +28,7 @@ import {
   updatePresetJob 
 } from '../../services/api';
 import { getMaxPriorityForUsers } from '../../services/systemSettings';
+import { getJobExecutionSettings } from '../../services/jobSettings';
 import { 
   PresetJob, 
   PresetJobInput, 
@@ -50,20 +51,20 @@ const MenuProps = {
   },
 };
 
-// Initial form state with default values
-const initialFormState: PresetJobFormData = {
+// Initial form state with default values - chunk_size_seconds will be set dynamically
+const getInitialFormState = (defaultChunkDuration: number = 300): PresetJobFormData => ({
   name: '',
   wordlist_ids: [],
   rule_ids: [],
   attack_mode: AttackMode.Straight,
   priority: '', // Empty string to show placeholder
-  chunk_size_seconds: 300, // 5 minutes default
+  chunk_size_seconds: defaultChunkDuration,
   is_small_job: false,
   binary_version_id: 0,
   allow_high_priority_override: false,
   mask: '',
   max_agents: 0
-};
+});
 
 // Attack mode descriptions and requirements
 const attackModeInfo = {
@@ -116,8 +117,9 @@ const PresetJobFormPage: React.FC = () => {
   const navigate = useNavigate();
   const isEditing = Boolean(presetJobId);
   
-  // Form state
-  const [formData, setFormData] = useState<PresetJobFormData>(initialFormState);
+  // Form state - initialize with a temporary default, will be updated after fetching settings
+  const [formData, setFormData] = useState<PresetJobFormData>(getInitialFormState(300));
+  const [defaultChunkDuration, setDefaultChunkDuration] = useState<number>(1200);
   
   // Form options from API
   const [wordlists, setWordlists] = useState<WordlistBasic[]>([]);
@@ -145,13 +147,21 @@ const PresetJobFormPage: React.FC = () => {
         setLoading(true);
         setError(null);
         
-        // Fetch form options (wordlists, rules, binary versions) and max priority
-        const [formDataResponse, maxPriorityResponse] = await Promise.all([
+        // Fetch form options (wordlists, rules, binary versions), max priority, and job execution settings
+        const [formDataResponse, maxPriorityResponse, jobExecutionSettings] = await Promise.all([
           getPresetJobFormData(),
-          getMaxPriorityForUsers()
+          getMaxPriorityForUsers(),
+          getJobExecutionSettings().catch(() => null) // Gracefully handle if settings fetch fails
         ]);
         
         setMaxPriority(maxPriorityResponse.max_priority);
+        
+        // Set default chunk duration from system settings
+        let systemDefaultChunkDuration = 1200; // fallback to 20 minutes
+        if (jobExecutionSettings?.default_chunk_duration) {
+          systemDefaultChunkDuration = jobExecutionSettings.default_chunk_duration;
+        }
+        setDefaultChunkDuration(systemDefaultChunkDuration);
 
         if (!formDataResponse.wordlists?.length) {
           setError('No wordlists available. Please add wordlists before creating preset jobs.');
@@ -209,11 +219,12 @@ const PresetJobFormPage: React.FC = () => {
             }
           }
         } else if (formDataResponse.binary_versions?.length > 0) {
-          // For new jobs, set default binary version to the most recent one
+          // For new jobs, set default binary version and chunk duration
           // Assuming the backend returns them in descending order of creation
           setFormData(prev => ({
             ...prev,
-            binary_version_id: formDataResponse.binary_versions[0].id
+            binary_version_id: formDataResponse.binary_versions[0].id,
+            chunk_size_seconds: systemDefaultChunkDuration
           }));
         }
         
@@ -259,11 +270,11 @@ const PresetJobFormPage: React.FC = () => {
         }));
       }
     } else if (name === 'chunk_size_seconds') {
-      // If chunk_size_seconds is empty on blur, set it to default 300
+      // If chunk_size_seconds is empty on blur, set it to system default
       if (value === '' || isNaN(parseInt(value))) {
         setFormData(prev => ({
           ...prev,
-          chunk_size_seconds: 300
+          chunk_size_seconds: defaultChunkDuration
         }));
       }
     }
@@ -498,7 +509,7 @@ const PresetJobFormPage: React.FC = () => {
         await createPresetJob(submissionData as any);
         setSuccessMessage('Preset job created successfully');
         // Reset form after successful creation
-        setFormData(initialFormState);
+        setFormData(getInitialFormState(defaultChunkDuration));
         // Navigate back to the preset jobs list
         setTimeout(() => {
           navigate('/admin/preset-jobs');

@@ -12,19 +12,18 @@ import {
   MenuItem,
   FormHelperText,
   Paper,
+  Divider,
+  FormControlLabel,
+  Switch,
 } from '@mui/material';
 import { useSnackbar } from 'notistack';
-import { api } from '../../services/api';
-
-interface MonitoringSettingsData {
-  metrics_retention_days: number;
-  enable_aggregation: boolean;
-  aggregation_interval: string;
-}
+import { getMonitoringSettings, updateMonitoringSettings, MonitoringSettings as MonitoringSettingsData } from '../../services/monitoringSettings';
 
 const MonitoringSettings: React.FC = () => {
   const [settings, setSettings] = useState<MonitoringSettingsData>({
-    metrics_retention_days: 0, // 0 means unlimited
+    metrics_retention_realtime_days: 7,
+    metrics_retention_daily_days: 30,
+    metrics_retention_weekly_days: 365,
     enable_aggregation: true,
     aggregation_interval: 'daily',
   });
@@ -41,15 +40,8 @@ const MonitoringSettings: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await api.get('/api/system-settings');
-      const settingsData = response.data.data || {};
-      
-      // Extract monitoring-related settings
-      setSettings({
-        metrics_retention_days: parseInt(settingsData.metrics_retention_days || '0', 10),
-        enable_aggregation: settingsData.enable_aggregation === 'true',
-        aggregation_interval: settingsData.aggregation_interval || 'daily',
-      });
+      const monitoringSettings = await getMonitoringSettings();
+      setSettings(monitoringSettings);
     } catch (err) {
       console.error('Failed to fetch monitoring settings:', err);
       setError('Failed to load settings. Please try again.');
@@ -63,17 +55,7 @@ const MonitoringSettings: React.FC = () => {
     setSaving(true);
 
     try {
-      // Save each setting
-      const updates = [
-        { key: 'metrics_retention_days', value: settings.metrics_retention_days.toString() },
-        { key: 'enable_aggregation', value: settings.enable_aggregation.toString() },
-        { key: 'aggregation_interval', value: settings.aggregation_interval },
-      ];
-
-      for (const update of updates) {
-        await api.put('/api/system-settings', update);
-      }
-
+      await updateMonitoringSettings(settings);
       enqueueSnackbar('Monitoring settings saved successfully', { variant: 'success' });
     } catch (err: any) {
       console.error('Failed to save monitoring settings:', err);
@@ -84,10 +66,10 @@ const MonitoringSettings: React.FC = () => {
     }
   };
 
-  const handleRetentionChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleRetentionChange = (field: keyof MonitoringSettingsData) => (event: React.ChangeEvent<HTMLInputElement>) => {
     const value = parseInt(event.target.value, 10);
     if (!isNaN(value) && value >= 0) {
-      setSettings({ ...settings, metrics_retention_days: value });
+      setSettings({ ...settings, [field]: value });
     }
   };
 
@@ -113,22 +95,64 @@ const MonitoringSettings: React.FC = () => {
 
       <Paper sx={{ p: 3, mb: 3 }}>
         <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 'bold' }}>
-          Metrics Retention
+          📊 Metrics Retention Periods
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+          Configure how long to retain metrics at different levels of detail. Data cascades from fine-grained to aggregated over time.
         </Typography>
         
-        <TextField
-          fullWidth
-          label="Retention Period (days)"
-          type="number"
-          value={settings.metrics_retention_days}
-          onChange={handleRetentionChange}
-          helperText="Number of days to retain device performance metrics. Set to 0 for unlimited retention."
-          inputProps={{ min: 0, step: 1 }}
-          sx={{ mb: 3 }}
-        />
+        <Box sx={{ mb: 3 }}>
+          <TextField
+            fullWidth
+            label="Real-time Data Retention"
+            type="number"
+            value={settings.metrics_retention_realtime_days}
+            onChange={handleRetentionChange('metrics_retention_realtime_days')}
+            helperText="Days to keep fine-grained metrics for recent activity (e.g., 7 days)"
+            inputProps={{ min: 0, step: 1 }}
+            sx={{ mb: 2 }}
+          />
+          
+          <TextField
+            fullWidth
+            label="Daily Aggregates Retention"
+            type="number"
+            value={settings.metrics_retention_daily_days}
+            onChange={handleRetentionChange('metrics_retention_daily_days')}
+            helperText="Days to store daily summaries after real-time period (e.g., 30 days)"
+            inputProps={{ min: 0, step: 1 }}
+            sx={{ mb: 2 }}
+          />
+          
+          <TextField
+            fullWidth
+            label="Weekly Aggregates Retention"
+            type="number"
+            value={settings.metrics_retention_weekly_days}
+            onChange={handleRetentionChange('metrics_retention_weekly_days')}
+            helperText="Days to preserve long-term trends as weekly summaries (e.g., 365 days)"
+            inputProps={{ min: 0, step: 1 }}
+          />
+        </Box>
 
-        <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 'bold', mt: 2 }}>
-          Data Aggregation
+        <Divider sx={{ my: 3 }} />
+
+        <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 'bold' }}>
+          ⚙️ Aggregation Settings
+        </Typography>
+
+        <FormControlLabel
+          control={
+            <Switch
+              checked={settings.enable_aggregation}
+              onChange={(e) => setSettings({ ...settings, enable_aggregation: e.target.checked })}
+            />
+          }
+          label="Enable Automatic Aggregation"
+          sx={{ mb: 2 }}
+        />
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Automatically consolidate older metrics to save storage space while preserving trends
         </Typography>
 
         <FormControl fullWidth sx={{ mb: 2 }}>
@@ -137,20 +161,30 @@ const MonitoringSettings: React.FC = () => {
             value={settings.aggregation_interval}
             onChange={(e) => setSettings({ ...settings, aggregation_interval: e.target.value })}
             label="Aggregation Interval"
+            disabled={!settings.enable_aggregation}
           >
             <MenuItem value="hourly">Hourly</MenuItem>
             <MenuItem value="daily">Daily</MenuItem>
             <MenuItem value="weekly">Weekly</MenuItem>
           </Select>
           <FormHelperText>
-            Historical data will be aggregated at this interval to save storage space
+            How often to run the aggregation process
           </FormHelperText>
         </FormControl>
 
-        <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
-          Note: Real-time metrics are always retained for the most recent 24 hours regardless of retention settings.
-          Older data is aggregated based on the interval selected above.
-        </Typography>
+        <Alert severity="info" sx={{ mt: 2 }}>
+          <Typography variant="body2">
+            <strong>How cascading aggregation works:</strong>
+            <br />
+            • Real-time data provides detailed metrics for recent activity
+            <br />
+            • After the real-time period, data is aggregated to daily summaries
+            <br />
+            • After the daily period, data is further aggregated to weekly summaries
+            <br />
+            • This approach keeps charts readable while preserving historical trends
+          </Typography>
+        </Alert>
       </Paper>
 
       <Box display="flex" justifyContent="flex-end">

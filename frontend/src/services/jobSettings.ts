@@ -10,9 +10,6 @@ export interface JobExecutionSettings {
   benchmark_cache_duration_hours: number;
   speedtest_timeout_seconds: number;
   enable_realtime_crack_notifications: boolean;
-  metrics_retention_realtime_days: number;
-  metrics_retention_daily_days: number;
-  metrics_retention_weekly_days: number;
   job_refresh_interval_seconds: number;
   max_chunk_retry_attempts: number;
   jobs_per_page_default: number;

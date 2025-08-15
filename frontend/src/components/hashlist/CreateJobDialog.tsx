@@ -38,6 +38,7 @@ import {
   Info as InfoIcon
 } from '@mui/icons-material';
 import { api } from '../../services/api';
+import { getJobExecutionSettings } from '../../services/jobSettings';
 import { useNavigate } from 'react-router-dom';
 
 interface PresetJob {
@@ -107,7 +108,8 @@ export default function CreateJobDialog({
     max_agents: 0,
     binary_version_id: 1,
     is_small_job: false,
-    allow_high_priority_override: false
+    allow_high_priority_override: false,
+    chunk_duration: 1200 // Default to 20 minutes (will be updated from system settings)
   });
   
   // Available data
@@ -126,18 +128,36 @@ export default function CreateJobDialog({
   const fetchAvailableJobs = async () => {
     setLoadingJobs(true);
     try {
-      const response = await api.get(`/api/hashlists/${hashlistId}/available-jobs`);
+      // Fetch available jobs and job execution settings in parallel
+      const [response, jobExecutionSettings] = await Promise.all([
+        api.get(`/api/hashlists/${hashlistId}/available-jobs`),
+        getJobExecutionSettings().catch(() => null) // Gracefully handle if settings fetch fails
+      ]);
+      
       setPresetJobs(response.data.preset_jobs || []);
       setWorkflows(response.data.workflows || []);
       setFormData(response.data.form_data || null);
       
-      // Set default binary version if available
+      // Set default chunk duration from system settings
+      let systemDefaultChunkDuration = 1200; // fallback to 20 minutes
+      if (jobExecutionSettings?.default_chunk_duration) {
+        systemDefaultChunkDuration = jobExecutionSettings.default_chunk_duration;
+      }
+      
+      // Set default binary version and chunk duration if available
       if (response.data.form_data?.binary_versions?.length > 0) {
         const firstBinaryId = response.data.form_data.binary_versions[0].id;
         console.log('Setting default binary version to:', firstBinaryId);
         setCustomJob(prev => ({ 
           ...prev, 
-          binary_version_id: firstBinaryId 
+          binary_version_id: firstBinaryId,
+          chunk_duration: systemDefaultChunkDuration
+        }));
+      } else {
+        // Just update chunk duration
+        setCustomJob(prev => ({ 
+          ...prev, 
+          chunk_duration: systemDefaultChunkDuration
         }));
       }
     } catch (err: any) {
@@ -259,7 +279,8 @@ export default function CreateJobDialog({
         max_agents: 0,
         binary_version_id: 1,
         is_small_job: false,
-        allow_high_priority_override: false
+        allow_high_priority_override: false,
+        chunk_duration: 1200 // Default to 20 minutes
       });
       setTabValue(0);
       setCustomJobName('');
@@ -283,16 +304,6 @@ export default function CreateJobDialog({
     );
   };
 
-  const getJobNameHelperText = () => {
-    if (tabValue === 0 || tabValue === 1) {
-      // Preset or Workflow tabs
-      return "Your name will be appended with each job type (e.g., 'My Name - Potfile Run')";
-    } else {
-      // Custom tab
-      return "Leave empty to use format: ClientName-HashMode";
-    }
-  };
-
   return (
     <Dialog open={open} onClose={handleClose} maxWidth="md" fullWidth>
       <DialogTitle>
@@ -311,16 +322,6 @@ export default function CreateJobDialog({
             Job(s) created successfully! Redirecting to jobs page...
           </Alert>
         )}
-
-        <TextField
-          fullWidth
-          label="Job Name (Optional)"
-          placeholder="Leave empty for auto-generated name"
-          value={customJobName}
-          onChange={(e) => setCustomJobName(e.target.value)}
-          helperText={getJobNameHelperText()}
-          sx={{ mb: 3 }}
-        />
 
         <Tabs value={tabValue} onChange={handleTabChange} sx={{ mb: 3 }}>
           <Tab icon={<WorkIcon />} label="Preset Jobs" />
@@ -343,6 +344,15 @@ export default function CreateJobDialog({
                   </Alert>
                 ) : (
                   <>
+                    <TextField
+                      fullWidth
+                      label="Job Name (Optional)"
+                      placeholder="Leave empty for auto-generated name"
+                      value={customJobName}
+                      onChange={(e) => setCustomJobName(e.target.value)}
+                      helperText="Your name will be appended with each job type (e.g., 'My Name - Potfile Run')"
+                      sx={{ mb: 3 }}
+                    />
                     <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                       Select one or more preset jobs to run. You can select multiple jobs - they will be created as separate job executions.
                     </Typography>
@@ -408,6 +418,15 @@ export default function CreateJobDialog({
                   </Alert>
                 ) : (
                   <>
+                    <TextField
+                      fullWidth
+                      label="Job Name (Optional)"
+                      placeholder="Leave empty for auto-generated name"
+                      value={customJobName}
+                      onChange={(e) => setCustomJobName(e.target.value)}
+                      helperText="Your name will be appended with each workflow name"
+                      sx={{ mb: 3 }}
+                    />
                     <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                       Select one or more workflows to run. You can select multiple workflows - each will create its own sequence of job executions.
                     </Typography>
@@ -472,9 +491,10 @@ export default function CreateJobDialog({
                     <TextField
                       fullWidth
                       label="Job Name (Optional)"
-                      placeholder="Leave empty to use ClientName-HashMode format"
+                      placeholder="Leave empty for auto-generated name"
                       value={customJob.name}
                       onChange={(e) => setCustomJob(prev => ({ ...prev, name: e.target.value }))}
+                      helperText="Leave empty to use format: ClientName-HashMode"
                     />
                   </Grid>
 
@@ -589,6 +609,21 @@ export default function CreateJobDialog({
                       }}
                       inputProps={{ min: 1, max: 1000 }}
                       helperText="Higher priority jobs are executed first (1-1000)"
+                    />
+                  </Grid>
+
+                  <Grid item xs={12} sm={6}>
+                    <TextField
+                      fullWidth
+                      label="Chunk Duration (seconds)"
+                      type="number"
+                      value={customJob.chunk_duration}
+                      onChange={(e) => {
+                        const value = parseInt(e.target.value) || 60;
+                        setCustomJob(prev => ({ ...prev, chunk_duration: value }));
+                      }}
+                      inputProps={{ min: 60 }}
+                      helperText="Time in seconds for each chunk (min: 60)"
                     />
                   </Grid>
 

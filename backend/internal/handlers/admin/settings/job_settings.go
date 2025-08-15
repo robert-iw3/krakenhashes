@@ -24,20 +24,18 @@ func NewJobSettingsHandler(systemSettingsRepo *repository.SystemSettingsReposito
 
 // JobExecutionSettings represents all job execution related settings
 type JobExecutionSettings struct {
-	DefaultChunkDuration             int  `json:"default_chunk_duration"`
-	ChunkFluctuationPercentage       int  `json:"chunk_fluctuation_percentage"`
-	AgentHashlistRetentionHours      int  `json:"agent_hashlist_retention_hours"`
-	ProgressReportingInterval        int  `json:"progress_reporting_interval"`
-	MaxConcurrentJobsPerAgent        int  `json:"max_concurrent_jobs_per_agent"`
-	JobInterruptionEnabled           bool `json:"job_interruption_enabled"`
-	BenchmarkCacheDurationHours      int  `json:"benchmark_cache_duration_hours"`
-	EnableRealtimeCrackNotifications bool `json:"enable_realtime_crack_notifications"`
-	MetricsRetentionRealtimeDays     int  `json:"metrics_retention_realtime_days"`
-	MetricsRetentionDailyDays        int  `json:"metrics_retention_daily_days"`
-	MetricsRetentionWeeklyDays       int  `json:"metrics_retention_weekly_days"`
-	JobRefreshIntervalSeconds        int  `json:"job_refresh_interval_seconds"`
-	MaxChunkRetryAttempts            int  `json:"max_chunk_retry_attempts"`
-	JobsPerPageDefault               int  `json:"jobs_per_page_default"`
+	DefaultChunkDuration             int    `json:"default_chunk_duration"`
+	ChunkFluctuationPercentage       int    `json:"chunk_fluctuation_percentage"`
+	AgentHashlistRetentionHours      int    `json:"agent_hashlist_retention_hours"`
+	ProgressReportingInterval        int    `json:"progress_reporting_interval"`
+	MaxConcurrentJobsPerAgent        int    `json:"max_concurrent_jobs_per_agent"`
+	JobInterruptionEnabled           bool   `json:"job_interruption_enabled"`
+	BenchmarkCacheDurationHours      int    `json:"benchmark_cache_duration_hours"`
+	EnableRealtimeCrackNotifications bool   `json:"enable_realtime_crack_notifications"`
+	JobRefreshIntervalSeconds        int    `json:"job_refresh_interval_seconds"`
+	MaxChunkRetryAttempts            int    `json:"max_chunk_retry_attempts"`
+	JobsPerPageDefault               int    `json:"jobs_per_page_default"`
+	SpeedtestTimeoutSeconds          int    `json:"speedtest_timeout_seconds"`
 	// Rule splitting settings
 	RuleSplitEnabled   bool    `json:"rule_split_enabled"`
 	RuleSplitThreshold float64 `json:"rule_split_threshold"`
@@ -61,12 +59,10 @@ func (h *JobSettingsHandler) GetJobExecutionSettings(w http.ResponseWriter, r *h
 		"job_interruption_enabled",
 		"benchmark_cache_duration_hours",
 		"enable_realtime_crack_notifications",
-		"metrics_retention_realtime_days",
-		"metrics_retention_daily_days",
-		"metrics_retention_weekly_days",
 		"job_refresh_interval_seconds",
 		"max_chunk_retry_attempts",
 		"jobs_per_page_default",
+		"speedtest_timeout_seconds",
 		// Rule splitting settings
 		"rule_split_enabled",
 		"rule_split_threshold",
@@ -85,12 +81,10 @@ func (h *JobSettingsHandler) GetJobExecutionSettings(w http.ResponseWriter, r *h
 		JobInterruptionEnabled:           true,
 		BenchmarkCacheDurationHours:      168, // 7 days
 		EnableRealtimeCrackNotifications: true,
-		MetricsRetentionRealtimeDays:     7,
-		MetricsRetentionDailyDays:        30,
-		MetricsRetentionWeeklyDays:       365,
 		JobRefreshIntervalSeconds:        5,
 		MaxChunkRetryAttempts:            3,
 		JobsPerPageDefault:               25,
+		SpeedtestTimeoutSeconds:          30,
 		// Rule splitting defaults
 		RuleSplitEnabled:   true,
 		RuleSplitThreshold: 2.0,
@@ -141,18 +135,6 @@ func (h *JobSettingsHandler) GetJobExecutionSettings(w http.ResponseWriter, r *h
 				}
 			case "enable_realtime_crack_notifications":
 				settings.EnableRealtimeCrackNotifications = *setting.Value == "true"
-			case "metrics_retention_realtime_days":
-				if val, err := strconv.Atoi(*setting.Value); err == nil {
-					settings.MetricsRetentionRealtimeDays = val
-				}
-			case "metrics_retention_daily_days":
-				if val, err := strconv.Atoi(*setting.Value); err == nil {
-					settings.MetricsRetentionDailyDays = val
-				}
-			case "metrics_retention_weekly_days":
-				if val, err := strconv.Atoi(*setting.Value); err == nil {
-					settings.MetricsRetentionWeeklyDays = val
-				}
 			case "job_refresh_interval_seconds":
 				if val, err := strconv.Atoi(*setting.Value); err == nil {
 					settings.JobRefreshIntervalSeconds = val
@@ -164,6 +146,10 @@ func (h *JobSettingsHandler) GetJobExecutionSettings(w http.ResponseWriter, r *h
 			case "jobs_per_page_default":
 				if val, err := strconv.Atoi(*setting.Value); err == nil {
 					settings.JobsPerPageDefault = val
+				}
+			case "speedtest_timeout_seconds":
+				if val, err := strconv.Atoi(*setting.Value); err == nil {
+					settings.SpeedtestTimeoutSeconds = val
 				}
 			case "rule_split_enabled":
 				settings.RuleSplitEnabled = *setting.Value == "true"
@@ -209,12 +195,10 @@ func (h *JobSettingsHandler) UpdateJobExecutionSettings(w http.ResponseWriter, r
 		"job_interruption_enabled":            strconv.FormatBool(settings.JobInterruptionEnabled),
 		"benchmark_cache_duration_hours":      strconv.Itoa(settings.BenchmarkCacheDurationHours),
 		"enable_realtime_crack_notifications": strconv.FormatBool(settings.EnableRealtimeCrackNotifications),
-		"metrics_retention_realtime_days":     strconv.Itoa(settings.MetricsRetentionRealtimeDays),
-		"metrics_retention_daily_days":        strconv.Itoa(settings.MetricsRetentionDailyDays),
-		"metrics_retention_weekly_days":       strconv.Itoa(settings.MetricsRetentionWeeklyDays),
 		"job_refresh_interval_seconds":        strconv.Itoa(settings.JobRefreshIntervalSeconds),
 		"max_chunk_retry_attempts":            strconv.Itoa(settings.MaxChunkRetryAttempts),
 		"jobs_per_page_default":               strconv.Itoa(settings.JobsPerPageDefault),
+		"speedtest_timeout_seconds":           strconv.Itoa(settings.SpeedtestTimeoutSeconds),
 		// Rule splitting settings
 		"rule_split_enabled":    strconv.FormatBool(settings.RuleSplitEnabled),
 		"rule_split_threshold":  strconv.FormatFloat(settings.RuleSplitThreshold, 'f', 1, 64),

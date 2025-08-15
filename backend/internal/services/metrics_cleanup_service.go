@@ -124,21 +124,22 @@ func (s *MetricsCleanupService) performAggregation(ctx context.Context) {
 
 // getRetentionDays retrieves the metrics retention setting from system settings
 func (s *MetricsCleanupService) getRetentionDays(ctx context.Context) (int, error) {
-	setting, err := s.systemSettingsRepo.GetSetting(ctx, "metrics_retention_days")
+	// Get real-time retention days (primary retention setting)
+	setting, err := s.systemSettingsRepo.GetSetting(ctx, "metrics_retention_realtime_days")
 	if err != nil {
-		// If setting doesn't exist, default to unlimited (0)
-		return 0, nil
+		// If setting doesn't exist, default to 7 days
+		return 7, nil
 	}
 
 	// Check if value is nil
 	if setting.Value == nil {
-		return 0, nil
+		return 7, nil
 	}
 
 	var days int
 	_, err = fmt.Sscanf(*setting.Value, "%d", &days)
 	if err != nil {
-		return 0, fmt.Errorf("invalid retention days value: %s", *setting.Value)
+		return 7, fmt.Errorf("invalid retention days value: %s", *setting.Value)
 	}
 
 	return days, nil

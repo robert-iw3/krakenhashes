@@ -47,6 +47,7 @@ func SetupAdminRoutes(router *mux.Router, database *db.DB, emailService *email.S
 	retentionSettingsHandler := adminsettings.NewRetentionSettingsHandler(clientSettingsRepo)
 	systemSettingsHandler := adminsettings.NewSystemSettingsHandler(systemSettingsRepo, presetJobRepo)
 	jobSettingsHandler := adminsettings.NewJobSettingsHandler(systemSettingsRepo)
+	monitoringSettingsHandler := adminsettings.NewMonitoringSettingsHandler(systemSettingsRepo)
 	clientHandler := adminclient.NewClientHandler(clientRepo, clientService)
 	userHandler := adminuser.NewUserHandler(userRepo)
 
@@ -72,14 +73,18 @@ func SetupAdminRoutes(router *mux.Router, database *db.DB, emailService *email.S
 	adminRouter.HandleFunc("/settings/max-priority", systemSettingsHandler.GetMaxPriority).Methods(http.MethodGet, http.MethodOptions)
 	adminRouter.HandleFunc("/settings/max-priority", systemSettingsHandler.UpdateMaxPriority).Methods(http.MethodPut, http.MethodOptions)
 	
-	// General system settings routes for listing and updating individual settings
+	// Job execution settings routes (New) - Must be before generic {key} route
+	adminRouter.HandleFunc("/settings/job-execution", jobSettingsHandler.GetJobExecutionSettings).Methods(http.MethodGet, http.MethodOptions)
+	adminRouter.HandleFunc("/settings/job-execution", jobSettingsHandler.UpdateJobExecutionSettings).Methods(http.MethodPut, http.MethodOptions)
+	
+	// Monitoring settings routes - Must be before generic {key} route
+	adminRouter.HandleFunc("/settings/monitoring", monitoringSettingsHandler.GetMonitoringSettings).Methods(http.MethodGet, http.MethodOptions)
+	adminRouter.HandleFunc("/settings/monitoring", monitoringSettingsHandler.UpdateMonitoringSettings).Methods(http.MethodPut, http.MethodOptions)
+	
+	// General system settings routes for listing and updating individual settings - Must be after specific routes
 	adminRouter.HandleFunc("/settings", systemSettingsHandler.ListSettings).Methods(http.MethodGet, http.MethodOptions)
 	adminRouter.HandleFunc("/settings/{key}", systemSettingsHandler.GetSetting).Methods(http.MethodGet, http.MethodOptions)
 	adminRouter.HandleFunc("/settings/{key}", systemSettingsHandler.UpdateSetting).Methods(http.MethodPut, http.MethodOptions)
-
-	// Job execution settings routes (New)
-	adminRouter.HandleFunc("/settings/job-execution", jobSettingsHandler.GetJobExecutionSettings).Methods(http.MethodGet, http.MethodOptions)
-	adminRouter.HandleFunc("/settings/job-execution", jobSettingsHandler.UpdateJobExecutionSettings).Methods(http.MethodPut, http.MethodOptions)
 
 	// Client Management routes (New)
 	adminRouter.HandleFunc("/clients", clientHandler.ListClients).Methods(http.MethodGet, http.MethodOptions)
