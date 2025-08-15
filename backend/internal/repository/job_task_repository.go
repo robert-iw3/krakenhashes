@@ -1118,3 +1118,33 @@ func (r *JobTaskRepository) AssignTaskToAgent(ctx context.Context, taskID uuid.U
 
 	return nil
 }
+
+// GetTasksByAgentAndStatus gets all tasks for a specific agent with a given status
+func (r *JobTaskRepository) GetTasksByAgentAndStatus(ctx context.Context, agentID int, status models.JobTaskStatus) ([]uuid.UUID, error) {
+	query := `
+		SELECT id
+		FROM job_tasks
+		WHERE agent_id = $1 AND status = $2
+		ORDER BY created_at DESC`
+
+	rows, err := r.db.QueryContext(ctx, query, agentID, status)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get tasks by agent and status: %w", err)
+	}
+	defer rows.Close()
+
+	var taskIDs []uuid.UUID
+	for rows.Next() {
+		var taskID uuid.UUID
+		if err := rows.Scan(&taskID); err != nil {
+			return nil, fmt.Errorf("failed to scan task ID: %w", err)
+		}
+		taskIDs = append(taskIDs, taskID)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating rows: %w", err)
+	}
+
+	return taskIDs, nil
+}

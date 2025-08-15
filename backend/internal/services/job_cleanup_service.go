@@ -36,7 +36,7 @@ func NewJobCleanupService(
 
 // CleanupStaleTasksOnStartup cleans up tasks that were left in an incomplete state
 func (s *JobCleanupService) CleanupStaleTasksOnStartup(ctx context.Context) error {
-	debug.Info("Starting cleanup of stale tasks on startup")
+	debug.Info("Starting cleanup of stale tasks on startup with grace period for reconnection")
 
 	// Get all tasks that are in assigned or running state
 	staleTasks, err := s.jobTaskRepo.GetStaleTasks(ctx)
@@ -50,58 +50,126 @@ func (s *JobCleanupService) CleanupStaleTasksOnStartup(ctx context.Context) erro
 		return nil
 	}
 
-	debug.Info("Found stale tasks to cleanup: %d tasks", len(staleTasks))
+	debug.Info("Found %d stale tasks - marking as reconnect_pending with 2-minute grace period", len(staleTasks))
+	
+	// Mark each stale task as reconnect_pending instead of failed
 	for _, task := range staleTasks {
 		agentID := 0
 		if task.AgentID != nil {
 			agentID = *task.AgentID
 		}
-		debug.Info("Stale task found - ID: %s, Status: %s, Agent: %d, Job: %s",
+		debug.Info("Marking task as reconnect_pending - ID: %s, Status: %s, Agent: %d, Job: %s",
 			task.ID, task.Status, agentID, task.JobExecutionID)
-	}
-
-	// Mark each stale task as failed
-	for _, task := range staleTasks {
-		errorMsg := "Task was incomplete when server restarted - marked as failed"
-		err := s.jobTaskRepo.UpdateTaskError(ctx, task.ID, errorMsg)
+		
+		// Update task status to reconnect_pending
+		err := s.jobTaskRepo.UpdateStatus(ctx, task.ID, models.JobTaskStatusReconnectPending)
 		if err != nil {
-			debug.Error("Failed to update stale task %s: %v", task.ID, err)
+			debug.Error("Failed to update task %s to reconnect_pending: %v", task.ID, err)
 			continue
 		}
-
-		agentID := 0
-		if task.AgentID != nil {
-			agentID = *task.AgentID
-		}
-		debug.Info("Successfully marked stale task as failed - Task ID: %s, Agent: %d, Job: %s, Previous Status: %s",
-			task.ID, agentID, task.JobExecutionID, task.Status)
+		
+		debug.Info("Successfully marked task as reconnect_pending - Task ID: %s, Agent: %d, Job: %s",
+			task.ID, agentID, task.JobExecutionID)
 	}
 
-	// Also mark any jobs that were running as pending so they can be rescheduled
-	debug.Info("Checking for running jobs to mark as pending...")
-	runningJobs, err := s.jobExecutionRepo.GetJobsByStatus(ctx, models.JobExecutionStatusRunning)
-	if err != nil {
-		debug.Error("Failed to get running jobs: %v", err)
-		return fmt.Errorf("failed to get running jobs: %w", err)
+	// Convert to slice of pointers for handleGracePeriodExpiration
+	taskPointers := make([]*models.JobTask, len(staleTasks))
+	for i := range staleTasks {
+		taskPointers[i] = &staleTasks[i]
 	}
+	
+	// Start a goroutine to handle the grace period expiration
+	go s.handleGracePeriodExpiration(ctx, taskPointers)
 
-	if len(runningJobs) > 0 {
-		debug.Info("Found %d running jobs to mark as pending", len(runningJobs))
-	} else {
-		debug.Info("No running jobs found to mark as pending")
-	}
-
-	for _, job := range runningJobs {
-		err := s.jobExecutionRepo.UpdateStatus(ctx, job.ID, models.JobExecutionStatusPending)
-		if err != nil {
-			debug.Error("Failed to mark job %s as pending: %v", job.ID, err)
-			continue
-		}
-
-		debug.Info("Successfully marked running job as pending for rescheduling - Job ID: %s", job.ID)
-	}
-
+	// IMPORTANT: Do NOT mark jobs as pending here
+	// Jobs should remain "running" if they have reconnect_pending tasks
+	debug.Info("Jobs with reconnect_pending tasks will remain in running state awaiting agent reconnection")
+	
+	// Log final status
+	debug.Info("Startup cleanup completed - %d tasks marked as reconnect_pending", len(staleTasks))
+	
 	return nil
+}
+
+// handleGracePeriodExpiration handles the expiration of the grace period for reconnect_pending tasks
+func (s *JobCleanupService) handleGracePeriodExpiration(ctx context.Context, tasks []*models.JobTask) {
+	// Wait for 2-minute grace period
+	gracePeriod := 2 * time.Minute
+	debug.Info("Starting grace period timer for %d tasks - duration: %v", len(tasks), gracePeriod)
+	
+	time.Sleep(gracePeriod)
+	
+	debug.Info("Grace period expired - checking for tasks that didn't reconnect")
+	
+	// Group tasks by job for efficient job status updates
+	jobTaskMap := make(map[uuid.UUID][]*models.JobTask)
+	
+	for _, task := range tasks {
+		// Check if task is still in reconnect_pending state
+		currentTask, err := s.jobTaskRepo.GetByID(ctx, task.ID)
+		if err != nil {
+			debug.Error("Failed to get task %s status: %v", task.ID, err)
+			continue
+		}
+		
+		// If task is still reconnect_pending, mark it as failed
+		if currentTask.Status == models.JobTaskStatusReconnectPending {
+			errorMsg := "Agent failed to reconnect within grace period"
+			err := s.jobTaskRepo.UpdateTaskError(ctx, task.ID, errorMsg)
+			if err != nil {
+				debug.Error("Failed to mark task %s as failed: %v", task.ID, err)
+				continue
+			}
+			
+			agentID := 0
+			if task.AgentID != nil {
+				agentID = *task.AgentID
+			}
+			debug.Info("Task marked as failed after grace period - Task ID: %s, Agent: %d", task.ID, agentID)
+			
+			// Track tasks by job for status update
+			jobTaskMap[task.JobExecutionID] = append(jobTaskMap[task.JobExecutionID], task)
+		} else {
+			debug.Info("Task %s reconnected successfully - status: %s", task.ID, currentTask.Status)
+		}
+	}
+	
+	// Check each affected job to see if it should be marked as pending
+	for jobID, failedTasks := range jobTaskMap {
+		debug.Info("Checking job %s status after grace period - %d tasks failed to reconnect", jobID, len(failedTasks))
+		
+		// Get all tasks for this job
+		allTasks, err := s.jobTaskRepo.GetTasksByJobExecution(ctx, jobID)
+		if err != nil {
+			debug.Error("Failed to get tasks for job %s: %v", jobID, err)
+			continue
+		}
+		
+		// Check if any tasks are still running or reconnect_pending
+		hasActiveTasks := false
+		for _, task := range allTasks {
+			if task.Status == models.JobTaskStatusRunning || 
+			   task.Status == models.JobTaskStatusReconnectPending ||
+			   task.Status == models.JobTaskStatusAssigned {
+				hasActiveTasks = true
+				break
+			}
+		}
+		
+		// If no active tasks remain, mark job as pending for rescheduling
+		if !hasActiveTasks {
+			err := s.jobExecutionRepo.UpdateStatus(ctx, jobID, models.JobExecutionStatusPending)
+			if err != nil {
+				debug.Error("Failed to mark job %s as pending: %v", jobID, err)
+				continue
+			}
+			debug.Info("Job %s marked as pending - all agents failed to reconnect", jobID)
+		} else {
+			debug.Info("Job %s remains running - has active tasks", jobID)
+		}
+	}
+	
+	debug.Info("Grace period expiration handling completed")
 }
 
 // MonitorStaleTasksPeriodically checks for stale tasks periodically

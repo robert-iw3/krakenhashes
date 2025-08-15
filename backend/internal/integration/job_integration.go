@@ -100,6 +100,11 @@ func (m *JobIntegrationManager) ProcessBenchmarkResult(ctx context.Context, agen
 	return m.wsIntegration.HandleBenchmarkResult(ctx, agentID, &result)
 }
 
+// RecoverTask attempts to recover a task that was in reconnect_pending state (implements interfaces.JobHandler)
+func (m *JobIntegrationManager) RecoverTask(ctx context.Context, taskID string, agentID int, keyspaceProcessed int64) error {
+	return m.wsIntegration.RecoverTask(ctx, taskID, agentID, keyspaceProcessed)
+}
+
 // GetWebSocketIntegration returns the WebSocket integration instance
 func (m *JobIntegrationManager) GetWebSocketIntegration() *JobWebSocketIntegration {
 	return m.wsIntegration

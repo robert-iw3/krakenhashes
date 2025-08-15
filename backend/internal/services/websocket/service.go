@@ -16,6 +16,7 @@ import (
 type JobHandler interface {
 	ProcessJobProgress(ctx context.Context, agentID int, payload json.RawMessage) error
 	ProcessBenchmarkResult(ctx context.Context, agentID int, payload json.RawMessage) error
+	RecoverTask(ctx context.Context, taskID string, agentID int, keyspaceProcessed int64) error
 }
 
 // MessageType represents the type of WebSocket message
@@ -36,6 +37,7 @@ const (
 	TypeDeviceDetection  MessageType = "device_detection"
 	TypeDeviceUpdate     MessageType = "device_update"
 	TypeBufferedMessages MessageType = "buffered_messages"
+	TypeCurrentTaskStatus MessageType = "current_task_status"
 
 	// Server -> Agent messages
 	TypeTaskAssignment   MessageType = "task_assignment"
@@ -233,6 +235,11 @@ func NewService(agentService *services.AgentService) *Service {
 // SetJobHandler sets the job handler for processing job-related messages
 func (s *Service) SetJobHandler(handler JobHandler) {
 	s.jobHandler = handler
+}
+
+// GetJobHandler returns the job handler for processing job-related messages
+func (s *Service) GetJobHandler() JobHandler {
+	return s.jobHandler
 }
 
 // HandleMessage processes incoming WebSocket messages
@@ -502,5 +509,27 @@ func (s *Service) handleHashcatOutput(ctx context.Context, agent *models.Agent, 
 		// TODO: Store output in database or forward to interested parties via SSE
 	}()
 
+	return nil
+}
+
+// HandleAgentDisconnection handles when an agent disconnects unexpectedly
+func (s *Service) HandleAgentDisconnection(ctx context.Context, agentID int) error {
+	// Check if we have a job handler
+	if s.jobHandler == nil {
+		debug.Warning("Agent %d disconnected but no job handler available to mark tasks", agentID)
+		return nil
+	}
+	
+	// Call the job handler to mark tasks as reconnect_pending
+	// We use a type assertion to check if the handler supports disconnection handling
+	type disconnectionHandler interface {
+		HandleAgentDisconnection(ctx context.Context, agentID int) error
+	}
+	
+	if handler, ok := s.jobHandler.(disconnectionHandler); ok {
+		return handler.HandleAgentDisconnection(ctx, agentID)
+	}
+	
+	debug.Warning("Job handler does not support disconnection handling")
 	return nil
 }

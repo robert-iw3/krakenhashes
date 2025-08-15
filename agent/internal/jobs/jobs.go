@@ -94,6 +94,29 @@ func (jm *JobManager) SetOutputCallback(callback func(taskID string, output stri
 	jm.executor.SetOutputCallback(callback)
 }
 
+// GetCurrentTaskStatus returns information about the currently running task
+func (jm *JobManager) GetCurrentTaskStatus() (hasTask bool, taskID string, jobID string, keyspaceProcessed int64) {
+	jm.mutex.RLock()
+	defer jm.mutex.RUnlock()
+	
+	if len(jm.activeJobs) == 0 {
+		return false, "", "", 0
+	}
+	
+	// Return the first active job (agents typically run one job at a time)
+	for taskID, execution := range jm.activeJobs {
+		if execution.Assignment != nil {
+			jobID = execution.Assignment.JobExecutionID
+		}
+		if execution.LastProgress != nil {
+			keyspaceProcessed = execution.LastProgress.KeyspaceProcessed
+		}
+		return true, taskID, jobID, keyspaceProcessed
+	}
+	
+	return false, "", "", 0
+}
+
 // SetProgressCallback sets the progress callback function
 func (jm *JobManager) SetProgressCallback(callback func(*JobProgress)) {
 	jm.mutex.Lock()

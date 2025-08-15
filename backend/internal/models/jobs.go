@@ -181,12 +181,13 @@ type JobExecution struct {
 type JobTaskStatus string
 
 const (
-	JobTaskStatusPending   JobTaskStatus = "pending"
-	JobTaskStatusAssigned  JobTaskStatus = "assigned"
-	JobTaskStatusRunning   JobTaskStatus = "running"
-	JobTaskStatusCompleted JobTaskStatus = "completed"
-	JobTaskStatusFailed    JobTaskStatus = "failed"
-	JobTaskStatusCancelled JobTaskStatus = "cancelled"
+	JobTaskStatusPending          JobTaskStatus = "pending"
+	JobTaskStatusAssigned         JobTaskStatus = "assigned"
+	JobTaskStatusReconnectPending JobTaskStatus = "reconnect_pending"
+	JobTaskStatusRunning          JobTaskStatus = "running"
+	JobTaskStatusCompleted        JobTaskStatus = "completed"
+	JobTaskStatusFailed           JobTaskStatus = "failed"
+	JobTaskStatusCancelled        JobTaskStatus = "cancelled"
 )
 
 // JobTask represents a chunk of work assigned to an agent

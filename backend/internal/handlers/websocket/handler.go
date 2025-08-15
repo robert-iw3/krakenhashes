@@ -203,12 +203,9 @@ func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) {
 
 	debug.Info("Agent %d fully registered and ready", agent.ID)
 
-	// Update agent status to active and update heartbeat
-	if err := h.agentService.UpdateAgentStatus(ctx, agent.ID, models.AgentStatusActive, nil); err != nil {
-		debug.Error("Failed to update agent status to active: %v", err)
-	} else {
-		debug.Info("Successfully updated agent %d status to active", agent.ID)
-	}
+	// NOTE: We no longer immediately mark agent as active here
+	// The agent will be marked active after we receive its current task status
+	debug.Info("Agent %d connected - waiting for task status report before marking as active", agent.ID)
 
 	// Update heartbeat timestamp
 	if err := h.agentService.UpdateHeartbeat(ctx, agent.ID); err != nil {
@@ -338,6 +335,9 @@ func (c *Client) readPump() {
 			
 		case wsservice.TypeBufferedMessages:
 			c.handler.handleBufferedMessages(c, &msg)
+		
+		case wsservice.TypeCurrentTaskStatus:
+			c.handler.handleCurrentTaskStatus(c, &msg)
 
 		default:
 			// Handle other message types
@@ -453,6 +453,14 @@ func (h *Handler) unregisterClient(c *Client) {
 		}
 	}
 	h.mu.Unlock()
+	
+	// Mark agent's tasks as reconnect_pending
+	if h.wsService != nil && h.wsService.GetJobHandler() != nil {
+		debug.Info("Agent %d: Marking tasks as reconnect_pending due to disconnection", c.agent.ID)
+		if err := h.wsService.HandleAgentDisconnection(c.ctx, c.agent.ID); err != nil {
+			debug.Error("Agent %d: Failed to handle disconnection: %v", c.agent.ID, err)
+		}
+	}
 }
 
 // GetConnectedAgents returns a list of connected agent IDs
@@ -874,4 +882,93 @@ func containsCracks(payload json.RawMessage) bool {
 	}
 	
 	return progress.CrackedCount > 0 || len(progress.CrackedHashes) > 0
+}
+
+// handleCurrentTaskStatus processes the current task status from an agent
+func (h *Handler) handleCurrentTaskStatus(client *Client, msg *wsservice.Message) {
+	debug.Info("Agent %d: Received current task status", client.agent.ID)
+	
+	// Parse the status payload
+	var status struct {
+		AgentID           int    `json:"agent_id"`
+		HasRunningTask    bool   `json:"has_running_task"`
+		TaskID            string `json:"task_id,omitempty"`
+		JobID             string `json:"job_id,omitempty"`
+		KeyspaceProcessed int64  `json:"keyspace_processed,omitempty"`
+		Status            string `json:"status,omitempty"`
+	}
+	
+	if err := json.Unmarshal(msg.Payload, &status); err != nil {
+		debug.Error("Agent %d: Failed to parse task status: %v", client.agent.ID, err)
+		return
+	}
+	
+	debug.Info("Agent %d: Task status - HasTask: %v, TaskID: %s, JobID: %s, Status: %s",
+		client.agent.ID, status.HasRunningTask, status.TaskID, status.JobID, status.Status)
+	
+	// If agent has a running task, try to recover it
+	if status.HasRunningTask && status.TaskID != "" {
+		// Update agent metadata to mark it as busy
+		if client.agent.Metadata == nil {
+			client.agent.Metadata = make(map[string]string)
+		}
+		client.agent.Metadata["busy_status"] = "true"
+		client.agent.Metadata["current_task_id"] = status.TaskID
+		client.agent.Metadata["current_job_id"] = status.JobID
+		if err := h.agentService.Update(client.ctx, client.agent); err != nil {
+			debug.Error("Failed to update agent busy status metadata: %v", err)
+		}
+
+		// Check if the task is in reconnect_pending state
+		jobHandler := h.wsService.GetJobHandler()
+		if jobHandler != nil {
+			err := jobHandler.RecoverTask(client.ctx, status.TaskID, client.agent.ID, status.KeyspaceProcessed)
+			if err != nil {
+				debug.Error("Agent %d: Failed to recover task %s: %v", client.agent.ID, status.TaskID, err)
+				// Clear busy status since recovery failed
+				client.agent.Metadata["busy_status"] = "false"
+				delete(client.agent.Metadata, "current_task_id")
+				delete(client.agent.Metadata, "current_job_id")
+				h.agentService.Update(client.ctx, client.agent)
+				
+				// Tell agent to stop the task if recovery failed
+				stopMsg := wsservice.Message{
+					Type: wsservice.TypeJobStop,
+					Payload: json.RawMessage(`{"task_id":"` + status.TaskID + `"}`),
+				}
+				select {
+				case client.send <- &stopMsg:
+					debug.Info("Agent %d: Sent job stop for unrecoverable task %s", client.agent.ID, status.TaskID)
+				case <-client.ctx.Done():
+					debug.Warning("Agent %d: Failed to send job stop (disconnected)", client.agent.ID)
+				}
+			} else {
+				debug.Info("Agent %d: Successfully recovered task %s", client.agent.ID, status.TaskID)
+				// Don't mark agent as available since it's running a task
+				return
+			}
+		}
+	}
+	
+	// Only mark agent as active/available if it has no running tasks
+	if !status.HasRunningTask {
+		// Clear busy status in metadata
+		if client.agent.Metadata == nil {
+			client.agent.Metadata = make(map[string]string)
+		}
+		client.agent.Metadata["busy_status"] = "false"
+		delete(client.agent.Metadata, "current_task_id")
+		delete(client.agent.Metadata, "current_job_id")
+		
+		// Update agent in database
+		if err := h.agentService.Update(client.ctx, client.agent); err != nil {
+			debug.Error("Failed to update agent metadata: %v", err)
+		}
+		
+		if err := h.agentService.UpdateAgentStatus(client.ctx, client.agent.ID, models.AgentStatusActive, nil); err != nil {
+			debug.Error("Failed to update agent status to active: %v", err)
+		} else {
+			debug.Info("Agent %d marked as active and available for work", client.agent.ID)
+		}
+	}
 }

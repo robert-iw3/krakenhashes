@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -51,6 +52,7 @@ const (
 	WSTypeBenchmarkResult  WSMessageType = "benchmark_result"
 	WSTypeHashcatOutput    WSMessageType = "hashcat_output"
 	WSTypeForceCleanup     WSMessageType = "force_cleanup"
+	WSTypeCurrentTaskStatus WSMessageType = "current_task_status"
 	
 	// Device detection message types
 	WSTypeDeviceDetection  WSMessageType = "device_detection"
@@ -86,6 +88,16 @@ type FileSyncResponsePayload struct {
 // FileSyncCommandPayload represents a command to download specific files
 type FileSyncCommandPayload struct {
 	Files []FileInfo `json:"files"`
+}
+
+// CurrentTaskStatusPayload represents the agent's current task status
+type CurrentTaskStatusPayload struct {
+	AgentID           int    `json:"agent_id"`
+	HasRunningTask    bool   `json:"has_running_task"`
+	TaskID            string `json:"task_id,omitempty"`
+	JobID             string `json:"job_id,omitempty"`
+	KeyspaceProcessed int64  `json:"keyspace_processed,omitempty"`
+	Status            string `json:"status,omitempty"`
 }
 
 // BenchmarkRequest represents a request to test speed for a specific job configuration
@@ -678,7 +690,7 @@ func (c *Connection) connect() error {
 // maintainConnection maintains the WebSocket connection with exponential backoff
 func (c *Connection) maintainConnection() {
 	backoff := 1 * time.Second
-	maxBackoff := 10 * time.Minute // Increased to 10 minutes
+	maxBackoff := 30 * time.Second // Capped at 30 seconds for faster reconnection
 	multiplier := 2.0
 	attempt := 1
 
@@ -715,6 +727,9 @@ func (c *Connection) maintainConnection() {
 					debug.Info("Starting read and write pumps")
 					go c.readPump()
 					go c.writePump()
+					
+					// Send current task status after reconnection
+					go c.sendCurrentTaskStatus()
 				}
 			} else {
 				// debug.Debug("Connection state: connected") // Commented out to reduce log spam
@@ -1847,6 +1862,67 @@ func (c *Connection) Connect() error {
 // SetJobManager sets the job manager for handling job assignments
 func (c *Connection) SetJobManager(jm JobManager) {
 	c.jobManager = jm
+}
+
+// sendCurrentTaskStatus sends the current task status to the backend
+func (c *Connection) sendCurrentTaskStatus() {
+	debug.Info("Sending current task status to backend")
+	
+	// Check if we have a job manager
+	if c.jobManager == nil {
+		debug.Warning("No job manager available, cannot send task status")
+		return
+	}
+	
+	// Get current task status from job manager
+	var statusPayload CurrentTaskStatusPayload
+	
+	// Try to get agent ID from config
+	configDir := config.GetConfigDir()
+	agentIDPath := filepath.Join(configDir, "agent_id")
+	agentIDBytes, err := os.ReadFile(agentIDPath)
+	if err == nil {
+		agentIDStr := strings.TrimSpace(string(agentIDBytes))
+		if agentID, err := strconv.Atoi(agentIDStr); err == nil {
+			statusPayload.AgentID = agentID
+		}
+	}
+	
+	// Get task status from job manager if it's the concrete type
+	if jm, ok := c.jobManager.(*jobs.JobManager); ok {
+		hasTask, taskID, jobID, keyspaceProcessed := jm.GetCurrentTaskStatus()
+		statusPayload.HasRunningTask = hasTask
+		statusPayload.TaskID = taskID
+		statusPayload.JobID = jobID
+		statusPayload.KeyspaceProcessed = keyspaceProcessed
+		if hasTask {
+			statusPayload.Status = "running"
+		} else {
+			statusPayload.Status = "idle"
+		}
+	}
+	
+	// Marshal the payload
+	payloadBytes, err := json.Marshal(statusPayload)
+	if err != nil {
+		debug.Error("Failed to marshal task status payload: %v", err)
+		return
+	}
+	
+	// Create the message
+	msg := &WSMessage{
+		Type:      WSTypeCurrentTaskStatus,
+		Payload:   payloadBytes,
+		Timestamp: time.Now(),
+	}
+	
+	// Send the message
+	if c.safeSendMessage(msg, 5000) {
+		debug.Info("Successfully sent current task status - HasTask: %v, TaskID: %s, JobID: %s", 
+			statusPayload.HasRunningTask, statusPayload.TaskID, statusPayload.JobID)
+	} else {
+		debug.Error("Failed to send current task status")
+	}
 }
 
 // GetHardwareMonitor returns the hardware monitor for device management

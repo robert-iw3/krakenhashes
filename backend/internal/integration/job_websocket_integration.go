@@ -656,6 +656,19 @@ func (s *JobWebSocketIntegration) HandleJobProgress(ctx context.Context, agentID
 			debug.Error("Failed to update task error: %v", err)
 		}
 
+		// Clear agent busy status
+		if task.AgentID != nil {
+			agent, err := s.agentRepo.GetByID(ctx, *task.AgentID)
+			if err == nil && agent.Metadata != nil {
+				agent.Metadata["busy_status"] = "false"
+				delete(agent.Metadata, "current_task_id")
+				delete(agent.Metadata, "current_job_id")
+				if err := s.agentRepo.Update(ctx, agent); err != nil {
+					debug.Error("Failed to clear agent busy status after task failure: %v", err)
+				}
+			}
+		}
+
 		// Update job execution status to failed
 		// Wrap sql.DB in custom DB type
 		database := &db.DB{DB: s.db}
@@ -699,6 +712,19 @@ func (s *JobWebSocketIntegration) HandleJobProgress(ctx context.Context, agentID
 				"task_id": progress.TaskID,
 				"error":   err.Error(),
 			})
+		}
+
+		// Clear agent busy status
+		if task.AgentID != nil {
+			agent, err := s.agentRepo.GetByID(ctx, *task.AgentID)
+			if err == nil && agent.Metadata != nil {
+				agent.Metadata["busy_status"] = "false"
+				delete(agent.Metadata, "current_task_id")
+				delete(agent.Metadata, "current_job_id")
+				if err := s.agentRepo.Update(ctx, agent); err != nil {
+					debug.Error("Failed to clear agent busy status after task completion: %v", err)
+				}
+			}
 		}
 
 		// Reset consecutive failure counters on success
@@ -757,6 +783,19 @@ func (s *JobWebSocketIntegration) HandleJobProgress(ctx context.Context, agentID
 				"task_id": progress.TaskID,
 				"error":   err.Error(),
 			})
+		}
+
+		// Clear agent busy status
+		if task.AgentID != nil {
+			agent, err := s.agentRepo.GetByID(ctx, *task.AgentID)
+			if err == nil && agent.Metadata != nil {
+				agent.Metadata["busy_status"] = "false"
+				delete(agent.Metadata, "current_task_id")
+				delete(agent.Metadata, "current_job_id")
+				if err := s.agentRepo.Update(ctx, agent); err != nil {
+					debug.Error("Failed to clear agent busy status after task completion (keyspace): %v", err)
+				}
+			}
 		}
 
 		// Handle task completion cleanup
@@ -965,4 +1004,220 @@ func (s *JobWebSocketIntegration) StartScheduledJobAssignment(ctx context.Contex
 	// This would be called when the scheduling service assigns a task to an agent
 	// The scheduling service would call SendJobAssignment for each assigned task
 	debug.Log("Job assignment integration service started", nil)
+}
+
+// RecoverTask attempts to recover a task that was in reconnect_pending state
+func (s *JobWebSocketIntegration) RecoverTask(ctx context.Context, taskID string, agentID int, keyspaceProcessed int64) error {
+	debug.Log("Attempting to recover task", map[string]interface{}{
+		"task_id":            taskID,
+		"agent_id":           agentID,
+		"keyspace_processed": keyspaceProcessed,
+	})
+	
+	// Parse task ID as UUID
+	taskUUID, err := uuid.Parse(taskID)
+	if err != nil {
+		return fmt.Errorf("invalid task ID format: %w", err)
+	}
+	
+	// Get the task from database
+	task, err := s.jobTaskRepo.GetByID(ctx, taskUUID)
+	if err != nil {
+		return fmt.Errorf("failed to get task: %w", err)
+	}
+	
+	if task == nil {
+		return fmt.Errorf("task not found: %s", taskID)
+	}
+	
+	// Check if task is in reconnect_pending state OR pending state (for backward compatibility)
+	if task.Status != models.JobTaskStatusReconnectPending && task.Status != models.JobTaskStatusPending {
+		// If task is already running or completed, no recovery needed
+		if task.Status == models.JobTaskStatusRunning || task.Status == models.JobTaskStatusCompleted {
+			debug.Log("Task already in expected state, no recovery needed", map[string]interface{}{
+				"task_id": taskID,
+				"status":  task.Status,
+			})
+			return nil
+		}
+		
+		// If task is in another state, we can't recover it
+		return fmt.Errorf("task %s is not in reconnect_pending or pending state (current: %s)", taskID, task.Status)
+	}
+	
+	// Update task status back to running and reassign to the agent
+	err = s.jobTaskRepo.UpdateStatus(ctx, taskUUID, models.JobTaskStatusRunning)
+	if err != nil {
+		return fmt.Errorf("failed to update task status: %w", err)
+	}
+	
+	// Update task assignment to the reconnected agent
+	task.AgentID = &agentID
+	task.Status = models.JobTaskStatusRunning
+	if keyspaceProcessed > 0 {
+		task.KeyspaceProcessed = keyspaceProcessed
+	}
+	
+	err = s.jobTaskRepo.Update(ctx, task)
+	if err != nil {
+		return fmt.Errorf("failed to update task assignment: %w", err)
+	}
+	
+	debug.Log("Successfully recovered task", map[string]interface{}{
+		"task_id":  taskID,
+		"agent_id": agentID,
+		"job_id":   task.JobExecutionID,
+	})
+	
+	// Ensure the job remains in running state
+	// Wrap sql.DB in custom DB type
+	database := &db.DB{DB: s.db}
+	jobExecRepo := repository.NewJobExecutionRepository(database)
+	err = jobExecRepo.UpdateStatus(ctx, task.JobExecutionID, models.JobExecutionStatusRunning)
+	if err != nil {
+		// Log but don't fail - task recovery is more important
+		debug.Log("Failed to update job status during task recovery", map[string]interface{}{
+			"job_id": task.JobExecutionID,
+			"error":  err.Error(),
+		})
+	}
+	
+	return nil
+}
+
+// HandleAgentDisconnection marks tasks as reconnect_pending when an agent disconnects
+func (s *JobWebSocketIntegration) HandleAgentDisconnection(ctx context.Context, agentID int) error {
+	debug.Log("Handling agent disconnection", map[string]interface{}{
+		"agent_id": agentID,
+	})
+	
+	// Find all running or assigned tasks for this agent
+	// Wrap sql.DB in custom DB type
+	database := &db.DB{DB: s.db}
+	taskRepo := repository.NewJobTaskRepository(database)
+	
+	// Get task IDs that are currently running or assigned to this agent
+	taskIDs, err := taskRepo.GetTasksByAgentAndStatus(ctx, agentID, models.JobTaskStatusRunning)
+	if err != nil {
+		debug.Log("Failed to get running tasks for disconnected agent", map[string]interface{}{
+			"agent_id": agentID,
+			"error":    err.Error(),
+		})
+	}
+	
+	// Also get assigned tasks
+	assignedTaskIDs, err := taskRepo.GetTasksByAgentAndStatus(ctx, agentID, models.JobTaskStatusAssigned)
+	if err != nil {
+		debug.Log("Failed to get assigned tasks for disconnected agent", map[string]interface{}{
+			"agent_id": agentID,
+			"error":    err.Error(),
+		})
+	}
+	
+	// Combine both lists
+	if assignedTaskIDs != nil {
+		taskIDs = append(taskIDs, assignedTaskIDs...)
+	}
+	
+	// Get full task objects and mark each as reconnect_pending
+	var tasks []models.JobTask
+	for _, taskID := range taskIDs {
+		// Get the full task object
+		task, err := taskRepo.GetByID(ctx, taskID)
+		if err != nil || task == nil {
+			debug.Log("Failed to get task details", map[string]interface{}{
+				"task_id": taskID,
+				"error":   err,
+			})
+			continue
+		}
+		
+		debug.Log("Marking task as reconnect_pending due to agent disconnection", map[string]interface{}{
+			"task_id":  taskID,
+			"agent_id": agentID,
+			"job_id":   task.JobExecutionID,
+		})
+		
+		// Update task status to reconnect_pending
+		err = taskRepo.UpdateStatus(ctx, taskID, models.JobTaskStatusReconnectPending)
+		if err != nil {
+			debug.Log("Failed to mark task as reconnect_pending", map[string]interface{}{
+				"task_id": taskID,
+				"error":   err.Error(),
+			})
+			continue
+		}
+		
+		// Clear the agent_id from the task so it can be reassigned
+		task.AgentID = nil
+		task.Status = models.JobTaskStatusReconnectPending
+		err = taskRepo.Update(ctx, task)
+		if err != nil {
+			debug.Log("Failed to clear agent_id from task", map[string]interface{}{
+				"task_id": taskID,
+				"error":   err.Error(),
+			})
+		}
+		
+		tasks = append(tasks, *task)
+	}
+	
+	if len(tasks) > 0 {
+		debug.Log("Successfully marked tasks as reconnect_pending", map[string]interface{}{
+			"agent_id":    agentID,
+			"task_count":  len(tasks),
+		})
+		
+		// Start a timer to handle grace period expiration (2 minutes)
+		go s.handleReconnectGracePeriod(ctx, tasks, agentID)
+	}
+	
+	return nil
+}
+
+// handleReconnectGracePeriod waits for the grace period and then marks tasks as failed if not recovered
+func (s *JobWebSocketIntegration) handleReconnectGracePeriod(ctx context.Context, tasks []models.JobTask, agentID int) {
+	gracePeriod := 2 * time.Minute
+	debug.Log("Starting reconnect grace period timer", map[string]interface{}{
+		"agent_id":      agentID,
+		"task_count":    len(tasks),
+		"grace_period":  gracePeriod.String(),
+	})
+	
+	time.Sleep(gracePeriod)
+	
+	debug.Log("Grace period expired, checking tasks", map[string]interface{}{
+		"agent_id": agentID,
+	})
+	
+	// Wrap sql.DB in custom DB type
+	database := &db.DB{DB: s.db}
+	taskRepo := repository.NewJobTaskRepository(database)
+	
+	for _, task := range tasks {
+		// Check if task is still in reconnect_pending state
+		currentTask, err := taskRepo.GetByID(ctx, task.ID)
+		if err != nil {
+			debug.Log("Failed to get task status after grace period", map[string]interface{}{
+				"task_id": task.ID,
+				"error":   err.Error(),
+			})
+			continue
+		}
+		
+		if currentTask != nil && currentTask.Status == models.JobTaskStatusReconnectPending {
+			debug.Log("Task still in reconnect_pending after grace period, marking as pending for reassignment", map[string]interface{}{
+				"task_id": task.ID,
+			})
+			
+			// Mark task as pending so it can be reassigned to another agent
+			err = taskRepo.UpdateStatus(ctx, task.ID, models.JobTaskStatusPending)
+			if err != nil {
+				debug.Log("Failed to mark task as pending after grace period", map[string]interface{}{
+					"task_id": task.ID,
+					"error":   err.Error(),
+				})
+			}
+		}
+	}
 }

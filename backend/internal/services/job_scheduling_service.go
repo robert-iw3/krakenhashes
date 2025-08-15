@@ -129,6 +129,34 @@ func (s *JobSchedulingService) assignWorkToAgent(ctx context.Context, agent *mod
 		"agent_name": agent.Name,
 	})
 
+	// Check if agent is marked as busy (has a running task)
+	if agent.Metadata != nil {
+		if busyStatus, exists := agent.Metadata["busy_status"]; exists && busyStatus == "true" {
+			debug.Log("Agent is busy with a running task", map[string]interface{}{
+				"agent_id":   agent.ID,
+				"agent_name": agent.Name,
+				"task_id":    agent.Metadata["current_task_id"],
+			})
+			return nil, nil, nil // Agent is busy, skip assignment
+		}
+	}
+
+	// Check if agent has any tasks in reconnect_pending status
+	reconnectPendingTasks, err := s.jobExecutionService.jobTaskRepo.GetTasksByAgentAndStatus(ctx, agent.ID, models.JobTaskStatusReconnectPending)
+	if err != nil {
+		debug.Log("Failed to check for reconnect_pending tasks", map[string]interface{}{
+			"agent_id": agent.ID,
+			"error":    err.Error(),
+		})
+	} else if len(reconnectPendingTasks) > 0 {
+		debug.Log("Agent has reconnect_pending tasks, waiting for recovery", map[string]interface{}{
+			"agent_id":    agent.ID,
+			"task_count":  len(reconnectPendingTasks),
+			"task_ids":    reconnectPendingTasks,
+		})
+		return nil, nil, nil // Agent might reconnect with task still running
+	}
+
 	// Get the next job with available work (respects priority + FIFO and max_agents)
 	nextJobWithWork, err := s.jobExecutionService.GetNextJobWithWork(ctx)
 	if err != nil {
