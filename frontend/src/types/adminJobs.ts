@@ -35,7 +35,6 @@ export interface PresetJob {
   priority: number;
   chunk_size_seconds: number;
   status_updates_enabled: boolean;
-  is_small_job: boolean;
   allow_high_priority_override: boolean;
   binary_version_id: number;
   created_at: string; // ISO 8601 date string
@@ -54,7 +53,6 @@ export interface PresetJobFormData {
   attack_mode: AttackMode;
   priority: number | string; // Allow string for empty placeholder state
   chunk_size_seconds: number;
-  is_small_job: boolean;
   binary_version_id: number;
   mask?: string; // Mask pattern for mask-based attack modes
   allow_high_priority_override: boolean;
@@ -71,6 +69,7 @@ export interface JobWorkflow {
   created_at: string; // ISO 8601 date string
   updated_at: string; // ISO 8601 date string
   steps?: JobWorkflowStep[]; // Optional, included in GetByID
+  has_high_priority_override?: boolean; // True if any step has high priority override
 }
 
 // Corresponds to models.JobWorkflowStep with PresetJobName always populated
@@ -92,6 +91,7 @@ export interface JobWorkflowStep {
 export interface PresetJobBasic {
   id: string; // uuid.UUID
   name: string;
+  allow_high_priority_override?: boolean;
 }
 
 // Form data response for job workflow forms

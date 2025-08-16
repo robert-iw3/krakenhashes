@@ -338,7 +338,16 @@ const JobWorkflowFormPage: React.FC = () => {
                 
                 return (
                   <React.Fragment key={job.id}>
-                    <ListItem sx={{ py: 2 }}>
+                    <ListItem 
+                      sx={{ 
+                        py: 2,
+                        ...(job.allow_high_priority_override && {
+                          border: '2px solid red',
+                          borderRadius: 1,
+                          '& .MuiListItemText-root': { pl: 1 }
+                        })
+                      }}
+                    >
                       <ListItemText
                         primary={
                           <Box display="flex" alignItems="center" gap={1}>
@@ -350,6 +359,14 @@ const JobWorkflowFormPage: React.FC = () => {
                                 label={`Priority: ${workflowStep.preset_job_priority}`} 
                                 size="small" 
                                 color="primary"
+                              />
+                            )}
+                            {job.allow_high_priority_override && (
+                              <Chip 
+                                label="Can Interrupt" 
+                                color="error" 
+                                size="small" 
+                                variant="filled"
                               />
                             )}
                           </Box>

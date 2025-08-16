@@ -50,17 +50,20 @@ interface PresetJob {
   wordlist_ids?: string[];
   rule_ids?: string[];
   mask?: string;
+  allow_high_priority_override?: boolean;
 }
 
 interface JobWorkflow {
   id: string;
   name: string;
   description?: string;
+  has_high_priority_override?: boolean;
   steps?: Array<{
     id: number;
     preset_job_id: string;
     step_order: number;
     preset_job_name?: string;
+    allow_high_priority_override?: boolean;
   }>;
 }
 
@@ -107,7 +110,6 @@ export default function CreateJobDialog({
     priority: 5,
     max_agents: 0,
     binary_version_id: 1,
-    is_small_job: false,
     allow_high_priority_override: false,
     chunk_duration: 1200 // Default to 20 minutes (will be updated from system settings)
   });
@@ -278,7 +280,6 @@ export default function CreateJobDialog({
         priority: 5,
         max_agents: 0,
         binary_version_id: 1,
-        is_small_job: false,
         allow_high_priority_override: false,
         chunk_duration: 1200 // Default to 20 minutes
       });
@@ -361,8 +362,8 @@ export default function CreateJobDialog({
                         <ListItem
                           key={job.id}
                           sx={{
-                            border: 1,
-                            borderColor: 'divider',
+                            border: job.allow_high_priority_override ? 2 : 1,
+                            borderColor: job.allow_high_priority_override ? 'error.main' : 'divider',
                             borderRadius: 1,
                             mb: 1,
                             bgcolor: selectedPresetJobs.includes(job.id) ? 'action.selected' : 'transparent'
@@ -393,7 +394,16 @@ export default function CreateJobDialog({
                                     size="small"
                                     icon={<SpeedIcon />}
                                     label={`Priority: ${job.priority}`}
+                                    sx={{ mr: 1 }}
                                   />
+                                  {job.allow_high_priority_override && (
+                                    <Chip
+                                      size="small"
+                                      label="Can Interrupt"
+                                      color="error"
+                                      variant="filled"
+                                    />
+                                  )}
                                 </Box>
                               </Box>
                             }
@@ -435,8 +445,8 @@ export default function CreateJobDialog({
                         <ListItem
                           key={workflow.id}
                           sx={{
-                            border: 1,
-                            borderColor: 'divider',
+                            border: workflow.has_high_priority_override ? 2 : 1,
+                            borderColor: workflow.has_high_priority_override ? 'error.main' : 'divider',
                             borderRadius: 1,
                             mb: 1,
                             bgcolor: selectedWorkflows.includes(workflow.id) ? 'action.selected' : 'transparent'
@@ -462,7 +472,16 @@ export default function CreateJobDialog({
                                     size="small"
                                     icon={<WorkflowIcon />}
                                     label={`${workflow.steps?.length || 0} jobs`}
+                                    sx={{ mr: 1 }}
                                   />
+                                  {workflow.has_high_priority_override && (
+                                    <Chip
+                                      size="small"
+                                      label="Can Interrupt"
+                                      color="error"
+                                      variant="filled"
+                                    />
+                                  )}
                                 </Box>
                                 {workflow.steps && workflow.steps.length > 0 && (
                                   <Typography variant="caption" display="block" sx={{ mt: 1 }}>
@@ -639,19 +658,6 @@ export default function CreateJobDialog({
                       }}
                       inputProps={{ min: 0 }}
                       helperText="Maximum number of agents (0 = unlimited)"
-                    />
-                  </Grid>
-
-                  <Grid item xs={12} sm={6}>
-                    <FormControlLabel
-                      control={
-                        <Checkbox
-                          checked={customJob.is_small_job}
-                          onChange={(e) => setCustomJob(prev => ({ ...prev, is_small_job: e.target.checked }))}
-                        />
-                      }
-                      label="Small Job (Process in single chunk)"
-                      sx={{ mt: 1 }}
                     />
                   </Grid>
 

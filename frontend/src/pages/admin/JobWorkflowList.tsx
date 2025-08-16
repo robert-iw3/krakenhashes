@@ -14,7 +14,8 @@ import {
   IconButton, 
   CircularProgress, 
   Alert,
-  Tooltip
+  Tooltip,
+  Chip
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
@@ -114,6 +115,7 @@ const JobWorkflowListPage: React.FC = () => {
               <TableRow>
                 <TableCell>Name</TableCell>
                 <TableCell>Job Count</TableCell>
+                <TableCell>High Priority</TableCell>
                 <TableCell>Created</TableCell>
                 <TableCell>Last Updated</TableCell>
                 <TableCell align="right">Actions</TableCell>
@@ -122,7 +124,7 @@ const JobWorkflowListPage: React.FC = () => {
             <TableBody>
               {workflows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5} align="center">
+                  <TableCell colSpan={6} align="center">
                     <Typography variant="body1" py={2}>
                       No job workflows found. Create your first workflow to get started.
                     </Typography>
@@ -130,13 +132,37 @@ const JobWorkflowListPage: React.FC = () => {
                 </TableRow>
               ) : (
                 workflows.map((workflow) => (
-                  <TableRow key={workflow.id}>
+                  <TableRow 
+                    key={workflow.id}
+                    sx={{
+                      ...(workflow.has_high_priority_override && {
+                        border: '2px solid red',
+                        '& td': { borderColor: 'red' }
+                      })
+                    }}
+                  >
                     <TableCell>
                       <RouterLink to={`/admin/job-workflows/${workflow.id}/edit`} style={{ textDecoration: 'none', color: 'inherit' }}>
                         {workflow.name}
                       </RouterLink>
                     </TableCell>
                     <TableCell>{workflow.steps?.length || 0}</TableCell>
+                    <TableCell>
+                      {workflow.has_high_priority_override ? (
+                        <Chip 
+                          label="Can Interrupt" 
+                          color="error" 
+                          size="small" 
+                          variant="filled"
+                        />
+                      ) : (
+                        <Chip 
+                          label="Normal" 
+                          size="small" 
+                          variant="outlined"
+                        />
+                      )}
+                    </TableCell>
                     <TableCell>{new Date(workflow.created_at).toLocaleString()}</TableCell>
                     <TableCell>{new Date(workflow.updated_at).toLocaleString()}</TableCell>
                     <TableCell align="right">

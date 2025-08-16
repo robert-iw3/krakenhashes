@@ -43,23 +43,23 @@ func (r *presetJobRepository) Create(ctx context.Context, params models.PresetJo
 	query := `
 		INSERT INTO preset_jobs (
 			name, wordlist_ids, rule_ids, attack_mode, priority, 
-			chunk_size_seconds, status_updates_enabled, is_small_job, 
+			chunk_size_seconds, status_updates_enabled, 
 			allow_high_priority_override, binary_version_id, mask, keyspace, max_agents
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		RETURNING id, name, wordlist_ids, rule_ids, attack_mode, priority, chunk_size_seconds, 
-				  status_updates_enabled, is_small_job, allow_high_priority_override, 
+				  status_updates_enabled, allow_high_priority_override, 
 				  binary_version_id, mask, keyspace, max_agents, created_at, updated_at`
 
 	row := r.db.QueryRowContext(ctx, query,
 		params.Name, params.WordlistIDs, params.RuleIDs, params.AttackMode, params.Priority,
-		params.ChunkSizeSeconds, params.StatusUpdatesEnabled, params.IsSmallJob,
+		params.ChunkSizeSeconds, params.StatusUpdatesEnabled,
 		params.AllowHighPriorityOverride, params.BinaryVersionID, params.Mask, params.Keyspace, params.MaxAgents,
 	)
 
 	var created models.PresetJob
 	err := row.Scan(
 		&created.ID, &created.Name, &created.WordlistIDs, &created.RuleIDs, &created.AttackMode, &created.Priority,
-		&created.ChunkSizeSeconds, &created.StatusUpdatesEnabled, &created.IsSmallJob,
+		&created.ChunkSizeSeconds, &created.StatusUpdatesEnabled,
 		&created.AllowHighPriorityOverride, &created.BinaryVersionID, &created.Mask, &created.Keyspace, &created.MaxAgents, &created.CreatedAt, &created.UpdatedAt,
 	)
 	if err != nil {
@@ -74,7 +74,7 @@ func (r *presetJobRepository) GetByID(ctx context.Context, id uuid.UUID) (*model
 	query := `
 		SELECT 
 			id, name, wordlist_ids, rule_ids, attack_mode, priority, chunk_size_seconds, 
-			status_updates_enabled, is_small_job, allow_high_priority_override, 
+			status_updates_enabled, allow_high_priority_override, 
 			binary_version_id, mask, keyspace, max_agents, created_at, updated_at 
 		FROM preset_jobs WHERE id = $1 LIMIT 1`
 
@@ -82,7 +82,7 @@ func (r *presetJobRepository) GetByID(ctx context.Context, id uuid.UUID) (*model
 	var job models.PresetJob
 	err := row.Scan(
 		&job.ID, &job.Name, &job.WordlistIDs, &job.RuleIDs, &job.AttackMode, &job.Priority,
-		&job.ChunkSizeSeconds, &job.StatusUpdatesEnabled, &job.IsSmallJob,
+		&job.ChunkSizeSeconds, &job.StatusUpdatesEnabled,
 		&job.AllowHighPriorityOverride, &job.BinaryVersionID, &job.Mask, &job.Keyspace, &job.MaxAgents, &job.CreatedAt, &job.UpdatedAt,
 	)
 	if err != nil {
@@ -100,7 +100,7 @@ func (r *presetJobRepository) GetByName(ctx context.Context, name string) (*mode
 	query := `
 		SELECT 
 			id, name, wordlist_ids, rule_ids, attack_mode, priority, chunk_size_seconds, 
-			status_updates_enabled, is_small_job, allow_high_priority_override, 
+			status_updates_enabled, allow_high_priority_override, 
 			binary_version_id, mask, keyspace, max_agents, created_at, updated_at 
 		FROM preset_jobs WHERE name = $1 LIMIT 1`
 
@@ -108,7 +108,7 @@ func (r *presetJobRepository) GetByName(ctx context.Context, name string) (*mode
 	var job models.PresetJob
 	err := row.Scan(
 		&job.ID, &job.Name, &job.WordlistIDs, &job.RuleIDs, &job.AttackMode, &job.Priority,
-		&job.ChunkSizeSeconds, &job.StatusUpdatesEnabled, &job.IsSmallJob,
+		&job.ChunkSizeSeconds, &job.StatusUpdatesEnabled,
 		&job.AllowHighPriorityOverride, &job.BinaryVersionID, &job.Mask, &job.Keyspace, &job.MaxAgents, &job.CreatedAt, &job.UpdatedAt,
 	)
 	if err != nil {
@@ -126,7 +126,7 @@ func (r *presetJobRepository) List(ctx context.Context) ([]models.PresetJob, err
 	query := `
 		SELECT 
 			pj.id, pj.name, pj.wordlist_ids, pj.rule_ids, pj.attack_mode, pj.priority, 
-			pj.chunk_size_seconds, pj.status_updates_enabled, pj.is_small_job, 
+			pj.chunk_size_seconds, pj.status_updates_enabled, 
 			pj.allow_high_priority_override, pj.binary_version_id, pj.mask, pj.keyspace, pj.max_agents, pj.created_at, pj.updated_at,
 			bv.file_name as binary_version_name
 		FROM preset_jobs pj
@@ -146,7 +146,7 @@ func (r *presetJobRepository) List(ctx context.Context) ([]models.PresetJob, err
 		var binaryVersionName sql.NullString
 		if err := rows.Scan(
 			&job.ID, &job.Name, &job.WordlistIDs, &job.RuleIDs, &job.AttackMode, &job.Priority,
-			&job.ChunkSizeSeconds, &job.StatusUpdatesEnabled, &job.IsSmallJob,
+			&job.ChunkSizeSeconds, &job.StatusUpdatesEnabled,
 			&job.AllowHighPriorityOverride, &job.BinaryVersionID, &job.Mask, &job.Keyspace, &job.MaxAgents, &job.CreatedAt, &job.UpdatedAt,
 			&binaryVersionName,
 		); err != nil {
@@ -179,28 +179,27 @@ func (r *presetJobRepository) Update(ctx context.Context, id uuid.UUID, params m
 			priority = $6,
 			chunk_size_seconds = $7,
 			status_updates_enabled = $8,
-			is_small_job = $9,
-			allow_high_priority_override = $10,
-			binary_version_id = $11,
-			mask = $12,
-			keyspace = $13,
-			max_agents = $14,
+			allow_high_priority_override = $9,
+			binary_version_id = $10,
+			mask = $11,
+			keyspace = $12,
+			max_agents = $13,
 			updated_at = NOW()
 		WHERE id = $1
 		RETURNING id, name, wordlist_ids, rule_ids, attack_mode, priority, chunk_size_seconds, 
-				  status_updates_enabled, is_small_job, allow_high_priority_override, 
+				  status_updates_enabled, allow_high_priority_override, 
 				  binary_version_id, mask, keyspace, max_agents, created_at, updated_at`
 
 	row := r.db.QueryRowContext(ctx, query,
 		id, params.Name, params.WordlistIDs, params.RuleIDs, params.AttackMode, params.Priority,
-		params.ChunkSizeSeconds, params.StatusUpdatesEnabled, params.IsSmallJob,
+		params.ChunkSizeSeconds, params.StatusUpdatesEnabled,
 		params.AllowHighPriorityOverride, params.BinaryVersionID, params.Mask, params.Keyspace, params.MaxAgents,
 	)
 
 	var updated models.PresetJob
 	err := row.Scan(
 		&updated.ID, &updated.Name, &updated.WordlistIDs, &updated.RuleIDs, &updated.AttackMode, &updated.Priority,
-		&updated.ChunkSizeSeconds, &updated.StatusUpdatesEnabled, &updated.IsSmallJob,
+		&updated.ChunkSizeSeconds, &updated.StatusUpdatesEnabled,
 		&updated.AllowHighPriorityOverride, &updated.BinaryVersionID, &updated.Mask, &updated.Keyspace, &updated.MaxAgents, &updated.CreatedAt, &updated.UpdatedAt,
 	)
 	if err != nil {

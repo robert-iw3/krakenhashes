@@ -312,14 +312,53 @@ func (h *AdminJobsHandler) CreateJobWorkflow(w http.ResponseWriter, r *http.Requ
 }
 
 func (h *AdminJobsHandler) ListJobWorkflows(w http.ResponseWriter, r *http.Request) {
-	workflows, err := h.workflowService.ListJobWorkflows(r.Context())
+	ctx := r.Context()
+	workflows, err := h.workflowService.ListJobWorkflows(ctx)
 	if err != nil {
 		debug.Error("Error listing job workflows: %v", err)
 		httputil.RespondWithError(w, http.StatusInternalServerError, "Failed to list job workflows")
 		return
 	}
 
-	httputil.RespondWithJSON(w, http.StatusOK, workflows)
+	// Enhance workflows with has_high_priority_override flag
+	enhancedWorkflows := make([]map[string]interface{}, 0, len(workflows))
+	for _, workflow := range workflows {
+		// Get workflow steps to check for high priority override
+		steps, err := h.workflowService.GetJobWorkflowByID(ctx, workflow.ID)
+		hasHighPriorityOverride := false
+		
+		if err == nil && steps != nil && steps.Steps != nil {
+			// Check each step's preset job for high priority override
+			for _, step := range steps.Steps {
+				// The step should have preset job details populated
+				// We need to check if the preset job has allow_high_priority_override
+				// Since we don't have direct access to preset job details here,
+				// we'll need to get them from the preset job service
+				presetJob, err := h.presetJobService.GetPresetJobByID(ctx, step.PresetJobID)
+				if err == nil && presetJob.AllowHighPriorityOverride {
+					hasHighPriorityOverride = true
+					break
+				}
+			}
+		}
+		
+		enhancedWorkflow := map[string]interface{}{
+			"id":                        workflow.ID,
+			"name":                      workflow.Name,
+			"created_at":                workflow.CreatedAt,
+			"updated_at":                workflow.UpdatedAt,
+			"has_high_priority_override": hasHighPriorityOverride,
+		}
+		
+		// Include steps if they exist
+		if workflow.Steps != nil {
+			enhancedWorkflow["steps"] = workflow.Steps
+		}
+		
+		enhancedWorkflows = append(enhancedWorkflows, enhancedWorkflow)
+	}
+
+	httputil.RespondWithJSON(w, http.StatusOK, enhancedWorkflows)
 }
 
 func (h *AdminJobsHandler) GetJobWorkflow(w http.ResponseWriter, r *http.Request) {

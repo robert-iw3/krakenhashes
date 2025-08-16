@@ -59,7 +59,6 @@ const getInitialFormState = (defaultChunkDuration: number = 300): PresetJobFormD
   attack_mode: AttackMode.Straight,
   priority: '', // Empty string to show placeholder
   chunk_size_seconds: defaultChunkDuration,
-  is_small_job: false,
   binary_version_id: 0,
   allow_high_priority_override: false,
   mask: '',
@@ -191,7 +190,6 @@ const PresetJobFormPage: React.FC = () => {
               attack_mode: presetJob.attack_mode,
               priority: presetJob.priority,
               chunk_size_seconds: presetJob.chunk_size_seconds,
-              is_small_job: presetJob.is_small_job,
               binary_version_id: presetJob.binary_version_id,
               allow_high_priority_override: presetJob.allow_high_priority_override,
               mask: presetJob.mask || '',
@@ -876,19 +874,6 @@ const PresetJobFormPage: React.FC = () => {
         </Grid>
 
         {/* Checkboxes */}
-        <Grid item xs={12}>
-          <FormControlLabel
-            control={
-              <Checkbox
-                name="is_small_job"
-                checked={formData.is_small_job}
-                onChange={handleChange}
-              />
-            }
-            label="Is Small Job"
-          />
-        </Grid>
-
         <Grid item xs={12}>
           <FormControlLabel
             control={

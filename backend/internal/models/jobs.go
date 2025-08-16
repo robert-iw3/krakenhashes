@@ -62,7 +62,6 @@ type PresetJob struct {
 	Priority                  int        `json:"priority" db:"priority"`
 	ChunkSizeSeconds          int        `json:"chunk_size_seconds" db:"chunk_size_seconds"`
 	StatusUpdatesEnabled      bool       `json:"status_updates_enabled" db:"status_updates_enabled"`
-	IsSmallJob                bool       `json:"is_small_job" db:"is_small_job"`
 	AllowHighPriorityOverride bool       `json:"allow_high_priority_override" db:"allow_high_priority_override"`
 	BinaryVersionID           int        `json:"binary_version_id" db:"binary_version_id"`       // References binary_versions.id
 	Mask                      string     `json:"mask,omitempty" db:"mask"`                       // For mask-based attack modes
@@ -109,8 +108,9 @@ type JobWorkflowStep struct {
 // PresetJobBasic represents minimal information about a preset job
 // Used for dropdowns and selection interfaces
 type PresetJobBasic struct {
-	ID   uuid.UUID `json:"id" db:"id"`
-	Name string    `json:"name" db:"name"`
+	ID                        uuid.UUID `json:"id" db:"id"`
+	Name                      string    `json:"name" db:"name"`
+	AllowHighPriorityOverride bool      `json:"allow_high_priority_override" db:"allow_high_priority_override"`
 }
 
 // JobExecutionStatus represents the status of a job execution

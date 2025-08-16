@@ -159,6 +159,7 @@ const PresetJobListPage: React.FC = () => {
                 <TableCell>Name</TableCell>
                 <TableCell>Attack Mode</TableCell>
                 <TableCell>Priority</TableCell>
+                <TableCell>High Priority Override</TableCell>
                 <TableCell>Max Agents</TableCell>
                 <TableCell>Keyspace</TableCell>
                 <TableCell>Binary Version</TableCell>
@@ -171,7 +172,7 @@ const PresetJobListPage: React.FC = () => {
             <TableBody>
               {Array.isArray(presetJobs) && presetJobs.length === 0 && ( 
                 <TableRow>
-                  <TableCell colSpan={10} align="center">
+                  <TableCell colSpan={11} align="center">
                     No preset jobs found.
                   </TableCell>
                 </TableRow>
@@ -179,13 +180,37 @@ const PresetJobListPage: React.FC = () => {
               {Array.isArray(presetJobs) && presetJobs?.map((job: PresetJob) => ( 
                 <TableRow
                   key={job.id}
-                  sx={{ '&:last-child td, &:last-child th': { border: 0 } }}
+                  sx={{ 
+                    '&:last-child td, &:last-child th': { border: 0 },
+                    ...(job.allow_high_priority_override && {
+                      border: '2px solid red',
+                      '& td': { borderColor: 'red' }
+                    })
+                  }}
                 >
                   <TableCell component="th" scope="row">
                     {job.name}
                   </TableCell>
                   <TableCell>{formatAttackMode(job.attack_mode)}</TableCell>
                   <TableCell>{job.priority}</TableCell>
+                  <TableCell>
+                    {job.allow_high_priority_override ? (
+                      <Tooltip title="This job can interrupt running jobs">
+                        <Chip 
+                          label="Yes" 
+                          size="small" 
+                          color="error"
+                          variant="filled"
+                        />
+                      </Tooltip>
+                    ) : (
+                      <Chip 
+                        label="No" 
+                        size="small" 
+                        variant="outlined"
+                      />
+                    )}
+                  </TableCell>
                   <TableCell>{job.max_agents === 0 ? 'Unlimited' : job.max_agents}</TableCell>
                   <TableCell>
                     {calculatingJobs.has(job.id) ? (

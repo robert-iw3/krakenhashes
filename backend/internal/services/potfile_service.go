@@ -583,7 +583,6 @@ func (s *PotfileService) getOrCreatePotfilePresetJob(ctx context.Context, wordli
 		Priority:                 maxPriority,
 		ChunkSizeSeconds:         chunkDuration,
 		StatusUpdatesEnabled:     true,
-		IsSmallJob:               true,
 		AllowHighPriorityOverride: true,
 		BinaryVersionID:          latestBinary,
 		Mask:                     "",

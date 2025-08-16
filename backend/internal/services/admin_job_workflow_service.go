@@ -284,8 +284,9 @@ func (s *adminJobWorkflowService) GetJobWorkflowFormData(ctx context.Context) ([
 	basicJobs := make([]models.PresetJobBasic, len(jobs))
 	for i, job := range jobs {
 		basicJobs[i] = models.PresetJobBasic{
-			ID:   job.ID,
-			Name: job.Name,
+			ID:                        job.ID,
+			Name:                      job.Name,
+			AllowHighPriorityOverride: job.AllowHighPriorityOverride,
 		}
 	}
 

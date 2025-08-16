@@ -95,7 +95,6 @@ type CustomJobConfig struct {
 	Priority                  int
 	MaxAgents                 int
 	BinaryVersionID           int
-	IsSmallJob                bool
 	AllowHighPriorityOverride bool
 }
 
@@ -155,7 +154,6 @@ func (s *JobExecutionService) CreateJobExecution(ctx context.Context, presetJobI
 		HashType:                  hashlist.HashTypeID,
 		ChunkSizeSeconds:          presetJob.ChunkSizeSeconds,
 		StatusUpdatesEnabled:      presetJob.StatusUpdatesEnabled,
-		IsSmallJob:                presetJob.IsSmallJob,
 		AllowHighPriorityOverride: presetJob.AllowHighPriorityOverride,
 		BinaryVersionID:           presetJob.BinaryVersionID,
 		Mask:                      presetJob.Mask,
@@ -225,7 +223,6 @@ func (s *JobExecutionService) CreateCustomJobExecution(ctx context.Context, conf
 		Mask:                      config.Mask,
 		Priority:                  config.Priority,
 		MaxAgents:                 config.MaxAgents,
-		IsSmallJob:                config.IsSmallJob,
 		AllowHighPriorityOverride: config.AllowHighPriorityOverride,
 		ChunkSizeSeconds:          900, // Default chunk size
 		StatusUpdatesEnabled:      true,
@@ -257,7 +254,6 @@ func (s *JobExecutionService) CreateCustomJobExecution(ctx context.Context, conf
 		HashType:                  hashlist.HashTypeID,
 		ChunkSizeSeconds:          900, // Default
 		StatusUpdatesEnabled:      true,
-		IsSmallJob:                config.IsSmallJob,
 		AllowHighPriorityOverride: config.AllowHighPriorityOverride,
 		BinaryVersionID:           config.BinaryVersionID,
 		Mask:                      config.Mask,

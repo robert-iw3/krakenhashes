@@ -1,10 +1,10 @@
 -- name: CreatePresetJob :one
 INSERT INTO preset_jobs (
     name, wordlist_ids, rule_ids, attack_mode, priority, 
-    chunk_size_seconds, status_updates_enabled, is_small_job, 
+    chunk_size_seconds, status_updates_enabled, 
     allow_high_priority_override, binary_version_id
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+    $1, $2, $3, $4, $5, $6, $7, $8, $9
 )
 RETURNING *;
 
@@ -35,9 +35,8 @@ SET
     priority = $6,
     chunk_size_seconds = $7,
     status_updates_enabled = $8,
-    is_small_job = $9,
-    allow_high_priority_override = $10,
-    binary_version_id = $11,
+    allow_high_priority_override = $9,
+    binary_version_id = $10,
     updated_at = NOW()
 WHERE id = $1
 RETURNING *;

@@ -517,7 +517,6 @@ func (h *UserJobsHandler) CreateJobFromHashlist(w http.ResponseWriter, r *http.R
 				Priority                  int      `json:"priority"`
 				MaxAgents                 int      `json:"max_agents"`
 				BinaryVersionID           int      `json:"binary_version_id"`
-				IsSmallJob                bool     `json:"is_small_job"`
 				AllowHighPriorityOverride bool     `json:"allow_high_priority_override"`
 			} `json:"custom_job"`
 		}
@@ -536,7 +535,6 @@ func (h *UserJobsHandler) CreateJobFromHashlist(w http.ResponseWriter, r *http.R
 			Priority:                  req.CustomJob.Priority,
 			MaxAgents:                 req.CustomJob.MaxAgents,
 			BinaryVersionID:           req.CustomJob.BinaryVersionID,
-			IsSmallJob:                req.CustomJob.IsSmallJob,
 			AllowHighPriorityOverride: req.CustomJob.AllowHighPriorityOverride,
 		}
 
@@ -971,13 +969,14 @@ func (h *UserJobsHandler) GetAvailablePresetJobs(w http.ResponseWriter, r *http.
 	availableJobs := make([]map[string]interface{}, 0)
 	for _, job := range presetJobs {
 		availableJobs = append(availableJobs, map[string]interface{}{
-			"id":           job.ID.String(),
-			"name":         job.Name,
-			"priority":     job.Priority,
-			"attack_mode":  job.AttackMode,
-			"wordlist_ids": job.WordlistIDs,
-			"rule_ids":     job.RuleIDs,
-			"mask":         job.Mask,
+			"id":                           job.ID.String(),
+			"name":                         job.Name,
+			"priority":                     job.Priority,
+			"attack_mode":                  job.AttackMode,
+			"wordlist_ids":                 job.WordlistIDs,
+			"rule_ids":                     job.RuleIDs,
+			"mask":                         job.Mask,
+			"allow_high_priority_override": job.AllowHighPriorityOverride,
 		})
 	}
 
@@ -991,10 +990,11 @@ func (h *UserJobsHandler) GetAvailablePresetJobs(w http.ResponseWriter, r *http.
 			steps = []models.JobWorkflowStep{}
 		}
 
-		// Format steps with preset job names
+		// Format steps with preset job names and check for high priority override
 		formattedSteps := make([]map[string]interface{}, 0)
+		hasHighPriorityOverride := false
 		for _, step := range steps {
-			// Get preset job name for this step
+			// Get preset job for this step
 			presetJob, err := h.presetJobRepo.GetByID(ctx, step.PresetJobID)
 			stepData := map[string]interface{}{
 				"id":            step.ID,
@@ -1003,14 +1003,20 @@ func (h *UserJobsHandler) GetAvailablePresetJobs(w http.ResponseWriter, r *http.
 			}
 			if err == nil && presetJob != nil {
 				stepData["preset_job_name"] = presetJob.Name
+				stepData["allow_high_priority_override"] = presetJob.AllowHighPriorityOverride
+				// Check if this preset job has high priority override
+				if presetJob.AllowHighPriorityOverride {
+					hasHighPriorityOverride = true
+				}
 			}
 			formattedSteps = append(formattedSteps, stepData)
 		}
 
 		formattedWorkflows = append(formattedWorkflows, map[string]interface{}{
-			"id":    workflow.ID.String(),
-			"name":  workflow.Name,
-			"steps": formattedSteps,
+			"id":                        workflow.ID.String(),
+			"name":                      workflow.Name,
+			"steps":                     formattedSteps,
+			"has_high_priority_override": hasHighPriorityOverride,
 		})
 	}
 
