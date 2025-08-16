@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Table,
   TableBody,
@@ -12,6 +12,7 @@ import {
 } from '@mui/material';
 import JobRow from './JobRow';
 import { JobSummary, PaginationInfo } from '../../types/jobs';
+import { getMaxPriorityForUsers } from '../../services/systemSettings';
 
 interface JobsTableProps {
   jobs: JobSummary[];
@@ -32,6 +33,20 @@ const JobsTable: React.FC<JobsTableProps> = ({
   pageSize,
   onJobUpdated,
 }) => {
+  const [maxPriority, setMaxPriority] = useState<number>(10); // Default to 10 as fallback
+
+  useEffect(() => {
+    // Fetch the max priority setting from the API
+    getMaxPriorityForUsers()
+      .then(config => {
+        setMaxPriority(config.max_priority);
+      })
+      .catch(error => {
+        console.error('Failed to fetch max priority setting:', error);
+        // Keep default value of 10 on error
+      });
+  }, []);
+
   const handleChangePage = (event: unknown, newPage: number) => {
     onPageChange(newPage + 1); // Material-UI uses 0-based indexing
   };
@@ -88,6 +103,7 @@ const JobsTable: React.FC<JobsTableProps> = ({
                 job={job} 
                 onJobUpdated={onJobUpdated}
                 isLastActiveJob={index === activeJobs.length - 1 && completedJobs.length > 0}
+                maxPriority={maxPriority}
               />
             ))}
             
@@ -109,6 +125,7 @@ const JobsTable: React.FC<JobsTableProps> = ({
                 job={job} 
                 onJobUpdated={onJobUpdated} 
                 isCompletedSection={true}
+                maxPriority={maxPriority}
               />
             ))}
           </TableBody>

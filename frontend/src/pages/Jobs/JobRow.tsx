@@ -35,9 +35,10 @@ interface JobRowProps {
   onJobUpdated?: () => void;
   isLastActiveJob?: boolean;
   isCompletedSection?: boolean;
+  maxPriority?: number;
 }
 
-const JobRow: React.FC<JobRowProps> = ({ job, onJobUpdated, isLastActiveJob, isCompletedSection }) => {
+const JobRow: React.FC<JobRowProps> = ({ job, onJobUpdated, isLastActiveJob, isCompletedSection, maxPriority = 10 }) => {
   const navigate = useNavigate();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -303,11 +304,11 @@ const JobRow: React.FC<JobRowProps> = ({ job, onJobUpdated, isLastActiveJob, isC
               onSave={handleUpdatePriority}
               type="number"
               min={1}
-              max={10}
+              max={maxPriority}
               validation={(value) => {
                 const num = Number(value);
-                if (isNaN(num) || num < 1 || num > 10) {
-                  return 'Priority must be between 1 and 10';
+                if (isNaN(num) || num < 1 || num > maxPriority) {
+                  return `Priority must be between 1 and ${maxPriority}`;
                 }
                 return null;
               }}
