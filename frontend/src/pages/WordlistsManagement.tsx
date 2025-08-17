@@ -208,13 +208,12 @@ export default function WordlistsManagement() {
   // Handle wordlist download
   const handleDownload = async (id: string, name: string) => {
     try {
-      const response = await wordlistService.downloadWordlist(id);
-      
-      // Create and trigger download
-      const url = window.URL.createObjectURL(new Blob([response.data]));
+      // Direct download without loading into memory
+      // This allows streaming of large files
       const link = document.createElement('a');
-      link.href = url;
+      link.href = `/api/wordlists/${id}/download`;
       link.setAttribute('download', `${name}.txt`);
+      link.style.display = 'none';
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);

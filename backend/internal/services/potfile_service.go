@@ -185,14 +185,6 @@ func (s *PotfileService) InitializePotfile(ctx context.Context) error {
 		}
 	}
 
-	// If this is first initialization, populate with existing cracked passwords
-	if !fileExists {
-		if err := s.populateFromExistingCracks(ctx); err != nil {
-			debug.Warning("Failed to populate pot-file from existing cracks: %v", err)
-			// Don't fail initialization if population fails
-		}
-	}
-
 	// Ensure MD5 hash is up to date after initialization
 	if err := s.updatePotfileMetadata(ctx); err != nil {
 		debug.Warning("Failed to update potfile metadata after initialization: %v", err)
@@ -277,9 +269,9 @@ func (s *PotfileService) ProcessStagedEntries(ctx context.Context) {
 		}
 	}
 
-	// Mark entries as processed
-	if err := s.markEntriesProcessed(ctx, entries); err != nil {
-		debug.Error("Failed to mark entries as processed: %v", err)
+	// Delete processed entries from staging table
+	if err := s.deleteProcessedEntries(ctx, entries); err != nil {
+		debug.Error("Failed to delete processed entries: %v", err)
 		return
 	}
 
@@ -357,14 +349,8 @@ func (s *PotfileService) loadPotfileIntoMemory() (map[string]bool, error) {
 	defer file.Close()
 
 	scanner := bufio.NewScanner(file)
-	lineNum := 0
 	for scanner.Scan() {
-		lineNum++
 		password := scanner.Text()
-		// Skip the first blank line
-		if lineNum == 1 && password == "" {
-			continue
-		}
 		passwords[password] = true
 	}
 
@@ -397,8 +383,8 @@ func (s *PotfileService) appendToPotfile(entries []potfileStagingEntry) error {
 	return nil
 }
 
-// markEntriesProcessed marks staging entries as processed
-func (s *PotfileService) markEntriesProcessed(ctx context.Context, entries []potfileStagingEntry) error {
+// deleteProcessedEntries deletes staging entries after they have been processed
+func (s *PotfileService) deleteProcessedEntries(ctx context.Context, entries []potfileStagingEntry) error {
 	if len(entries) == 0 {
 		return nil
 	}
@@ -409,7 +395,7 @@ func (s *PotfileService) markEntriesProcessed(ctx context.Context, entries []pot
 		ids[i] = entry.ID
 	}
 
-	// Update in batches of 100 to avoid query length issues
+	// Delete in batches of 100 to avoid query length issues
 	batchSize := 100
 	for i := 0; i < len(ids); i += batchSize {
 		end := i + batchSize
@@ -418,17 +404,14 @@ func (s *PotfileService) markEntriesProcessed(ctx context.Context, entries []pot
 		}
 		
 		batch := ids[i:end]
-		query := `
-			UPDATE potfile_staging
-			SET processed = TRUE, processed_at = NOW()
-			WHERE id = ANY($1)
-		`
+		query := `DELETE FROM potfile_staging WHERE id = ANY($1)`
 		
 		if _, err := s.db.ExecContext(ctx, query, pq.Array(batch)); err != nil {
-			return fmt.Errorf("failed to mark entries as processed: %w", err)
+			return fmt.Errorf("failed to delete processed entries: %w", err)
 		}
 	}
 
+	debug.Info("Deleted %d processed entries from potfile_staging", len(entries))
 	return nil
 }
 
@@ -623,68 +606,6 @@ func (s *PotfileService) updateSystemSettings(ctx context.Context, wordlistID in
 	return nil
 }
 
-// populateFromExistingCracks populates the pot-file with existing cracked passwords
-func (s *PotfileService) populateFromExistingCracks(ctx context.Context) error {
-	debug.Info("Populating pot-file from existing cracked passwords")
-
-	// Get all cracked passwords
-	params := repository.CrackedHashParams{
-		Limit:  1000,
-		Offset: 0,
-	}
-
-	file, err := os.OpenFile(s.potfilePath, os.O_APPEND|os.O_WRONLY, 0644)
-	if err != nil {
-		return fmt.Errorf("failed to open pot-file for appending: %w", err)
-	}
-	defer file.Close()
-
-	writer := bufio.NewWriter(file)
-	totalAdded := 0
-	existingPasswords := make(map[string]bool)
-
-	for {
-		hashes, _, err := s.hashRepo.GetCrackedHashes(ctx, params)
-		if err != nil {
-			return fmt.Errorf("failed to get cracked hashes: %w", err)
-		}
-
-		if len(hashes) == 0 {
-			break
-		}
-
-		for _, hash := range hashes {
-			// Skip if we've already added this password
-			if existingPasswords[hash.Password] {
-				continue
-			}
-
-			// Write password to pot-file
-			if _, err := writer.WriteString(hash.Password + "\n"); err != nil {
-				return fmt.Errorf("failed to write password to pot-file: %w", err)
-			}
-
-			existingPasswords[hash.Password] = true
-			totalAdded++
-		}
-
-		params.Offset += params.Limit
-	}
-
-	if err := writer.Flush(); err != nil {
-		return fmt.Errorf("failed to flush pot-file writer: %w", err)
-	}
-
-	debug.Info("Added %d existing cracked passwords to pot-file", totalAdded)
-
-	// Update keyspace
-	if totalAdded > 0 {
-		s.triggerKeyspaceRecalculation(ctx)
-	}
-
-	return nil
-}
-
 // getSystemUserID gets the system user ID
 func (s *PotfileService) getSystemUserID(ctx context.Context) (uuid.UUID, error) {
 	query := `SELECT id FROM users WHERE username = 'system' LIMIT 1`
@@ -846,6 +767,12 @@ func (s *PotfileService) updatePotfileMetadata(ctx context.Context) error {
 	}
 	fileSize := fileInfo.Size()
 	
+	// Count the actual lines in the potfile
+	lineCount, err := s.countPotfileLines()
+	if err != nil {
+		return fmt.Errorf("failed to count potfile lines: %w", err)
+	}
+	
 	// Get the potfile wordlist ID from system settings
 	wordlistIDSetting, err := s.systemSettingsRepo.GetSetting(ctx, "potfile_wordlist_id")
 	if err != nil || wordlistIDSetting == nil || wordlistIDSetting.Value == nil || *wordlistIDSetting.Value == "" {
@@ -857,11 +784,11 @@ func (s *PotfileService) updatePotfileMetadata(ctx context.Context) error {
 		return fmt.Errorf("failed to parse potfile wordlist ID: %w", err)
 	}
 	
-	// Update the wordlist entry in the database with the new MD5 and file size
-	if err := s.wordlistStore.UpdateWordlistFileInfo(ctx, wordlistID, md5Hash, fileSize); err != nil {
+	// Update the wordlist entry in the database with the new MD5, file size, and word count
+	if err := s.wordlistStore.UpdateWordlistComplete(ctx, wordlistID, md5Hash, fileSize, lineCount); err != nil {
 		return fmt.Errorf("failed to update potfile wordlist info: %w", err)
 	}
 	
-	debug.Info("Updated potfile metadata - MD5: %s, Size: %d bytes", md5Hash, fileSize)
+	debug.Info("Updated potfile metadata - MD5: %s, Size: %d bytes, Words: %d", md5Hash, fileSize, lineCount)
 	return nil
 }

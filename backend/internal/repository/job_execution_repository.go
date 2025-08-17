@@ -27,9 +27,9 @@ func (r *JobExecutionRepository) Create(ctx context.Context, exec *models.JobExe
 		INSERT INTO job_executions (
 			preset_job_id, hashlist_id, status, priority, max_agents, attack_mode, total_keyspace, created_by,
 			name, wordlist_ids, rule_ids, mask, binary_version_id, hash_type,
-			chunk_size_seconds, status_updates_enabled, is_small_job, allow_high_priority_override, additional_args
+			chunk_size_seconds, status_updates_enabled, allow_high_priority_override, additional_args
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
 		RETURNING id, created_at`
 
 	err := r.db.QueryRowContext(ctx, query,
@@ -49,7 +49,6 @@ func (r *JobExecutionRepository) Create(ctx context.Context, exec *models.JobExe
 		exec.HashType,
 		exec.ChunkSizeSeconds,
 		exec.StatusUpdatesEnabled,
-		exec.IsSmallJob,
 		exec.AllowHighPriorityOverride,
 		exec.AdditionalArgs,
 	).Scan(&exec.ID, &exec.CreatedAt)
@@ -598,7 +597,7 @@ func (r *JobExecutionRepository) GetJobsWithPendingWork(ctx context.Context) ([]
 			je.dispatched_keyspace,
 			je.name, je.wordlist_ids, je.rule_ids, je.mask,
 			je.binary_version_id, je.chunk_size_seconds, je.status_updates_enabled,
-			je.is_small_job, je.allow_high_priority_override, je.additional_args,
+			je.allow_high_priority_override, je.additional_args,
 			je.hash_type,
 			je.name as preset_job_name,
 			h.name as hashlist_name,
@@ -646,7 +645,7 @@ func (r *JobExecutionRepository) GetJobsWithPendingWork(ctx context.Context) ([]
 			&exec.DispatchedKeyspace,
 			&exec.Name, &exec.WordlistIDs, &exec.RuleIDs, &exec.Mask,
 			&exec.BinaryVersionID, &exec.ChunkSizeSeconds, &exec.StatusUpdatesEnabled,
-			&exec.IsSmallJob, &exec.AllowHighPriorityOverride, &exec.AdditionalArgs,
+			&exec.AllowHighPriorityOverride, &exec.AdditionalArgs,
 			&exec.HashType,
 			&exec.PresetJobName, &exec.HashlistName, &exec.TotalHashes, &exec.CrackedHashes,
 			&exec.ActiveAgents, &exec.PendingWork,

@@ -20,7 +20,6 @@ import (
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/rule"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/services"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/tls"
-	"github.com/ZerkerEOD/krakenhashes/backend/internal/websocket"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/wordlist"
 	"github.com/ZerkerEOD/krakenhashes/backend/pkg/debug"
 	"github.com/gorilla/mux"
@@ -221,7 +220,7 @@ func SetupRoutes(r *mux.Router, sqlDB *sql.DB, tlsProvider tls.Provider, agentSe
 	SetupUserRoutes(jwtRouter, database, appConfig.DataDir, binaryManager, agentService)
 	SetupMFARoutes(jwtRouter, mfaHandler, database, emailService)
 	// Use the enhanced WebSocket setup with job integration
-	SetupWebSocketWithJobRoutes(r, agentService, tlsProvider, sqlDB, appConfig, wordlistManager, ruleManager, binaryManager)
+	SetupWebSocketWithJobRoutes(r, agentService, tlsProvider, sqlDB, appConfig, wordlistManager, ruleManager, binaryManager, potfileService)
 	SetupBinaryRoutes(jwtRouter, sqlDB, appConfig, agentService)
 
 	// Setup wordlist and rule routes
@@ -239,18 +238,6 @@ func SetupRoutes(r *mux.Router, sqlDB *sql.DB, tlsProvider tls.Provider, agentSe
 
 	// Setup WebSocket Routes
 	debug.Info("Setting up WebSocket routes...")
-	// Agent Update Handler (for cracked hashes)
-	jobTaskRepo := repository.NewJobTaskRepository(database)
-	updateHandler := websocket.NewAgentUpdateHandler(
-		database, 
-		agentService, 
-		repository.NewHashRepository(database), 
-		repository.NewHashListRepository(database), 
-		jobTaskRepo,
-		potfileService,
-		systemSettingsRepo,
-	)
-	websocket.RegisterAgentUpdateRoutes(r, updateHandler)
 
 	debug.Info("Route configuration completed successfully")
 	logRegisteredRoutes(r)

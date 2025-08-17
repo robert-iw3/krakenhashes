@@ -356,6 +356,23 @@ func (s *Store) UpdateWordlistFileInfo(ctx context.Context, id int, md5Hash stri
 	return nil
 }
 
+// UpdateWordlistComplete updates a wordlist's complete file information (MD5 hash, file size, and word count)
+func (s *Store) UpdateWordlistComplete(ctx context.Context, id int, md5Hash string, fileSize int64, wordCount int64) error {
+	query := `
+		UPDATE wordlists
+		SET md5_hash = $1, file_size = $2, word_count = $3, updated_at = NOW()
+		WHERE id = $4
+	`
+
+	_, err := s.db.ExecContext(ctx, query, md5Hash, fileSize, wordCount, id)
+	if err != nil {
+		debug.Error("Failed to update wordlist complete info for ID %d: %v", id, err)
+		return err
+	}
+
+	return nil
+}
+
 // GetWordlistTags gets tags for a wordlist
 func (s *Store) GetWordlistTags(ctx context.Context, id int) ([]string, error) {
 	rows, err := s.db.QueryContext(ctx, "SELECT tag FROM wordlist_tags WHERE wordlist_id = $1", id)

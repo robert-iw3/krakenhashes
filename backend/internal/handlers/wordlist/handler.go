@@ -618,18 +618,31 @@ func (h *Handler) HandleDownloadWordlist(w http.ResponseWriter, r *http.Request)
 
 	// Get file path
 	filePath := h.manager.GetWordlistPath(wordlist.FileName, wordlist.WordlistType)
+	debug.Info("Downloading wordlist ID %d, filename: %s, path: %s", id, wordlist.FileName, filePath)
 
 	// Check if file exists
-	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+	fileInfo, err := os.Stat(filePath)
+	if os.IsNotExist(err) {
+		debug.Error("Wordlist file not found at path: %s", filePath)
 		httputil.RespondWithError(w, http.StatusNotFound, "Wordlist file not found")
 		return
 	}
+	debug.Info("File exists at %s, size: %d bytes", filePath, fileInfo.Size())
 
 	// Set headers
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s", wordlist.FileName))
 	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("Content-Length", strconv.FormatInt(wordlist.FileSize, 10))
+	// Prevent caching
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Expires", "0")
+	// Don't set Content-Length - let http.ServeFile handle it based on actual file size
 
+	// Log before serving
+	debug.Info("About to serve file from path: %s", filePath)
+	
 	// Serve file
 	http.ServeFile(w, r, filePath)
+	
+	debug.Info("File served successfully")
 }

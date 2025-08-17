@@ -44,6 +44,7 @@ Comprehensive guide for KrakenHashes system administrators.
 - [User Management](operations/users.md)
 - [Agent Management](operations/agents.md)
 - [System Monitoring](operations/monitoring.md)
+- [Potfile Management](operations/potfile.md)
 - [Backup Procedures](operations/backup.md)
 
 ### :material-tune: **Optimization**

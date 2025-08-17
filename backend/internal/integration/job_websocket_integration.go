@@ -39,6 +39,7 @@ type JobWebSocketIntegration struct {
 	agentRepo            *repository.AgentRepository
 	deviceRepo           *repository.AgentDeviceRepository
 	systemSettingsRepo   *repository.SystemSettingsRepository
+	potfileService       *services.PotfileService
 	db                   *sql.DB
 	wordlistManager      wordlist.Manager
 	ruleManager          rule.Manager
@@ -65,6 +66,7 @@ func NewJobWebSocketIntegration(
 	agentRepo *repository.AgentRepository,
 	deviceRepo *repository.AgentDeviceRepository,
 	systemSettingsRepo *repository.SystemSettingsRepository,
+	potfileService *services.PotfileService,
 	db *sql.DB,
 	wordlistManager wordlist.Manager,
 	ruleManager rule.Manager,
@@ -83,6 +85,7 @@ func NewJobWebSocketIntegration(
 		agentRepo:            agentRepo,
 		deviceRepo:           deviceRepo,
 		systemSettingsRepo:   systemSettingsRepo,
+		potfileService:       potfileService,
 		db:                   db,
 		wordlistManager:      wordlistManager,
 		ruleManager:          ruleManager,
@@ -944,6 +947,18 @@ func (s *JobWebSocketIntegration) processCrackedHashes(ctx context.Context, task
 			"crack_pos":   crackPos,
 			"password":    password,
 		})
+
+		// Stage password for pot-file (non-blocking)
+		if s.potfileService != nil && s.systemSettingsRepo != nil {
+			potfileEnabled, err := s.systemSettingsRepo.GetSetting(ctx, "potfile_enabled")
+			if err == nil && potfileEnabled != nil && potfileEnabled.Value != nil && *potfileEnabled.Value == "true" {
+				if err := s.potfileService.StagePassword(ctx, password, hashValue); err != nil {
+					debug.Warning("Failed to stage password for pot-file: %v", err)
+				} else {
+					debug.Info("Successfully staged password for pot-file: hash=%s", hashValue)
+				}
+			}
+		}
 	}
 
 	// Update hashlist cracked count
