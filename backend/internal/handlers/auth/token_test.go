@@ -52,7 +52,7 @@ func TestTokenManagement(t *testing.T) {
 
 	t.Run("token expiration", func(t *testing.T) {
 		// Generate token
-		token, err := jwt.GenerateToken(testUser.ID.String(), testUser.Role)
+		token, err := jwt.GenerateToken(testUser.ID.String(), testUser.Role, 60)
 		require.NoError(t, err)
 
 		// Parse token to check expiration

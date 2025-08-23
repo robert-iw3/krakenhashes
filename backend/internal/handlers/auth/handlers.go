@@ -89,8 +89,8 @@ func setAuthCookie(w http.ResponseWriter, r *http.Request, token string, maxAge 
 }
 
 // generateAuthToken creates a new JWT token for the user
-func (h *Handler) generateAuthToken(user *models.User) (string, error) {
-	return jwt.GenerateToken(user.ID.String(), user.Role)
+func (h *Handler) generateAuthToken(user *models.User, expiryMinutes int) (string, error) {
+	return jwt.GenerateToken(user.ID.String(), user.Role, expiryMinutes)
 }
 
 /*
@@ -212,8 +212,16 @@ func (h *Handler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get JWT expiry from auth settings
+	authSettings, err := h.db.GetAuthSettings()
+	if err != nil {
+		debug.Error("Failed to get auth settings: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
 	// If no MFA required, proceed with normal login
-	token, err := h.generateAuthToken(user)
+	token, err := h.generateAuthToken(user, authSettings.JWTExpiryMinutes)
 	if err != nil {
 		debug.Error("Failed to generate token: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -226,7 +234,7 @@ func (h *Handler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	setAuthCookie(w, r, token, int(time.Hour*24*7/time.Second)) // 1 week
+	setAuthCookie(w, r, token, authSettings.JWTExpiryMinutes*60) // Convert minutes to seconds
 	debug.Info("User '%s' successfully logged in", req.Username)
 
 	json.NewEncoder(w).Encode(models.LoginResponse{
@@ -293,8 +301,16 @@ func (h *Handler) RefreshTokenHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get JWT expiry from auth settings
+	authSettings, err := h.db.GetAuthSettings()
+	if err != nil {
+		debug.Error("Failed to get auth settings: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
 	// Generate new token
-	token, err := jwt.GenerateToken(userID.(string), userRole.(string))
+	token, err := jwt.GenerateToken(userID.(string), userRole.(string), authSettings.JWTExpiryMinutes)
 	if err != nil {
 		debug.Error("Failed to generate refresh token: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -309,7 +325,7 @@ func (h *Handler) RefreshTokenHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Set new auth cookie
-	setAuthCookie(w, r, token, int(time.Hour*24*7/time.Second)) // 1 week
+	setAuthCookie(w, r, token, authSettings.JWTExpiryMinutes*60) // Convert minutes to seconds
 	debug.Info("Token refreshed successfully for user: %s", userID)
 
 	json.NewEncoder(w).Encode(models.LoginResponse{

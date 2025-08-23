@@ -270,8 +270,16 @@ func SetupUserRoutes(router *mux.Router, database *db.DB, dataDir string, binary
 			return
 		}
 
+		// Get JWT expiry from auth settings
+		authSettings, err := database.GetAuthSettings()
+		if err != nil {
+			debug.Error("Failed to get auth settings: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+
 		// Generate new access token
-		accessToken, err := jwt.GenerateToken(userID, role)
+		accessToken, err := jwt.GenerateToken(userID, role, authSettings.JWTExpiryMinutes)
 		if err != nil {
 			debug.Error("Failed to generate access token: %v", err)
 			http.Error(w, "Internal server error", http.StatusInternalServerError)

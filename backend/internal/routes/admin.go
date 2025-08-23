@@ -126,6 +126,7 @@ func SetupAdminRoutes(router *mux.Router, database *db.DB, emailService *email.S
 		adminRouter.HandleFunc("/binary/{id}", binaryHandler.HandleGetVersion).Methods(http.MethodGet, http.MethodOptions)
 		adminRouter.HandleFunc("/binary/{id}", binaryHandler.HandleDeleteVersion).Methods(http.MethodDelete, http.MethodOptions)
 		adminRouter.HandleFunc("/binary/{id}/verify", binaryHandler.HandleVerifyVersion).Methods(http.MethodPost, http.MethodOptions)
+		adminRouter.HandleFunc("/binary/{id}/set-default", binaryHandler.HandleSetDefaultVersion).Methods(http.MethodPut, http.MethodOptions)
 		debug.Info("Configured admin binary management routes: /admin/binary/*")
 	} else {
 		debug.Error("Binary manager not provided to SetupAdminRoutes")

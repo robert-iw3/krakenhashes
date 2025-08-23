@@ -315,12 +315,63 @@ func (m *manager) DownloadBinary(ctx context.Context, version *BinaryVersion) er
 	return nil
 }
 
-// DeleteVersion implements Manager.DeleteVersion
+// DeleteVersion implements Manager.DeleteVersion with fallback protection
 func (m *manager) DeleteVersion(ctx context.Context, id int64) error {
-	// Get version first to get file path
+	// Get version first to get details
 	version, err := m.store.GetVersion(ctx, id)
 	if err != nil {
 		return fmt.Errorf("failed to get version: %w", err)
+	}
+
+	// Check if this is the last active binary of its type
+	count, err := m.store.CountActiveBinaries(ctx, version.BinaryType)
+	if err != nil {
+		return fmt.Errorf("failed to count active binaries: %w", err)
+	}
+
+	// Prevent deletion of the last binary
+	if count <= 1 {
+		return fmt.Errorf("cannot delete the only remaining binary of type %s", version.BinaryType)
+	}
+
+	// If this is the default binary, we need to set a new default
+	var newDefaultID int64
+	if version.IsDefault {
+		// Find the next best candidate (latest verified version that isn't this one)
+		filters := map[string]interface{}{
+			"binary_type":         version.BinaryType,
+			"is_active":           true,
+			"verification_status": VerificationStatusVerified,
+		}
+		
+		versions, err := m.store.ListVersions(ctx, filters)
+		if err != nil {
+			return fmt.Errorf("failed to list versions for fallback: %w", err)
+		}
+
+		// Find the best replacement (skip the one being deleted)
+		for _, v := range versions {
+			if v.ID != id {
+				newDefaultID = v.ID
+				break // versions are already sorted by created_at DESC
+			}
+		}
+
+		if newDefaultID == 0 {
+			return fmt.Errorf("no suitable replacement default found")
+		}
+
+		// Set the new default
+		if err := m.store.SetDefault(ctx, newDefaultID); err != nil {
+			return fmt.Errorf("failed to set new default: %w", err)
+		}
+
+		// Update all references from the deleted binary to the new default
+		if err := m.store.UpdateReferencesToDefault(ctx, id, newDefaultID); err != nil {
+			return fmt.Errorf("failed to update references to new default: %w", err)
+		}
+
+		debug.Info("Replaced default binary %d with %d", id, newDefaultID)
 	}
 
 	// Delete binary file
@@ -339,15 +390,74 @@ func (m *manager) DeleteVersion(ctx context.Context, id int64) error {
 		debug.Warning("Failed to remove empty version directory: %v", err)
 	}
 
+	// Clean up the local extraction directory
+	localDir := m.getLocalBinaryDir(version)
+	if err := os.RemoveAll(localDir); err != nil && !os.IsNotExist(err) {
+		debug.Warning("Failed to remove local extraction directory: %v", err)
+	}
+
 	// Update version status to deleted and inactive
 	version.IsActive = false
+	version.IsDefault = false
 	version.VerificationStatus = VerificationStatusDeleted
 	version.LastVerifiedAt = nil // Clear last verification time
 	if err := m.store.UpdateVersion(ctx, version); err != nil {
 		return fmt.Errorf("failed to update version status: %w", err)
 	}
 
+	// Create audit log entry
+	auditLog := &BinaryAuditLog{
+		BinaryVersionID: id,
+		Action:          "deleted",
+		PerformedBy:     version.CreatedBy, // TODO: Get actual user from context
+		Details: map[string]any{
+			"was_default":    version.IsDefault,
+			"new_default_id": newDefaultID,
+		},
+	}
+	if err := m.store.CreateAuditLog(ctx, auditLog); err != nil {
+		debug.Warning("Failed to create audit log: %v", err)
+	}
+
 	debug.Info("Successfully deleted binary version %d", id)
+	return nil
+}
+
+// SetDefaultVersion implements Manager.SetDefaultVersion
+func (m *manager) SetDefaultVersion(ctx context.Context, id int64) error {
+	// Get version to verify it exists and is active
+	version, err := m.store.GetVersion(ctx, id)
+	if err != nil {
+		return fmt.Errorf("failed to get version: %w", err)
+	}
+
+	// Verify version is active and verified
+	if !version.IsActive {
+		return fmt.Errorf("cannot set inactive version as default")
+	}
+	if version.VerificationStatus != VerificationStatusVerified {
+		return fmt.Errorf("cannot set unverified version as default")
+	}
+
+	// Set as default
+	if err := m.store.SetDefault(ctx, id); err != nil {
+		return fmt.Errorf("failed to set default: %w", err)
+	}
+
+	// Create audit log entry
+	auditLog := &BinaryAuditLog{
+		BinaryVersionID: id,
+		Action:          "set_default",
+		PerformedBy:     version.CreatedBy, // TODO: Get actual user from context
+		Details: map[string]any{
+			"binary_type": version.BinaryType,
+		},
+	}
+	if err := m.store.CreateAuditLog(ctx, auditLog); err != nil {
+		debug.Warning("Failed to create audit log: %v", err)
+	}
+
+	debug.Info("Successfully set binary version %d as default for type %s", id, version.BinaryType)
 	return nil
 }
 

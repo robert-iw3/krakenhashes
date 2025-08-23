@@ -104,6 +104,30 @@ func RequireAuth(database *db.DB) func(http.Handler) http.Handler {
 				return
 			}
 
+			// Check if token has exceeded idle timeout
+			expired, err := database.IsTokenExpiredByIdleTimeout(cookie.Value)
+			if err != nil {
+				debug.Error("[AUTH] Error checking token idle timeout: %v", err)
+				// Don't block on error, let request continue
+			} else if expired {
+				debug.Warning("[AUTH] Token expired due to idle timeout for user ID: %s", userID)
+				http.Error(w, "Session expired due to inactivity", http.StatusUnauthorized)
+				return
+			}
+
+			// Update last activity for non-auto-refresh requests
+			isAutoRefresh := r.Header.Get("X-Auto-Refresh") == "true" ||
+				r.URL.Path == "/api/dashboard/stats" ||
+				r.URL.Path == "/api/jobs" ||
+				r.URL.Path == "/api/jobs/stream"
+			
+			if !isAutoRefresh {
+				if err := database.UpdateTokenActivity(cookie.Value); err != nil {
+					debug.Error("[AUTH] Failed to update token activity: %v", err)
+					// Don't block on error, let request continue
+				}
+			}
+
 			if isSSERequest {
 				debug.Debug("[AUTH] SSE: Token found in database for user: %s", userID)
 			}

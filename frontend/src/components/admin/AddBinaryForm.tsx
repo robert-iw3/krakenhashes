@@ -8,6 +8,8 @@ import {
   TextField,
   MenuItem,
   CircularProgress,
+  FormControlLabel,
+  Checkbox,
 } from '@mui/material';
 import { useSnackbar } from 'notistack';
 import { AddBinaryRequest, addBinary } from '../../services/binary';
@@ -22,6 +24,7 @@ const initialFormData: AddBinaryRequest = {
   compression_type: '7z',
   source_url: '',
   file_name: '',
+  set_as_default: false,
 };
 
 const AddBinaryForm: React.FC<AddBinaryFormProps> = ({ onSuccess, onCancel }) => {
@@ -30,7 +33,7 @@ const AddBinaryForm: React.FC<AddBinaryFormProps> = ({ onSuccess, onCancel }) =>
   const { enqueueSnackbar } = useSnackbar();
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
+    const { name, value, type, checked } = e.target;
     if (name === 'source_url' && value) {
       // Extract file name from URL
       try {
@@ -41,7 +44,10 @@ const AddBinaryForm: React.FC<AddBinaryFormProps> = ({ onSuccess, onCancel }) =>
         console.warn('Failed to parse URL:', error);
       }
     }
-    setFormData((prev) => ({ ...prev, [name]: value }));
+    setFormData((prev) => ({ 
+      ...prev, 
+      [name]: type === 'checkbox' ? checked : value 
+    }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -109,6 +115,16 @@ const AddBinaryForm: React.FC<AddBinaryFormProps> = ({ onSuccess, onCancel }) =>
             required
             fullWidth
             helperText="Auto-filled from URL, but can be modified if needed"
+          />
+          <FormControlLabel
+            control={
+              <Checkbox
+                name="set_as_default"
+                checked={formData.set_as_default}
+                onChange={handleChange}
+              />
+            }
+            label="Set as default binary"
           />
         </Box>
       </DialogContent>

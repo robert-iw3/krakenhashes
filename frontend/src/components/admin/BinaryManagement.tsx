@@ -33,7 +33,7 @@ import {
 import { format } from 'date-fns';
 import AddBinaryForm from './AddBinaryForm';
 import { useSnackbar } from 'notistack';
-import { BinaryVersion, listBinaries, verifyBinary, deleteBinary } from '../../services/binary';
+import { BinaryVersion, listBinaries, verifyBinary, deleteBinary, setDefaultBinary } from '../../services/binary';
 
 const BinaryManagement: React.FC = () => {
   const [binaries, setBinaries] = useState<BinaryVersion[]>([]);
@@ -78,6 +78,22 @@ const BinaryManagement: React.FC = () => {
   };
 
   const handleDeleteClick = (binary: BinaryVersion) => {
+    // Count active binaries of the same type
+    const activeBinariesOfType = binaries.filter(
+      b => b.binary_type === binary.binary_type && 
+      b.is_active && 
+      b.verification_status === 'verified'
+    ).length;
+
+    // Check if this is the last binary
+    if (activeBinariesOfType <= 1) {
+      enqueueSnackbar(
+        `Cannot delete the only remaining ${binary.binary_type} binary. Add another binary version before deleting this one.`, 
+        { variant: 'warning' }
+      );
+      return;
+    }
+
     setSelectedBinary(binary);
     setDeleteDialogOpen(true);
   };
@@ -92,11 +108,30 @@ const BinaryManagement: React.FC = () => {
       fetchBinaries();
     } catch (error: any) {
       console.error('Error deleting binary:', error);
-      enqueueSnackbar(error.response?.data || 'Failed to delete binary', { variant: 'error' });
+      // Check for protection error (409 Conflict)
+      if (error.response?.status === 409) {
+        enqueueSnackbar(error.response?.data || 'Cannot delete the only remaining binary', { variant: 'warning' });
+      } else {
+        enqueueSnackbar(error.response?.data || 'Failed to delete binary', { variant: 'error' });
+      }
     } finally {
       setIsLoading(false);
       setDeleteDialogOpen(false);
       setSelectedBinary(null);
+    }
+  };
+
+  const handleSetDefault = async (id: number) => {
+    try {
+      setIsLoading(true);
+      await setDefaultBinary(id);
+      enqueueSnackbar('Binary set as default successfully', { variant: 'success' });
+      fetchBinaries();
+    } catch (error: any) {
+      console.error('Error setting default binary:', error);
+      enqueueSnackbar(error.response?.data || 'Failed to set default binary', { variant: 'error' });
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -188,6 +223,7 @@ const BinaryManagement: React.FC = () => {
               <TableCell>Type</TableCell>
               <TableCell>Size</TableCell>
               <TableCell>Status</TableCell>
+              <TableCell>Default</TableCell>
               <TableCell>Last Verified</TableCell>
               <TableCell>Actions</TableCell>
             </TableRow>
@@ -195,13 +231,13 @@ const BinaryManagement: React.FC = () => {
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={7} align="center" sx={{ py: 3 }}>
+                <TableCell colSpan={8} align="center" sx={{ py: 3 }}>
                   <CircularProgress />
                 </TableCell>
               </TableRow>
             ) : filteredBinaries.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} align="center" sx={{ py: 3 }}>
+                <TableCell colSpan={8} align="center" sx={{ py: 3 }}>
                   <Typography variant="body1" color="textSecondary">
                     {showActiveOnly 
                       ? "No active binaries found. Click 'Add Binary' to add one or switch to 'Show All' to view deleted binaries."
@@ -224,6 +260,22 @@ const BinaryManagement: React.FC = () => {
                         color={getVerificationStatusColor(binary.verification_status)}
                         size="small"
                       />
+                    </TableCell>
+                    <TableCell>
+                      <Switch
+                        checked={binary.is_default}
+                        onChange={() => handleSetDefault(binary.id)}
+                        disabled={isLoading || binary.verification_status !== 'verified' || binary.is_default}
+                        size="small"
+                      />
+                      {binary.is_default && (
+                        <Chip
+                          label="Default"
+                          color="primary"
+                          size="small"
+                          sx={{ ml: 1 }}
+                        />
+                      )}
                     </TableCell>
                     <TableCell>
                       {binary.last_verified_at ? format(new Date(binary.last_verified_at), 'yyyy-MM-dd HH:mm:ss') : 'Never'}

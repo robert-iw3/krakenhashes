@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/binary"
 	"github.com/ZerkerEOD/krakenhashes/backend/pkg/debug"
@@ -32,6 +33,7 @@ type AddVersionRequest struct {
 	SourceURL       string                 `json:"source_url"`
 	FileName        string                 `json:"file_name"`
 	MD5Hash         string                 `json:"md5_hash,omitempty"`
+	SetAsDefault    bool                   `json:"set_as_default,omitempty"`
 }
 
 // HandleAddVersion handles adding a new binary version
@@ -65,12 +67,21 @@ func (h *Handler) HandleAddVersion(w http.ResponseWriter, r *http.Request) {
 		MD5Hash:         req.MD5Hash,
 		CreatedBy:       userUUID,
 		IsActive:        true,
+		IsDefault:       req.SetAsDefault,
 	}
 
 	if err := h.manager.AddVersion(r.Context(), version); err != nil {
 		debug.Error("Failed to add binary version: %v", err)
 		http.Error(w, "Failed to add binary version", http.StatusInternalServerError)
 		return
+	}
+
+	// If requested to set as default, do it after successful creation
+	if req.SetAsDefault && version.ID > 0 {
+		if err := h.manager.SetDefaultVersion(r.Context(), version.ID); err != nil {
+			debug.Warning("Failed to set new binary as default: %v", err)
+			// Don't fail the whole operation, just log the warning
+		}
 	}
 
 	w.WriteHeader(http.StatusCreated)
@@ -131,6 +142,11 @@ func (h *Handler) HandleDeleteVersion(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.manager.DeleteVersion(r.Context(), id); err != nil {
+		// Check if it's a protection error
+		if strings.Contains(err.Error(), "cannot delete the only remaining binary") {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
 		debug.Error("Failed to delete binary version: %v", err)
 		http.Error(w, "Failed to delete binary version", http.StatusInternalServerError)
 		return
@@ -155,6 +171,27 @@ func (h *Handler) HandleVerifyVersion(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
+}
+
+// HandleSetDefaultVersion handles setting a binary version as default
+func (h *Handler) HandleSetDefaultVersion(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id, err := strconv.ParseInt(vars["id"], 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid version ID", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.manager.SetDefaultVersion(r.Context(), id); err != nil {
+		debug.Error("Failed to set default binary version: %v", err)
+		http.Error(w, "Failed to set default binary version", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{
+		"message": "Binary version set as default successfully",
+	})
 }
 
 // HandleGetLatestVersion handles retrieving the latest active version of a binary type

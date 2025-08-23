@@ -401,8 +401,16 @@ func (h *Handler) VerifyMFAHandler(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
+			// Get JWT expiry from auth settings
+			authSettings, err := h.db.GetAuthSettings()
+			if err != nil {
+				debug.Error("Failed to get auth settings: %v", err)
+				http.Error(w, "Internal server error", http.StatusInternalServerError)
+				return
+			}
+
 			// Generate auth token after successful verification
-			token, err := h.generateAuthToken(user)
+			token, err := h.generateAuthToken(user, authSettings.JWTExpiryMinutes)
 			if err != nil {
 				debug.Error("Failed to generate auth token: %v", err)
 				http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -423,7 +431,7 @@ func (h *Handler) VerifyMFAHandler(w http.ResponseWriter, r *http.Request) {
 			}
 
 			// Set auth cookie
-			setAuthCookie(w, r, token, int(time.Hour*24*7/time.Second)) // 1 week
+			setAuthCookie(w, r, token, authSettings.JWTExpiryMinutes*60) // Convert minutes to seconds
 
 			// Return success with token
 			w.Header().Set("Content-Type", "application/json")
@@ -493,8 +501,16 @@ func (h *Handler) VerifyMFAHandler(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
+			// Get JWT expiry from auth settings
+			authSettings, err := h.db.GetAuthSettings()
+			if err != nil {
+				debug.Error("Failed to get auth settings: %v", err)
+				http.Error(w, "Internal server error", http.StatusInternalServerError)
+				return
+			}
+
 			// Generate auth token
-			token, err := h.generateAuthToken(user)
+			token, err := h.generateAuthToken(user, authSettings.JWTExpiryMinutes)
 			if err != nil {
 				debug.Error("Failed to generate auth token: %v", err)
 				http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -515,7 +531,7 @@ func (h *Handler) VerifyMFAHandler(w http.ResponseWriter, r *http.Request) {
 			}
 
 			// Set auth cookie
-			setAuthCookie(w, r, token, int(time.Hour*24*7/time.Second)) // 1 week
+			setAuthCookie(w, r, token, authSettings.JWTExpiryMinutes*60) // Convert minutes to seconds
 
 			// Return success with token
 			w.Header().Set("Content-Type", "application/json")
@@ -561,8 +577,16 @@ func (h *Handler) VerifyMFAHandler(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
+			// Get JWT expiry from auth settings
+			authSettings, err := h.db.GetAuthSettings()
+			if err != nil {
+				debug.Error("Failed to get auth settings: %v", err)
+				http.Error(w, "Internal server error", http.StatusInternalServerError)
+				return
+			}
+
 			// Generate auth token
-			token, err := h.generateAuthToken(user)
+			token, err := h.generateAuthToken(user, authSettings.JWTExpiryMinutes)
 			if err != nil {
 				debug.Error("Failed to generate auth token: %v", err)
 				http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -583,7 +607,7 @@ func (h *Handler) VerifyMFAHandler(w http.ResponseWriter, r *http.Request) {
 			}
 
 			// Set auth cookie
-			setAuthCookie(w, r, token, int(time.Hour*24*7/time.Second)) // 1 week
+			setAuthCookie(w, r, token, authSettings.JWTExpiryMinutes*60) // Convert minutes to seconds
 
 			// Return success with token
 			w.Header().Set("Content-Type", "application/json")
@@ -682,8 +706,16 @@ func (h *Handler) VerifyMFAHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Get JWT expiry from auth settings
+		authSettings, err := h.db.GetAuthSettings()
+		if err != nil {
+			debug.Error("Failed to get auth settings: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+
 		// Generate auth token after successful verification
-		token, err := h.generateAuthToken(user)
+		token, err := h.generateAuthToken(user, authSettings.JWTExpiryMinutes)
 		if err != nil {
 			debug.Error("Failed to generate auth token: %v", err)
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -704,7 +736,7 @@ func (h *Handler) VerifyMFAHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Set auth cookie
-		setAuthCookie(w, r, token, int(time.Hour*24*7/time.Second)) // 1 week
+		setAuthCookie(w, r, token, authSettings.JWTExpiryMinutes*60) // Convert minutes to seconds
 
 		// Return success with token
 		w.Header().Set("Content-Type", "application/json")

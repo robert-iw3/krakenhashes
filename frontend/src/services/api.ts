@@ -135,6 +135,18 @@ api.interceptors.request.use((config) => {
   // Log the request
   logApiCall(config.method?.toUpperCase() || 'UNKNOWN', config.url || '', config.data);
   
+  // Add X-Auto-Refresh header for polling endpoints
+  const isAutoRefreshEndpoint = 
+    config.url?.includes('/api/dashboard/stats') ||
+    (config.url?.includes('/api/jobs') && config.method?.toLowerCase() === 'get') ||
+    config.url?.includes('/api/agents') ||
+    config.url?.includes('/api/jobs/stream');
+  
+  if (isAutoRefreshEndpoint && !config.headers?.['X-Manual-Request']) {
+    config.headers = config.headers || {};
+    config.headers['X-Auto-Refresh'] = 'true';
+  }
+  
   // Add debug info for auth-related requests
   if (config.url?.includes('auth') || config.url?.includes('login') || config.url?.includes('logout')) {
     console.debug('[API] Auth request cookies:', document.cookie);

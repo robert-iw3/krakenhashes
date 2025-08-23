@@ -10,6 +10,7 @@ export interface BinaryVersion {
   file_size: number;
   created_at: string;
   is_active: boolean;
+  is_default: boolean;
   last_verified_at: string | null;
   verification_status: 'pending' | 'verified' | 'failed' | 'deleted';
 }
@@ -19,6 +20,7 @@ export interface AddBinaryRequest {
   compression_type: '7z' | 'zip' | 'tar.gz' | 'tar.xz';
   source_url: string;
   file_name: string;
+  set_as_default?: boolean;
 }
 
 export const listBinaries = async () => {
@@ -46,4 +48,8 @@ export const deleteBinary = (id: number) => {
 
 export const getBinary = (id: number) => {
   return api.get<BinaryVersion>(`/api/admin/binary/${id}`);
+};
+
+export const setDefaultBinary = (id: number) => {
+  return api.put<{ message: string }>(`/api/admin/binary/${id}/set-default`);
 }; 

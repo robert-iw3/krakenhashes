@@ -6,6 +6,7 @@ import (
 	"crypto/md5"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -182,6 +183,12 @@ func (s *PotfileService) InitializePotfile(ctx context.Context) error {
 		// Update system settings with both IDs
 		if err := s.updateSystemSettings(ctx, wordlistID, presetJobID); err != nil {
 			return fmt.Errorf("failed to update system settings: %w", err)
+		}
+		
+		// Sync preset job with current wordlist to ensure correct wordlist ID and keyspace
+		if err := s.syncPresetJobWithWordlist(ctx, wordlistID, presetJobID); err != nil {
+			debug.Warning("Failed to sync preset job with wordlist: %v", err)
+			// Don't fail initialization
 		}
 	}
 
@@ -606,6 +613,39 @@ func (s *PotfileService) updateSystemSettings(ctx context.Context, wordlistID in
 	return nil
 }
 
+// syncPresetJobWithWordlist syncs the preset job with the current wordlist ID and keyspace
+func (s *PotfileService) syncPresetJobWithWordlist(ctx context.Context, wordlistID int, presetJobID uuid.UUID) error {
+	// Get current word count from wordlist
+	wordlist, err := s.wordlistStore.GetWordlist(ctx, wordlistID)
+	if err != nil {
+		return fmt.Errorf("failed to get wordlist: %w", err)
+	}
+	
+	// Update preset job with correct wordlist ID and keyspace
+	query := `
+		UPDATE preset_jobs 
+		SET wordlist_ids = $1::jsonb,
+		    keyspace = $2,
+		    updated_at = NOW()
+		WHERE id = $3
+	`
+	
+	wordlistIDs := []string{strconv.Itoa(wordlistID)}
+	wordlistIDsJSON, err := json.Marshal(wordlistIDs)
+	if err != nil {
+		return fmt.Errorf("failed to marshal wordlist IDs: %w", err)
+	}
+	
+	_, err = s.db.ExecContext(ctx, query, wordlistIDsJSON, wordlist.WordCount, presetJobID)
+	if err != nil {
+		return fmt.Errorf("failed to update preset job: %w", err)
+	}
+	
+	debug.Info("Synced preset job %s with wordlist %d (keyspace: %d)", 
+		presetJobID, wordlistID, wordlist.WordCount)
+	return nil
+}
+
 // getSystemUserID gets the system user ID
 func (s *PotfileService) getSystemUserID(ctx context.Context) (uuid.UUID, error) {
 	query := `SELECT id FROM users WHERE username = 'system' LIMIT 1`
@@ -790,5 +830,18 @@ func (s *PotfileService) updatePotfileMetadata(ctx context.Context) error {
 	}
 	
 	debug.Info("Updated potfile metadata - MD5: %s, Size: %d bytes, Words: %d", md5Hash, fileSize, lineCount)
+	
+	// Sync preset job if it exists
+	presetJobSetting, err := s.systemSettingsRepo.GetSetting(ctx, "potfile_preset_job_id")
+	if err == nil && presetJobSetting != nil && presetJobSetting.Value != nil && *presetJobSetting.Value != "" {
+		presetJobID, err := uuid.Parse(*presetJobSetting.Value)
+		if err == nil && presetJobID != uuid.Nil {
+			if err := s.syncPresetJobWithWordlist(ctx, wordlistID, presetJobID); err != nil {
+				debug.Warning("Failed to sync preset job after metadata update: %v", err)
+				// Don't fail the operation
+			}
+		}
+	}
+	
 	return nil
 }

@@ -33,6 +33,7 @@ func (s *store) CreateVersion(ctx context.Context, version *BinaryVersion) error
 		version.CreatedBy,
 		version.IsActive,
 		version.VerificationStatus,
+		version.IsDefault,
 	).Scan(&version.ID, &version.CreatedAt)
 
 	if err != nil {
@@ -56,6 +57,7 @@ func (s *store) GetVersion(ctx context.Context, id int64) (*BinaryVersion, error
 		&version.CreatedAt,
 		&version.CreatedBy,
 		&version.IsActive,
+		&version.IsDefault,
 		&version.LastVerifiedAt,
 		&version.VerificationStatus,
 	)
@@ -115,6 +117,7 @@ func (s *store) ListVersions(ctx context.Context, filters map[string]interface{}
 			&version.CreatedAt,
 			&version.CreatedBy,
 			&version.IsActive,
+			&version.IsDefault,
 			&version.LastVerifiedAt,
 			&version.VerificationStatus,
 		)
@@ -142,6 +145,7 @@ func (s *store) UpdateVersion(ctx context.Context, version *BinaryVersion) error
 		version.MD5Hash,
 		version.FileSize,
 		version.IsActive,
+		version.IsDefault,
 		version.LastVerifiedAt,
 		version.VerificationStatus,
 		version.ID,
@@ -193,6 +197,7 @@ func (s *store) GetLatestActive(ctx context.Context, binaryType BinaryType) (*Bi
 		&version.CreatedAt,
 		&version.CreatedBy,
 		&version.IsActive,
+		&version.IsDefault,
 		&version.LastVerifiedAt,
 		&version.VerificationStatus,
 	)
@@ -225,6 +230,91 @@ func (s *store) CreateAuditLog(ctx context.Context, log *BinaryAuditLog) error {
 
 	if err != nil {
 		return fmt.Errorf("failed to create audit log: %w", err)
+	}
+
+	return nil
+}
+
+// SetDefault implements Store.SetDefault
+func (s *store) SetDefault(ctx context.Context, id int64) error {
+	result, err := s.db.ExecContext(ctx, queries.SetBinaryDefault, id)
+	if err != nil {
+		return fmt.Errorf("failed to set binary as default: %w", err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("binary version not found or not active: %d", id)
+	}
+
+	return nil
+}
+
+// GetDefault implements Store.GetDefault
+func (s *store) GetDefault(ctx context.Context, binaryType BinaryType) (*BinaryVersion, error) {
+	version := &BinaryVersion{}
+	err := s.db.QueryRowContext(ctx, queries.GetDefaultBinaryVersion, binaryType).Scan(
+		&version.ID,
+		&version.BinaryType,
+		&version.CompressionType,
+		&version.SourceURL,
+		&version.FileName,
+		&version.MD5Hash,
+		&version.FileSize,
+		&version.CreatedAt,
+		&version.CreatedBy,
+		&version.IsActive,
+		&version.IsDefault,
+		&version.LastVerifiedAt,
+		&version.VerificationStatus,
+	)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("no default binary version found for type: %s", binaryType)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get default binary version: %w", err)
+	}
+
+	return version, nil
+}
+
+// CountActiveBinaries implements Store.CountActiveBinaries
+func (s *store) CountActiveBinaries(ctx context.Context, binaryType BinaryType) (int, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx, queries.CountActiveBinaries, binaryType).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count active binaries: %w", err)
+	}
+	return count, nil
+}
+
+// UpdateReferencesToDefault implements Store.UpdateReferencesToDefault
+func (s *store) UpdateReferencesToDefault(ctx context.Context, oldID, newID int64) error {
+	// Start a transaction to ensure atomicity
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Update preset_jobs references
+	_, err = tx.ExecContext(ctx, queries.UpdatePresetJobsBinaryReference, oldID, newID)
+	if err != nil {
+		return fmt.Errorf("failed to update preset_jobs references: %w", err)
+	}
+
+	// Update job_executions references (only pending/queued jobs)
+	_, err = tx.ExecContext(ctx, queries.UpdateJobExecutionsBinaryReference, oldID, newID)
+	if err != nil {
+		return fmt.Errorf("failed to update job_executions references: %w", err)
+	}
+
+	// Commit transaction
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
 	return nil

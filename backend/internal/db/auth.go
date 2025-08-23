@@ -67,6 +67,27 @@ func (db *DB) TokenExists(token string) (bool, error) {
 	return exists, nil
 }
 
+// UpdateTokenActivity updates the last_activity timestamp for a token
+func (db *DB) UpdateTokenActivity(token string) error {
+	_, err := db.Exec(queries.UpdateTokenActivity, token)
+	if err != nil {
+		debug.Error("Failed to update token activity: %v", err)
+		return err
+	}
+	return nil
+}
+
+// IsTokenExpiredByIdleTimeout checks if a token has exceeded the idle timeout
+func (db *DB) IsTokenExpiredByIdleTimeout(token string) (bool, error) {
+	var expired bool
+	err := db.QueryRow(queries.IsTokenExpiredByIdleTimeout, token).Scan(&expired)
+	if err != nil {
+		debug.Error("Failed to check token idle timeout: %v", err)
+		return false, err
+	}
+	return expired, nil
+}
+
 // CreateLoginAttempt records a login attempt
 func (db *DB) CreateLoginAttempt(attempt *models.LoginAttempt) error {
 	_, err := db.Exec(queries.CreateLoginAttempt,

@@ -123,7 +123,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // Force auth check which may trigger login redirect
         checkAuthStatus();
       }
-    }, 6 * 24 * 60 * 60 * 1000); // Refresh every 6 days (before 7-day expiration)
+    }, 50 * 60 * 1000); // Refresh every 50 minutes (conservative for 60+ minute expiry)
 
     return () => clearInterval(refreshInterval);
   }, [isAuth]); // Remove checkAuthStatus dependency

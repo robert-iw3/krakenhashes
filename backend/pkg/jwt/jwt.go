@@ -19,14 +19,14 @@ type Claims struct {
 	jwt.StandardClaims
 }
 
-func GenerateToken(userID string, role string) (string, error) {
+func GenerateToken(userID string, role string, expiryMinutes int) (string, error) {
 	token := jwt.New(jwt.SigningMethodHS256)
 
 	// Set claims
 	claims := token.Claims.(jwt.MapClaims)
 	claims["user_id"] = userID
 	claims["role"] = role
-	claims["exp"] = time.Now().Add(time.Hour * 24 * 7).Unix() // 1 week to match cookie
+	claims["exp"] = time.Now().Add(time.Duration(expiryMinutes) * time.Minute).Unix()
 
 	// Generate encoded token
 	tokenString, err := token.SignedString([]byte(os.Getenv("JWT_SECRET")))

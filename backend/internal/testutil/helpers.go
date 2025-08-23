@@ -47,8 +47,8 @@ func MakeAuthenticatedRequest(t *testing.T, method, url string, body interface{}
 		req.Header.Set("Content-Type", "application/json")
 	}
 
-	// Generate a valid token
-	token, err := jwt.GenerateToken(userID, role)
+	// Generate a valid token with 60 minute expiry for tests
+	token, err := jwt.GenerateToken(userID, role, 60)
 	if err != nil {
 		t.Fatalf("Failed to generate auth token: %v", err)
 	}

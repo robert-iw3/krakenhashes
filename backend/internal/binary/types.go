@@ -47,6 +47,7 @@ type BinaryVersion struct {
 	CreatedAt          time.Time          `json:"created_at" db:"created_at"`
 	CreatedBy          uuid.UUID          `json:"created_by" db:"created_by"`
 	IsActive           bool               `json:"is_active" db:"is_active"`
+	IsDefault          bool               `json:"is_default" db:"is_default"`
 	LastVerifiedAt     *time.Time         `json:"last_verified_at" db:"last_verified_at"`
 	VerificationStatus VerificationStatus `json:"verification_status" db:"verification_status"`
 }
@@ -78,8 +79,11 @@ type Manager interface {
 	// DownloadBinary downloads a binary from its source URL
 	DownloadBinary(ctx context.Context, version *BinaryVersion) error
 
-	// DeleteVersion marks a binary version as inactive
+	// DeleteVersion marks a binary version as inactive with fallback protection
 	DeleteVersion(ctx context.Context, id int64) error
+
+	// SetDefaultVersion sets a binary version as the default for its type
+	SetDefaultVersion(ctx context.Context, id int64) error
 
 	// GetLatestActive returns the latest active version for a binary type
 	GetLatestActive(ctx context.Context, binaryType BinaryType) (*BinaryVersion, error)
@@ -110,6 +114,18 @@ type Store interface {
 
 	// GetLatestActive returns the latest active version for a binary type
 	GetLatestActive(ctx context.Context, binaryType BinaryType) (*BinaryVersion, error)
+
+	// SetDefault sets a binary version as the default for its type
+	SetDefault(ctx context.Context, id int64) error
+
+	// GetDefault returns the default binary version for a type
+	GetDefault(ctx context.Context, binaryType BinaryType) (*BinaryVersion, error)
+
+	// CountActiveBinaries returns the count of active binaries for a type
+	CountActiveBinaries(ctx context.Context, binaryType BinaryType) (int, error)
+
+	// UpdateReferencesToDefault updates all references from oldID to newID in preset_jobs and job_executions
+	UpdateReferencesToDefault(ctx context.Context, oldID, newID int64) error
 
 	// CreateAuditLog creates an audit log entry
 	CreateAuditLog(ctx context.Context, log *BinaryAuditLog) error

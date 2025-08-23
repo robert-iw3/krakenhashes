@@ -220,7 +220,7 @@ func TestPerformanceScenarios(t *testing.T) {
 		user := testutil.CreateTestUser(t, database, "concurrentval", "concurrent@example.com", testutil.DefaultTestPassword, "user")
 
 		// Generate token
-		token, err := jwt.GenerateToken(user.ID.String(), user.Role)
+		token, err := jwt.GenerateToken(user.ID.String(), user.Role, 60)
 		require.NoError(t, err)
 		err = database.StoreToken(user.ID.String(), token)
 		require.NoError(t, err)
@@ -444,7 +444,7 @@ func testMobileLoginFlow(t *testing.T, handler *auth.Handler, emailService *test
 
 func generateExpiredToken(t *testing.T, userID, role string) string {
 	// Generate token that expires immediately
-	token, err := jwt.GenerateToken(userID, role)
+	token, err := jwt.GenerateToken(userID, role, 1) // 1 minute expiry for testing
 	require.NoError(t, err)
 
 	// In a real implementation, you'd modify the expiration

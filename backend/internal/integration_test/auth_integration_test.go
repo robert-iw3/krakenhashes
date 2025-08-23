@@ -210,7 +210,7 @@ func completeMFAVerification(t *testing.T, handler *auth.Handler, emailService *
 
 func testAuthenticationCheck(t *testing.T, handler *auth.Handler, database *db.DB, user *db.User) {
 	// Generate token and store it
-	token, err := jwt.GenerateToken(user.ID.String(), user.Role)
+	token, err := jwt.GenerateToken(user.ID.String(), user.Role, 60)
 	require.NoError(t, err)
 	err = database.StoreToken(user.ID.String(), token)
 	require.NoError(t, err)
@@ -233,7 +233,7 @@ func testAuthenticationCheck(t *testing.T, handler *auth.Handler, database *db.D
 
 func testLogoutFlow(t *testing.T, handler *auth.Handler, database *db.DB, user *db.User) {
 	// Generate token and store it
-	token, err := jwt.GenerateToken(user.ID.String(), user.Role)
+	token, err := jwt.GenerateToken(user.ID.String(), user.Role, 60)
 	require.NoError(t, err)
 	err = database.StoreToken(user.ID.String(), token)
 	require.NoError(t, err)
@@ -459,7 +459,7 @@ func TestSecurityScenarios(t *testing.T) {
 
 	t.Run("session hijacking prevention", func(t *testing.T) {
 		// Login and get token
-		token, err := jwt.GenerateToken(user.ID.String(), user.Role)
+		token, err := jwt.GenerateToken(user.ID.String(), user.Role, 60)
 		require.NoError(t, err)
 		err = database.StoreToken(user.ID.String(), token)
 		require.NoError(t, err)
@@ -573,7 +573,7 @@ func TestConcurrentAccess(t *testing.T) {
 		// Generate tokens
 		tokens := make([]string, numOperations)
 		for i := range tokens {
-			token, err := jwt.GenerateToken(user.ID.String(), user.Role)
+			token, err := jwt.GenerateToken(user.ID.String(), user.Role, 60)
 			require.NoError(t, err)
 			tokens[i] = token
 		}
