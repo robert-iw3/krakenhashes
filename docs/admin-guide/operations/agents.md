@@ -69,7 +69,7 @@ Agent registration uses a claim code (voucher) system to ensure only authorized 
 2. **Initial Registration**
    ```bash
    # Using the claim code
-   ./krakenhashes-agent register --server https://your-server:8443 --claim-code XXXX-XXXX-XXXX
+   ./krakenhashes-agent --host your-server:31337 --claim XXXX-XXXX-XXXX
    ```
 
 3. **Certificate Download**

@@ -145,7 +145,7 @@ On your agent machine (can be the same as the server):
 2. Extract it to a directory
 3. Run the registration command:
    ```bash
-   ./krakenhashes-agent register --server https://your-server:8443 --claim-code ABCD-EFGH-IJKL
+   ./krakenhashes-agent --host your-server:31337 --claim ABCD-EFGH-IJKL
    ```
 
 4. The agent will:

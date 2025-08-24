@@ -51,8 +51,8 @@ func loadConfig() agentConfig {
 	cfg := agentConfig{}
 
 	// Define command line flags with usage documentation
-	flag.StringVar(&cfg.host, "host", "", "Backend server host (e.g., localhost:8080)")
-	flag.BoolVar(&cfg.useTLS, "tls", false, "Use TLS for secure communication")
+	flag.StringVar(&cfg.host, "host", "", "Backend server host (e.g., localhost:31337)")
+	flag.BoolVar(&cfg.useTLS, "tls", true, "Use TLS for secure communication (default: true)")
 	flag.StringVar(&cfg.listenInterface, "interface", "", "Network interface to listen on (optional)")
 	flag.IntVar(&cfg.heartbeatInterval, "heartbeat", 0, "Heartbeat interval in seconds (default: 5)")
 	flag.StringVar(&cfg.claimCode, "claim", "", "Agent claim code (required only for first-time registration)")
@@ -76,12 +76,13 @@ func loadConfig() agentConfig {
 			if port != "" {
 				cfg.host = fmt.Sprintf("%s:%s", host, port)
 			} else {
-				cfg.host = fmt.Sprintf("%s:8080", host)
+				cfg.host = fmt.Sprintf("%s:31337", host)
 			}
 		}
 	}
-	if !cfg.useTLS {
-		cfg.useTLS = os.Getenv("USE_TLS") == "true"
+	// Override TLS setting if environment variable is explicitly set
+	if tlsEnv := os.Getenv("USE_TLS"); tlsEnv != "" {
+		cfg.useTLS = tlsEnv == "true"
 	}
 	if cfg.listenInterface == "" {
 		cfg.listenInterface = os.Getenv("LISTEN_INTERFACE")
@@ -105,7 +106,7 @@ func loadConfig() agentConfig {
 
 	// Validate required configuration
 	if cfg.host == "" {
-		log.Fatal("Backend host must be provided via flag or BACKEND_HOST environment variable")
+		log.Fatal("Backend host must be provided via --host flag or KH_HOST/KH_PORT environment variables")
 	}
 
 	// Save configuration to .env file if it doesn't exist
@@ -114,7 +115,7 @@ func loadConfig() agentConfig {
 		host, port, err := net.SplitHostPort(cfg.host)
 		if err != nil {
 			host = cfg.host
-			port = "8080" // Default port if not specified
+			port = "31337" // Default port if not specified
 		}
 
 		env := fmt.Sprintf(`# KrakenHashes Agent Configuration
@@ -257,7 +258,7 @@ func main() {
 			debug.Info("Attempting to load .env from project root: %s (absolute: %s)", projectRootEnvPath, absProjectRootEnvPath)
 			err = godotenv.Load(projectRootEnvPath)
 			if err != nil {
-				debug.Error("Failed to load .env file from project root: %v", err)
+				debug.Warning("Failed to load .env file from project root: %v", err)
 
 				// Try to load from executable directory
 				if execErr == nil {
@@ -272,9 +273,10 @@ func main() {
 					}
 				}
 
-				// If all attempts failed, exit
+				// If all attempts failed, log but continue
+				// The loadConfig() function will create a .env file if needed
 				if !envLoaded {
-					debug.Error("All attempts to load .env file failed")
+					debug.Info("No .env file found in any location, will create one from command-line flags")
 					debug.Info("Searched the following locations:")
 					if envFilePath != "" {
 						debug.Info("1. Specified path (KH_ENV_FILE): %s", envFilePath)
@@ -290,7 +292,7 @@ func main() {
 							debug.Info("3. Executable directory: %s", filepath.Join(filepath.Dir(execPath), ".env"))
 						}
 					}
-					os.Exit(1)
+					// Don't exit - allow loadConfig() to create .env from flags
 				}
 			} else {
 				debug.Info("Successfully loaded .env file from project root")
@@ -315,7 +317,7 @@ func main() {
 	host, port, err := net.SplitHostPort(cfg.host)
 	if err != nil {
 		host = cfg.host
-		port = "8080" // Default port if not specified
+		port = "31337" // Default port if not specified
 	}
 	os.Setenv("KH_HOST", host)
 	os.Setenv("KH_PORT", port)

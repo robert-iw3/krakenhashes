@@ -124,9 +124,9 @@ This guide covers installing and setting up KrakenHashes agents on various platf
 
 2. **Register the agent**:
    ```bash
-   sudo -u krakenhashes krakenhashes-agent register \
-     --code YOUR_CLAIM_CODE \
-     --config /etc/krakenhashes/agent.yaml
+   sudo -u krakenhashes krakenhashes-agent \
+     --host your-server:31337 \
+     --claim YOUR_CLAIM_CODE
    ```
 
 3. **Start the agent**:
