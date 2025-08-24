@@ -87,6 +87,12 @@ Agent registration uses a claim code (voucher) system to ensure only authorized 
 - TLS certificates ensure encrypted communication
 - Agent ID and API key must match for authentication
 
+![Agent Management Interface](../../assets/images/screenshots/agent_management.png)
+*Agent Management interface showing active claim vouchers with different types and currently registered agents with their hardware configurations*
+
+![Agent Details](../../assets/images/screenshots/agent_details.png)
+*Detailed agent view displaying system information, hardware configuration, and GPU device management with enable/disable controls*
+
 ## Managing Agent Connections
 
 ### WebSocket Communication

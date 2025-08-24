@@ -112,6 +112,9 @@ When a high-priority job needs immediate attention:
 
 ### Understanding Job Statuses
 
+![Jobs Management Interface](../assets/images/screenshots/jobs_management.png)
+*The Jobs Management interface showing active password cracking jobs with status filtering (ALL, PENDING, RUNNING, COMPLETED, FAILED). The table displays job details including name, hashlist, progress, keyspace, cracked count, agents assigned, priority level, and available actions.*
+
 - **Pending**: Job is waiting for available agents
 - **Running**: Job is actively being processed
 - **Completed**: Job finished successfully

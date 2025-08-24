@@ -101,6 +101,10 @@ Now let's create some password hashes to crack. We'll use known passwords so you
 ### Upload the Hashlist
 
 1. Navigate to **Hashlists** from the main menu
+
+![Hashlist Management Page](../assets/images/screenshots/hashlist_management.png)
+*Hashlist Management page with UPLOAD HASHLIST button highlighted, showing the interface where users can view existing hashlists and initiate new uploads*
+
 2. Click **Upload Hashlist**
 
 ![Upload Hashlist Dialog](../assets/screenshots/upload-hashlist.png){ .screenshot }
@@ -254,7 +258,8 @@ Once the job completes (should be quick for this tutorial):
    - `e10adc3949ba59abbe56e057f20f883e` → `123456`
    - `482c811da5d5b4bc6d497ffa98491e38` → `password123`
 
-![Cracked Results](../assets/screenshots/cracked-results.png){ .screenshot }
+![Cracked Results](../assets/images/screenshots/cracked_hashes_hashlist.png)
+*Hashlist view showing successfully cracked passwords with their plaintext values revealed*
 
 ### Export Results
 
@@ -307,6 +312,9 @@ graph LR
    - Define what to try (wordlists, rules, masks)
    - Can be simple or complex workflows
    - Automatically distributed to agents
+
+![KrakenHashes Dashboard](../assets/images/screenshots/dashboard_overview.png)
+*Main dashboard view showing hashlist management with crack statistics and job execution interface - what you'll see after completing your first successful password crack*
 
 ## Next Steps
 

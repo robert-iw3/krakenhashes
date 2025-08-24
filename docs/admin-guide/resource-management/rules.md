@@ -6,6 +6,9 @@ KrakenHashes provides comprehensive management of rule files used for password c
 
 Rules are transformation patterns applied to wordlists during password cracking operations. They allow you to generate password variations without storing massive wordlists. For example, a single rule can transform "password" into "Password123!", "p@ssw0rd", and many other variations.
 
+![Rule Management Interface](../../assets/images/screenshots/rule_management.png)
+*The Rule Management interface displaying uploaded rule files with status, type, size, and rule count information. The interface provides filtering options and actions for managing Hashcat and John the Ripper rule files.*
+
 ## Directory Structure
 
 The system monitors the rules directory and automatically creates the following subdirectory structure:

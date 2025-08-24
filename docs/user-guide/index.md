@@ -44,6 +44,9 @@ Learn how to effectively use KrakenHashes for your password auditing needs.
 
 </div>
 
+![KrakenHashes Dashboard](../assets/images/screenshots/dashboard_overview.png)
+*KrakenHashes dashboard overview featuring the left navigation sidebar, hashlist overview table showing crack progress, and jobs management interface in the dark theme*
+
 ## Quick Navigation
 
 ### :material-new-box: **New Users**

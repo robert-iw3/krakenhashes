@@ -74,6 +74,9 @@ The system accepts various time formats:
 - `09:00` → `09:00:00`
 - `09:00:00` → `09:00:00`
 
+![Scheduling Interface](../../assets/images/screenshots/scheduling_interface.png)
+*Weekly scheduling interface showing daily operating hours configuration with timezone support and per-day activation toggles*
+
 ## Examples
 
 ### Standard Business Hours (9-5, Monday-Friday)

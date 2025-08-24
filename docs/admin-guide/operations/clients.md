@@ -8,6 +8,9 @@ KrakenHashes allows associating hashlists with specific clients or engagements. 
 -   **Association:** Hashlists can be optionally linked to a client during upload.
 -   **Administration:** Administrators can create, view, update, and delete client records.
 
+![Client Management Interface](../../assets/images/screenshots/client_management.png)
+*Client Management page showing the data table with columns for Name, Description, Contact, Retention period, Creation date, and available Actions*
+
 ## Managing Clients via API
 
 Administrators use the following API endpoints to manage clients:

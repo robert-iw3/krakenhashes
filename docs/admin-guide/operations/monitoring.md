@@ -149,6 +149,12 @@ The agent collects and reports the following metrics:
 2. **Performance Metrics**
    - Hash rate per device
    - Power usage
+
+![Device Monitoring Dashboard](../../assets/images/screenshots/device_monitoring.png)
+*Device monitoring dashboard showing real-time temperature, utilization, fan speed, and hash rate metrics across multiple agents*
+
+![Device Monitoring Alternative View](../../assets/images/screenshots/device_monitoring_2.png)
+*Alternative view of the device monitoring interface with detailed performance graphs and timeline data*
    - Fan speed
    - Device temperature
 

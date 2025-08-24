@@ -26,6 +26,9 @@ The wordlists page displays all available wordlists with the following informati
 - Tags
 - Status
 
+![Wordlist Management Interface](../assets/images/screenshots/wordlist_management.png)
+*Wordlist Management interface showing category filtering, wordlist details table, and upload functionality*
+
 You can sort and filter the list by any of these attributes.
 
 ### Uploading a Wordlist
@@ -79,6 +82,9 @@ The rules page displays all available rules with the following information:
 - Rule count
 - Tags
 - Status
+
+![Rule Management Interface](../assets/images/screenshots/rule_management.png)
+*Rule Management page showing the uploaded _nsakey.v2.dive rule file with verification status, type (Hashcat), file size (1.19 MB), and rule count (123,289 rules). Filter tabs allow sorting by rule type.*
 
 You can sort and filter the list by any of these attributes.
 

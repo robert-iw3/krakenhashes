@@ -43,6 +43,9 @@ The Master POT view shows all cracked hashes across your entire KrakenHashes ins
 
 **Access**: Navigate to **POT** in the main menu
 
+![All Cracked Hashes](../assets/images/screenshots/cracked_hashes_all.png)
+*Master POT view showing all cracked hashes with filter options for different export formats*
+
 **Use Cases**:
 - Overall password analysis across all engagements
 - Building universal password dictionaries
@@ -57,6 +60,9 @@ View all cracked passwords for a specific client/engagement.
 2. Select a client
 3. Click **View POT** or the POT icon
 
+![Client-Specific View](../assets/images/screenshots/cracked_hashes_client.png)
+*Filter results to show only cracked passwords for a specific client or engagement*
+
 **Use Cases**:
 - Client-specific reporting
 - Understanding password patterns within an organization
@@ -70,6 +76,9 @@ View cracked passwords for a specific hashlist.
 1. Go to **Hashlists**
 2. Select a hashlist
 3. Click **View POT** in the actions menu
+
+![Hashlist-Specific View](../assets/images/screenshots/cracked_hashes_hashlist.png)
+*View cracked passwords from a particular hashlist with detailed crack information*
 
 **Use Cases**:
 - Analyzing results from specific sources (AD dump, database, etc.)

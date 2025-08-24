@@ -150,7 +150,8 @@ The preset jobs list shows:
 - Binary version
 - Action buttons (Edit/Delete)
 
-<screenshot: Preset jobs list with multiple entries>
+![Preset Job Management](../../assets/images/screenshots/preset_job_management.png)
+*Preset Job Management interface showing three configured preset jobs with their attack modes, priorities, agent limits, and resource assignments*
 
 #### Editing Preset Jobs
 1. Click the **Edit** button on any preset job
@@ -177,7 +178,8 @@ Job workflows are ordered sequences of preset jobs that execute one after anothe
 1. Navigate to **Admin** > **Job Workflows**
 2. Click **"Create Job Workflow"**
 
-<screenshot: Job Workflows list page>
+![Job Workflows](../../assets/images/screenshots/job_workflows.png)
+*Job Workflows interface displaying a workflow with multiple jobs, priority indicators, and interruption capabilities*
 
 3. Enter a workflow name (e.g., "Standard Password Audit")
 4. Add preset jobs to the workflow:

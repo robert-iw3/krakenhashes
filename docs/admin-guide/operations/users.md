@@ -78,6 +78,9 @@ Admins can view all users through the admin dashboard:
   - MFA status
   - Last login time
 
+![User Management Interface](../../assets/images/screenshots/user_management.png)
+*User Management page displaying the user accounts table with columns for Username, Email, Role, Status, MFA status, and Last Login information*
+
 #### Updating User Information
 Admins can update:
 - Username
@@ -186,6 +189,9 @@ Users can enable MFA through their profile:
 2. Choose MFA method
 3. Complete verification process
 4. Save backup codes
+
+![Profile Settings](../../assets/images/screenshots/profile_settings.png)
+*User Profile Settings interface displaying account information, password change functionality, and MFA controls that reflect the authentication policies configured by administrators*
 
 #### Admin MFA Operations
 Admins can:

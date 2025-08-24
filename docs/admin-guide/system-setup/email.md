@@ -5,6 +5,9 @@ KrakenHashes supports email functionality through multiple providers, currently 
 
 ## Provider Configuration
 
+![Email Settings Configuration](../../assets/images/screenshots/admin_email_settings.png)
+*Admin Settings Email Configuration page showing Mailgun provider setup with API Key, Domain, From Name, From Email, and Monthly Limit fields*
+
 ### SendGrid
 To configure SendGrid as your email provider:
 

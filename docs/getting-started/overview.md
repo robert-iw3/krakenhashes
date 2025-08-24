@@ -28,6 +28,9 @@ KrakenHashes addresses these limitations by providing:
 - **Automated Workflows**: Pre-configured attack patterns and job templates
 - **Enterprise Features**: Authentication, authorization, and audit trails
 
+![KrakenHashes Dashboard](../assets/images/screenshots/dashboard_overview.png)
+*KrakenHashes main dashboard showing the hashlist overview table with crack progress and the jobs management interface with dark theme*
+
 ## Key Features and Capabilities
 
 ### 🚀 Distributed Architecture
