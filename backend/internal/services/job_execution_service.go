@@ -1382,20 +1382,39 @@ func (s *JobExecutionService) InterruptJob(ctx context.Context, jobExecutionID, 
 		return fmt.Errorf("failed to interrupt job: %w", err)
 	}
 
-	// Cancel all running tasks for this job
+	// Set all running tasks for this job to pending
 	tasks, err := s.jobTaskRepo.GetTasksByJobExecution(ctx, jobExecutionID)
 	if err != nil {
 		return fmt.Errorf("failed to get tasks for interrupted job: %w", err)
 	}
 
 	for _, task := range tasks {
-		if task.Status == models.JobTaskStatusRunning {
-			err = s.jobTaskRepo.CancelTask(ctx, task.ID)
+		if task.Status == models.JobTaskStatusRunning || task.Status == models.JobTaskStatusAssigned {
+			// Set task to pending so it can be reassigned
+			err = s.jobTaskRepo.SetTaskPending(ctx, task.ID)
 			if err != nil {
-				debug.Log("Failed to cancel task", map[string]interface{}{
+				debug.Log("Failed to set task to pending", map[string]interface{}{
 					"task_id": task.ID,
 					"error":   err.Error(),
 				})
+			}
+			
+			// Clear agent busy status if task has an assigned agent
+			if task.AgentID != nil {
+				agent, err := s.agentRepo.GetByID(ctx, *task.AgentID)
+				if err == nil && agent.Metadata != nil {
+					agent.Metadata["busy_status"] = "false"
+					delete(agent.Metadata, "current_task_id")
+					delete(agent.Metadata, "current_job_id")
+					if err := s.agentRepo.Update(ctx, agent); err != nil {
+						debug.Error("Failed to clear agent busy status after interruption: %v", err)
+					} else {
+						debug.Log("Cleared agent busy status after interruption", map[string]interface{}{
+							"agent_id": *task.AgentID,
+							"task_id":  task.ID,
+						})
+					}
+				}
 			}
 		}
 	}

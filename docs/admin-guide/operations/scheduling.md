@@ -114,7 +114,7 @@ Sunday:    22:00 - 06:00 [Active]  # Runs overnight Sun-Mon
 
 ## Important Behavior Notes
 
-### Running Jobs Are Not Interrupted
+### Running Jobs and Schedule Boundaries
 
 **The scheduling system only controls when new jobs are assigned, not when running jobs must complete.**
 
@@ -133,8 +133,95 @@ If an agent is scheduled to work until 17:00:
 
 This design ensures:
 - No work is lost due to scheduling boundaries
-- Jobs complete successfully without interruption
+- Jobs complete successfully without schedule interruption
 - Predictable behavior for long-running tasks
+
+## Job Interruption and Priority Override
+
+### Overview
+
+While the scheduling system doesn't interrupt jobs based on time, KrakenHashes supports priority-based job interruption that works alongside scheduling.
+
+### How Job Interruption Works with Scheduling
+
+The job interruption system operates independently of agent schedules:
+
+1. **Priority-Based Only**: Jobs are interrupted based on priority, not schedule boundaries
+2. **Schedule Aware**: Interrupted jobs can only resume when agents are both:
+   - Available (not working on other jobs)
+   - Within their scheduled working hours
+3. **Automatic Management**: The system handles all interruption and resumption automatically
+
+### Interruption Scenarios
+
+#### Scenario 1: High Priority Job During Schedule
+```
+Agent Schedule: 09:00 - 17:00
+Current Time: 14:00
+Running Job: Priority 50 (started at 13:00)
+New Job: Priority 95 with high priority override
+
+Result: Low priority job interrupted, high priority job takes over
+```
+
+#### Scenario 2: Interrupted Job Resumes Next Schedule Window
+```
+Agent Schedule: 09:00 - 17:00
+Job Interrupted: 16:45 (Priority 50)
+Schedule Ends: 17:00
+Next Day: 09:00 - Job automatically resumes when agent is scheduled again
+```
+
+### Configuration for Job Interruption
+
+#### System-Wide Setting
+Navigate to **Admin Panel → System Settings**:
+```
+Job Interruption Enabled: [Toggle]
+```
+
+When enabled:
+- Higher priority jobs with override can interrupt lower priority running jobs
+- Interruption only occurs when no agents are available
+- Interrupted jobs automatically queue for resumption
+
+#### Per-Job Configuration
+In preset job settings:
+```
+Allow High Priority Override: [Toggle]
+Priority: [0-100]
+```
+
+### Best Practices for Interruption with Scheduling
+
+1. **Consider Schedule Windows**: High-priority jobs should account for agent availability
+2. **Set Appropriate Chunk Sizes**: Smaller chunks (5-10 minutes) allow more responsive interruption
+3. **Monitor Interruption Patterns**: Track if certain schedule windows see excessive interruptions
+4. **Plan Critical Jobs**: Schedule critical jobs during peak agent availability hours
+
+### Interaction Between Features
+
+| Feature | Scheduling | Job Interruption |
+|---------|------------|------------------|
+| **Trigger** | Time-based | Priority-based |
+| **Job Stopping** | Never stops running jobs | Can stop lower priority jobs |
+| **Resumption** | N/A - jobs complete | Automatic when agents available |
+| **Configuration** | Per-agent schedules | Per-job override flag |
+| **System Toggle** | Global scheduling enable | Global interruption enable |
+
+### Common Questions
+
+**Q: Can a scheduled agent be interrupted?**
+A: Yes, if a higher priority job with override is waiting and no other agents are available.
+
+**Q: What happens if an interrupted job's agent goes off-schedule?**
+A: The job remains pending and resumes when any scheduled agent becomes available.
+
+**Q: Do interrupted jobs lose progress?**
+A: No, all progress is saved and jobs resume from their last checkpoint.
+
+**Q: Can scheduling prevent interruptions?**
+A: No, but having more agents scheduled reduces the need for interruptions.
 
 ## Schedule Priority
 

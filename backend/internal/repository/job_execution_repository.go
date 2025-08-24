@@ -378,7 +378,7 @@ func (r *JobExecutionRepository) FailExecution(ctx context.Context, id uuid.UUID
 // InterruptExecution marks a job as interrupted by another job
 func (r *JobExecutionRepository) InterruptExecution(ctx context.Context, id uuid.UUID, interruptingJobID uuid.UUID) error {
 	query := `UPDATE job_executions SET status = $1, interrupted_by = $2 WHERE id = $3 AND status = 'running'`
-	result, err := r.db.ExecContext(ctx, query, models.JobExecutionStatusPaused, interruptingJobID, id)
+	result, err := r.db.ExecContext(ctx, query, models.JobExecutionStatusPending, interruptingJobID, id)
 	if err != nil {
 		return fmt.Errorf("failed to interrupt job execution: %w", err)
 	}
@@ -395,18 +395,79 @@ func (r *JobExecutionRepository) InterruptExecution(ctx context.Context, id uuid
 	return nil
 }
 
+// GetPendingJobsWithHighPriorityOverride retrieves pending jobs that have the high priority override flag set
+// Returns jobs ordered by priority DESC (highest first)
+func (r *JobExecutionRepository) GetPendingJobsWithHighPriorityOverride(ctx context.Context) ([]models.JobExecution, error) {
+	query := `
+		SELECT 
+			id, preset_job_id, hashlist_id, status, priority,
+			total_keyspace, processed_keyspace, attack_mode, created_by,
+			created_at, started_at, completed_at, error_message, interrupted_by,
+			consecutive_failures,
+			max_agents, updated_at,
+			base_keyspace, effective_keyspace, multiplication_factor,
+			uses_rule_splitting, rule_split_count,
+			overall_progress_percent, last_progress_update,
+			dispatched_keyspace,
+			name, wordlist_ids, rule_ids, mask,
+			binary_version_id, chunk_size_seconds, status_updates_enabled,
+			allow_high_priority_override, additional_args,
+			hash_type
+		FROM job_executions
+		WHERE status = 'pending'
+			AND allow_high_priority_override = true
+		ORDER BY priority DESC, created_at ASC`
+
+	rows, err := r.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get pending jobs with high priority override: %w", err)
+	}
+	defer rows.Close()
+
+	var executions []models.JobExecution
+	for rows.Next() {
+		var exec models.JobExecution
+		err := rows.Scan(
+			&exec.ID, &exec.PresetJobID, &exec.HashlistID, &exec.Status, &exec.Priority,
+			&exec.TotalKeyspace, &exec.ProcessedKeyspace, &exec.AttackMode, &exec.CreatedBy,
+			&exec.CreatedAt, &exec.StartedAt, &exec.CompletedAt, &exec.ErrorMessage, &exec.InterruptedBy,
+			&exec.ConsecutiveFailures,
+			&exec.MaxAgents, &exec.UpdatedAt,
+			&exec.BaseKeyspace, &exec.EffectiveKeyspace, &exec.MultiplicationFactor,
+			&exec.UsesRuleSplitting, &exec.RuleSplitCount,
+			&exec.OverallProgressPercent, &exec.LastProgressUpdate,
+			&exec.DispatchedKeyspace,
+			&exec.Name, &exec.WordlistIDs, &exec.RuleIDs, &exec.Mask,
+			&exec.BinaryVersionID, &exec.ChunkSizeSeconds, &exec.StatusUpdatesEnabled,
+			&exec.AllowHighPriorityOverride, &exec.AdditionalArgs,
+			&exec.HashType,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan job execution: %w", err)
+		}
+		executions = append(executions, exec)
+	}
+
+	return executions, nil
+}
+
 // GetInterruptibleJobs retrieves running jobs that can be interrupted
+// Returns jobs with priority lower than the given priority, ordered by priority ASC (lowest first)
 func (r *JobExecutionRepository) GetInterruptibleJobs(ctx context.Context, priority int) ([]models.JobExecution, error) {
+	// Now we look for ANY running job with lower priority, not checking allow_high_priority_override
+	// The check for override permission is done by the caller
+	// Order by priority ASC to get the lowest priority job first
 	query := `
 		SELECT 
 			je.id, je.preset_job_id, je.hashlist_id, je.status, je.priority,
 			je.total_keyspace, je.processed_keyspace, je.attack_mode,
-			je.created_at, je.started_at, je.completed_at, je.error_message, je.interrupted_by
+			je.created_at, je.started_at, je.completed_at, je.error_message, je.interrupted_by,
+			je.allow_high_priority_override
 		FROM job_executions je
-		JOIN preset_jobs pj ON je.preset_job_id = pj.id
 		WHERE je.status = 'running' 
 		AND je.priority < $1
-		AND pj.allow_high_priority_override = true`
+		ORDER BY je.priority ASC
+		LIMIT 1`
 
 	rows, err := r.db.QueryContext(ctx, query, priority)
 	if err != nil {
@@ -421,6 +482,7 @@ func (r *JobExecutionRepository) GetInterruptibleJobs(ctx context.Context, prior
 			&exec.ID, &exec.PresetJobID, &exec.HashlistID, &exec.Status, &exec.Priority,
 			&exec.TotalKeyspace, &exec.ProcessedKeyspace, &exec.AttackMode,
 			&exec.CreatedAt, &exec.StartedAt, &exec.CompletedAt, &exec.ErrorMessage, &exec.InterruptedBy,
+			&exec.AllowHighPriorityOverride,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan job execution: %w", err)

@@ -11,7 +11,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link as RouterLink } from 'react-router-dom';
 import {
   Box,
   Button,
@@ -33,6 +33,7 @@ import {
   Switch,
   CircularProgress,
   Alert,
+  Link,
 } from '@mui/material';
 import { 
   Delete as DeleteIcon,
@@ -270,7 +271,13 @@ export default function AgentManagement() {
                   <TableRow key={agent.id}>
                     <TableCell>{agent.id}</TableCell>
                     <TableCell>
-                      <Link to={`/agents/${agent.id}`} style={{ textDecoration: 'none', color: 'inherit' }}>
+                      <Link
+                        component={RouterLink}
+                        to={`/agents/${agent.id}`}
+                        color="primary"
+                        underline="hover"
+                        sx={{ fontWeight: 'medium' }}
+                      >
                         {agent.name}
                       </Link>
                     </TableCell>

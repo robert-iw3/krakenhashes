@@ -49,11 +49,19 @@ A **job workflow** is a named sequence of preset jobs executed in order. Workflo
 
 ### Job Execution
 A **job execution** is an actual running instance of a preset job against a specific hashlist. It:
-- Tracks the overall status: `pending`, `running`, `paused`, `completed`, `failed`, `cancelled`
+- Tracks the overall status: `pending`, `running`, `completed`, `failed`, `cancelled`, `interrupted`
 - Manages keyspace progress (how much of the search space has been processed)
 - Supports dynamic rule splitting for large rule files
-- Can be interrupted by higher priority jobs
+- Can be interrupted by higher priority jobs and automatically resumed
 - Tracks which user created it and when
+
+#### Job Interruption Behavior
+When a job is interrupted by a higher priority job:
+- Status changes from `running` to `pending` (not `paused`)
+- All progress is preserved and saved
+- Job automatically returns to the queue with the same priority
+- When agents become available, the job resumes from where it stopped
+- No manual intervention required - the system handles everything automatically
 
 ### Job Task (Chunk)
 A **job task** or **chunk** is an individual unit of work assigned to an agent. Tasks are:
@@ -169,8 +177,9 @@ KrakenHashes uses a priority scale from **0 to 1000**, where:
 
 1. **Job Selection**: When agents request work, jobs are assigned in priority order
 2. **FIFO Within Priority**: Jobs with the same priority follow First-In-First-Out
-3. **Job Interruption**: Higher priority jobs can interrupt lower priority running jobs
+3. **Job Interruption**: Higher priority jobs with override enabled can interrupt lower priority running jobs
 4. **Resource Allocation**: High priority jobs can use more agents simultaneously
+5. **Automatic Resumption**: Interrupted jobs automatically resume when resources are available
 
 ### Priority Guidelines
 

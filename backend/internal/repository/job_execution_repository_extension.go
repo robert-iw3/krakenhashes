@@ -336,7 +336,19 @@ func (r *JobExecutionRepository) Delete(ctx context.Context, id uuid.UUID) error
 	}
 	defer tx.Rollback()
 
-	// Delete related tasks first
+	// Clear any references to this job in the interrupted_by column
+	_, err = tx.ExecContext(ctx, `UPDATE job_executions SET interrupted_by = NULL WHERE interrupted_by = $1`, id)
+	if err != nil {
+		return fmt.Errorf("failed to clear interrupted_by references: %w", err)
+	}
+
+	// Delete related performance metrics
+	_, err = tx.ExecContext(ctx, `DELETE FROM job_performance_metrics WHERE job_execution_id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("failed to delete related performance metrics: %w", err)
+	}
+
+	// Delete related tasks
 	_, err = tx.ExecContext(ctx, `DELETE FROM job_tasks WHERE job_execution_id = $1`, id)
 	if err != nil {
 		return fmt.Errorf("failed to delete related job tasks: %w", err)
@@ -374,7 +386,30 @@ func (r *JobExecutionRepository) DeleteFinished(ctx context.Context) (int, error
 	}
 	defer tx.Rollback()
 
-	// Delete related tasks first
+	// Clear any references to finished jobs in the interrupted_by column
+	_, err = tx.ExecContext(ctx, `
+		UPDATE job_executions 
+		SET interrupted_by = NULL 
+		WHERE interrupted_by IN (
+			SELECT id FROM job_executions 
+			WHERE status IN ('completed', 'failed', 'cancelled')
+		)`)
+	if err != nil {
+		return 0, fmt.Errorf("failed to clear interrupted_by references: %w", err)
+	}
+
+	// Delete related performance metrics
+	_, err = tx.ExecContext(ctx, `
+		DELETE FROM job_performance_metrics 
+		WHERE job_execution_id IN (
+			SELECT id FROM job_executions 
+			WHERE status IN ('completed', 'failed', 'cancelled')
+		)`)
+	if err != nil {
+		return 0, fmt.Errorf("failed to delete related performance metrics: %w", err)
+	}
+
+	// Delete related tasks
 	_, err = tx.ExecContext(ctx, `
 		DELETE FROM job_tasks 
 		WHERE job_execution_id IN (

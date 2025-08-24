@@ -75,11 +75,57 @@ Tries all possible combinations for a pattern:
 ## Understanding Priorities
 
 Jobs within workflows run in priority order:
-- **High Priority (80-100)**: Quick, likely-to-succeed attacks
-- **Medium Priority (40-79)**: Balanced attacks
-- **Low Priority (0-39)**: Exhaustive, time-consuming attacks
+- **Critical Priority (90-100)**: Emergency response, security incidents
+- **High Priority (70-89)**: Time-sensitive audits, compliance deadlines
+- **Normal Priority (40-69)**: Standard security assessments
+- **Low Priority (10-39)**: Background processing, research tasks
+- **Minimal Priority (0-9)**: Non-urgent, opportunistic processing
+
+### How Priority Affects Your Jobs
+
+1. **Execution Order**: Higher priority jobs start first when agents are available
+2. **Resource Allocation**: Critical jobs can use more agents simultaneously
+3. **Queue Management**: Jobs with the same priority run in the order they were submitted
+4. **Smart Scheduling**: The system optimizes agent assignment based on priorities
 
 <screenshot: Priority visualization>
+
+## Job Interruption and Resumption
+
+KrakenHashes includes an intelligent job interruption system that ensures critical tasks get the resources they need without losing work on other jobs.
+
+### How Job Interruption Works
+
+When a high-priority job needs immediate attention:
+
+1. **Automatic Detection**: The system identifies when critical jobs are waiting
+2. **Smart Interruption**: Only interrupts lower priority jobs when necessary
+3. **Progress Preservation**: All completed work is saved before interruption
+4. **Seamless Resumption**: Interrupted jobs automatically continue when resources are available
+
+### What This Means for Your Jobs
+
+- **No Lost Work**: If your job is interrupted, it will resume from where it stopped
+- **Transparent Process**: You'll see the job status change from "running" to "pending" and back
+- **Fair Resource Sharing**: The system balances urgent needs with ongoing work
+- **Automatic Management**: No manual intervention required for resumption
+
+### Understanding Job Statuses
+
+- **Pending**: Job is waiting for available agents
+- **Running**: Job is actively being processed
+- **Completed**: Job finished successfully
+- **Failed**: Job encountered an error
+- **Interrupted**: Job was paused for a higher priority task (automatically resumes)
+
+### Priority Best Practices
+
+To ensure optimal performance:
+
+1. **Use Appropriate Priorities**: Don't mark everything as high priority
+2. **Plan for Interruptions**: Expect that low-priority jobs may pause for critical work
+3. **Monitor Progress**: Check job status regularly for time-sensitive tasks
+4. **Communicate Urgency**: Work with administrators to set correct priorities for critical audits
 
 ## Real-World Applications
 

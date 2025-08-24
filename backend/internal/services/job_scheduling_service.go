@@ -18,6 +18,7 @@ import (
 type JobWebSocketIntegration interface {
 	SendJobAssignment(ctx context.Context, task *models.JobTask, jobExecution *models.JobExecution) error
 	RequestAgentBenchmark(ctx context.Context, agentID int, jobExecution *models.JobExecution) error
+	SendJobStop(ctx context.Context, taskID uuid.UUID, reason string) error
 }
 
 // JobSchedulingService handles the assignment of jobs to agents
@@ -86,7 +87,36 @@ func (s *JobSchedulingService) ScheduleJobs(ctx context.Context) (*ScheduleJobsR
 
 	if len(availableAgents) == 0 {
 		debug.Log("No available agents for job scheduling", nil)
-		return result, nil
+		
+		// Check for high-priority jobs that can interrupt running jobs
+		// This only happens when NO agents are available
+		interruptedJobID, err := s.checkAndInterruptForHighPriority(ctx)
+		if err != nil {
+			debug.Log("Error checking for high-priority interruptions", map[string]interface{}{
+				"error": err.Error(),
+			})
+		} else if interruptedJobID != nil {
+			debug.Log("Interrupted job for high-priority override", map[string]interface{}{
+				"interrupted_job_id": *interruptedJobID,
+			})
+			result.InterruptedJobs = append(result.InterruptedJobs, *interruptedJobID)
+			
+			// Re-get available agents after interruption
+			// The interrupted task's agent should now be available
+			availableAgents, err = s.jobExecutionService.GetAvailableAgents(ctx)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get available agents after interruption: %w", err)
+			}
+			
+			debug.Log("Re-checked available agents after interruption", map[string]interface{}{
+				"agent_count": len(availableAgents),
+			})
+		}
+		
+		// If still no agents available after interruption check, return
+		if len(availableAgents) == 0 {
+			return result, nil
+		}
 	}
 
 	debug.Log("Found available agents", map[string]interface{}{
@@ -185,27 +215,9 @@ func (s *JobSchedulingService) assignWorkToAgent(ctx context.Context, agent *mod
 		"hashlist_name":    nextJob.HashlistName,
 	})
 
-	// Check if we need to interrupt any running jobs for higher priority
+	// Note: Interruption logic has been moved to main ScheduleJobs method
+	// and only runs when no agents are available
 	var interruptedJobs []uuid.UUID
-	interruptibleJobs, err := s.jobExecutionService.CanInterruptJob(ctx, nextJob.Priority)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to check interruptible jobs: %w", err)
-	}
-
-	// If we have interruptible jobs and the new job has higher priority, interrupt them
-	if len(interruptibleJobs) > 0 {
-		for _, interruptibleJob := range interruptibleJobs {
-			err = s.jobExecutionService.InterruptJob(ctx, interruptibleJob.ID, nextJob.ID)
-			if err != nil {
-				debug.Log("Failed to interrupt job", map[string]interface{}{
-					"job_id": interruptibleJob.ID,
-					"error":  err.Error(),
-				})
-				continue
-			}
-			interruptedJobs = append(interruptedJobs, interruptibleJob.ID)
-		}
-	}
 
 	// Ensure the hashlist is available on the agent
 	debug.Log("Syncing hashlist to agent", map[string]interface{}{
@@ -921,6 +933,118 @@ func (s *JobSchedulingService) StartScheduler(ctx context.Context, interval time
 			}
 		}
 	}
+}
+
+// checkAndInterruptForHighPriority checks if there are high-priority jobs waiting
+// that should interrupt lower priority running jobs. This only runs when no agents are available.
+func (s *JobSchedulingService) checkAndInterruptForHighPriority(ctx context.Context) (*uuid.UUID, error) {
+	// Check if interruption is enabled
+	interruptionSetting, err := s.systemSettingsRepo.GetSetting(ctx, "job_interruption_enabled")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get interruption setting: %w", err)
+	}
+
+	if interruptionSetting.Value == nil || *interruptionSetting.Value != "true" {
+		return nil, nil // Interruption disabled
+	}
+
+	// Get the highest priority pending job with allow_high_priority_override
+	highPriorityJobs, err := s.jobExecutionService.jobExecRepo.GetPendingJobsWithHighPriorityOverride(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get high-priority jobs: %w", err)
+	}
+
+	if len(highPriorityJobs) == 0 {
+		return nil, nil // No high-priority jobs waiting
+	}
+
+	// Get the highest priority job (first in the list since they're ordered by priority DESC)
+	highPriorityJob := highPriorityJobs[0]
+
+	// Check how many agents are already assigned to this high-priority job
+	currentTasks, err := s.jobExecutionService.jobTaskRepo.GetTasksByJobExecution(ctx, highPriorityJob.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get current tasks for high-priority job: %w", err)
+	}
+	
+	// Count active agents for this job
+	activeAgentCount := 0
+	for _, task := range currentTasks {
+		if task.AgentID != nil && (task.Status == models.JobTaskStatusRunning || task.Status == models.JobTaskStatusAssigned) {
+			activeAgentCount++
+		}
+	}
+	
+	// Use the job's own max_agents setting (0 means unlimited)
+	maxAgents := highPriorityJob.MaxAgents
+	if maxAgents == 0 {
+		maxAgents = 999 // Treat 0 as unlimited
+	}
+	
+	// Don't interrupt if already at max agents
+	if activeAgentCount >= maxAgents {
+		debug.Log("High-priority job already at max agents, skipping interruption", map[string]interface{}{
+			"job_id": highPriorityJob.ID,
+			"active_agents": activeAgentCount,
+			"max_agents": maxAgents,
+		})
+		return nil, nil
+	}
+
+	// Check if there are any interruptible jobs with lower priority
+	interruptibleJobs, err := s.jobExecutionService.CanInterruptJob(ctx, highPriorityJob.Priority)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check interruptible jobs: %w", err)
+	}
+
+	if len(interruptibleJobs) == 0 {
+		return nil, nil // No jobs to interrupt
+	}
+
+	// Interrupt the lowest priority job (first in the list since they're ordered by priority ASC)
+	lowestPriorityJob := interruptibleJobs[0]
+	
+	debug.Log("Interrupting lower priority job for high-priority override", map[string]interface{}{
+		"interrupted_job_id": lowestPriorityJob.ID,
+		"interrupted_priority": lowestPriorityJob.Priority,
+		"high_priority_job_id": highPriorityJob.ID,
+		"high_priority": highPriorityJob.Priority,
+	})
+
+	// Get running tasks for the job to be interrupted
+	runningTasks, err := s.jobExecutionService.jobTaskRepo.GetTasksByJobExecution(ctx, lowestPriorityJob.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get running tasks: %w", err)
+	}
+
+	// Send stop commands to agents for each running task
+	for _, task := range runningTasks {
+		// Only send stop command if the task has an assigned agent and is running
+		if task.AgentID != nil && task.Status == models.JobTaskStatusRunning {
+			debug.Log("Sending stop command to agent for task", map[string]interface{}{
+				"task_id": task.ID,
+				"agent_id": *task.AgentID,
+				"job_id": lowestPriorityJob.ID,
+			})
+			
+			// Send stop command via WebSocket integration
+			if s.wsIntegration != nil {
+				stopErr := s.wsIntegration.SendJobStop(ctx, task.ID, fmt.Sprintf("Job interrupted by higher priority job %s", highPriorityJob.ID))
+				if stopErr != nil {
+					// Log the error but continue with interruption
+					debug.Error("Failed to send stop command to agent %d for task %s: %v", *task.AgentID, task.ID, stopErr)
+				}
+			}
+		}
+	}
+
+	// Now interrupt the job in the database
+	err = s.jobExecutionService.InterruptJob(ctx, lowestPriorityJob.ID, highPriorityJob.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to interrupt job: %w", err)
+	}
+
+	return &lowestPriorityJob.ID, nil
 }
 
 // ProcessJobCompletion handles job completion and cleanup

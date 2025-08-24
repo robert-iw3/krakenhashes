@@ -51,8 +51,55 @@ Based on the selected attack mode, different fields will appear:
 #### Advanced Options
 - **Chunk Size**: Time allocation per work unit (default: 900 seconds)
 - **Small Job**: Check if this is a quick-running job
-- **Allow High Priority Override**: Enable to interrupt other running jobs
+- **Allow High Priority Override**: Enable this job to interrupt lower priority running jobs (see details below)
 - **Status Updates**: Enable real-time progress reporting
+
+### High Priority Override Feature
+
+The **Allow High Priority Override** option gives a preset job special privileges in the scheduling system:
+
+#### What It Does
+When enabled, this preset job can interrupt lower priority jobs that are currently running, but only when:
+1. No agents are available for assignment
+2. This job has a higher priority than running jobs
+3. The system-wide "Job Interruption Enabled" setting is active
+
+#### When to Use It
+Enable high priority override for jobs that:
+- Respond to security incidents or breaches
+- Have strict compliance or legal deadlines
+- Support time-sensitive investigations
+- Require immediate results for critical business decisions
+
+#### How Interruption Works
+1. **Automatic Process**: The system automatically identifies the lowest priority running job
+2. **Graceful Interruption**: Agents receive stop commands and save their progress
+3. **Status Change**: Interrupted jobs change from "running" to "pending" status
+4. **Automatic Resumption**: Interrupted jobs resume automatically when agents become available
+5. **No Work Lost**: All completed work is preserved and jobs continue from their last checkpoint
+
+#### Best Practices
+- **Use Sparingly**: Reserve this feature for truly critical jobs
+- **Set Appropriate Priority**: Jobs with override should have priority 70+ to justify interruption
+- **Monitor Impact**: Track how often jobs are interrupted to ensure system efficiency
+- **Document Usage**: Maintain clear policies about when to enable this feature
+
+#### Example Scenarios
+
+**Emergency Incident Response**:
+- Priority: 95
+- Allow High Priority Override: ✓ Yes
+- Justification: Active security breach requires immediate password analysis
+
+**Routine Security Audit**:
+- Priority: 50
+- Allow High Priority Override: ✗ No
+- Justification: Standard assessment with flexible timeline
+
+**Compliance Deadline Today**:
+- Priority: 85
+- Allow High Priority Override: ✓ Yes
+- Justification: Regulatory requirement with penalty for non-compliance
 
 ### Attack Modes
 

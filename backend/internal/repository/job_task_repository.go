@@ -466,6 +466,38 @@ func (r *JobTaskRepository) CancelTask(ctx context.Context, id uuid.UUID) error 
 	return nil
 }
 
+// SetTaskPending sets a task back to pending status for reassignment
+// This is used when interrupting a task for a higher priority job
+func (r *JobTaskRepository) SetTaskPending(ctx context.Context, id uuid.UUID) error {
+	query := `
+		UPDATE job_tasks 
+		SET 
+			status = 'pending',
+			detailed_status = 'pending',
+			agent_id = NULL,
+			assigned_at = NULL,
+			started_at = NULL,
+			last_checkpoint = CURRENT_TIMESTAMP,
+			updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1 AND status IN ('assigned', 'running')`
+	
+	result, err := r.db.ExecContext(ctx, query, id)
+	if err != nil {
+		return fmt.Errorf("failed to set task to pending: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return ErrNotFound
+	}
+
+	return nil
+}
+
 // GetNextKeyspaceRange gets the next available keyspace range for a job
 func (r *JobTaskRepository) GetNextKeyspaceRange(ctx context.Context, jobExecutionID uuid.UUID) (start int64, end int64, err error) {
 	query := `

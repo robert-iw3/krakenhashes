@@ -443,7 +443,7 @@ Stores predefined job configurations.
 | chunk_size_seconds | INTEGER | NOT NULL | | Chunk duration |
 | status_updates_enabled | BOOLEAN | NOT NULL | true | Enable status updates |
 | is_small_job | BOOLEAN | NOT NULL | false | Small job flag |
-| allow_high_priority_override | BOOLEAN | NOT NULL | false | Allow priority override |
+| allow_high_priority_override | BOOLEAN | NOT NULL | false | Allows this job to interrupt lower priority running jobs when no agents available |
 | binary_version_id | INTEGER | NOT NULL, FK → binary_versions(id) | | Binary version |
 | mask | TEXT | | NULL | Mask pattern |
 | created_at | TIMESTAMPTZ | | NOW() | Creation time |
@@ -494,7 +494,7 @@ Tracks actual job runs.
 | id | UUID | PRIMARY KEY | gen_random_uuid() | Execution identifier |
 | preset_job_id | UUID | NOT NULL, FK → preset_jobs(id) | | Preset job reference |
 | hashlist_id | BIGINT | NOT NULL, FK → hashlists(id) | | Hashlist reference |
-| status | VARCHAR(50) | NOT NULL, CHECK | 'pending' | Status: pending, running, paused, completed, failed, cancelled, interrupted |
+| status | VARCHAR(50) | NOT NULL, CHECK | 'pending' | Status: pending, running, completed, failed, cancelled, interrupted (Note: interrupted jobs return to pending) |
 | priority | INT | NOT NULL | 0 | Execution priority |
 | total_keyspace | BIGINT | | | Total keyspace size |
 | processed_keyspace | BIGINT | | 0 | Processed keyspace |
@@ -503,7 +503,7 @@ Tracks actual job runs.
 | started_at | TIMESTAMP WITH TIME ZONE | | | Start time |
 | completed_at | TIMESTAMP WITH TIME ZONE | | | Completion time |
 | error_message | TEXT | | | Error details |
-| interrupted_by | UUID | FK → job_executions(id) | | Interrupting job |
+| interrupted_by | UUID | FK → job_executions(id) | | ID of the higher priority job that interrupted this one |
 | created_by | UUID | FK → users(id) | | Creator user (added in migration 33) |
 | chunk_size | INTEGER | | | Chunk size override (added in migration 34) |
 | chunk_overlap | INTEGER | | 0 | Chunk overlap (added in migration 34) |

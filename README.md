@@ -196,12 +196,12 @@ Instructions for setting up and running each component can be found in their res
     -   [x] Docker installation
     -   [x] SSL/TLS Setup Guide
     -   [x] Certbot/Let's Encrypt setup (with caveats)
--   [ ] User manual
-    -   [ ] Priority system guidelines
+-   [x] User manual
+    -   [x] Priority system guidelines
     -   [x] Hash type reference
-    -   [ ] Best practices
--   [ ] Administrator guide
-    -   [ ] Security recommendations
+    -   [x] Best practices
+-   [x] Administrator guide
+    -   [x] Security recommendations
 
 ### Database Schema
 
