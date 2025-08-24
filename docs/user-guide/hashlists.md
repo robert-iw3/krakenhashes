@@ -92,7 +92,7 @@ The processor primarily expects:
 
 -   **Viewing:** The "Hashlists" dashboard provides a sortable and filterable view of all accessible hashlists, showing Name, Client, Status, Progress (% Cracked), and Creation Date.
 
-![Hashlist Detail View](../assets/images/screenshots/hashlist_detail_view.png)
+![Hashlist Detail View](../assets/images/screenshots/hashlist_details.png)
 *Detailed view of a hashlist named 'Test' showing ready status, crack progress indicator, and sample hashes section with individual hash entries and their crack status*
 -   **Downloading:** Use the download icon on the dashboard or the `GET /api/hashlists/{id}/download` endpoint to retrieve the original uploaded hashlist file.
 -   **Deleting:** Use the delete icon on the dashboard or the `DELETE /api/hashlists/{id}` endpoint. Deleting a hashlist removes its entry from the `hashlists` table, removes associated entries from the `hashlist_hashes` table, and **deletes the original hashlist file from the backend storage**. It does *not* delete the individual hashes from the central `hashes` table, as they might be referenced by other hashlists.

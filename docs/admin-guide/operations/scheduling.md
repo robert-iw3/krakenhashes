@@ -74,7 +74,7 @@ The system accepts various time formats:
 - `09:00` → `09:00:00`
 - `09:00:00` → `09:00:00`
 
-![Scheduling Interface](../../assets/images/screenshots/scheduling_interface.png)
+![Scheduling Interface](../../assets/images/screenshots/agent_schedules.png)
 *Weekly scheduling interface showing daily operating hours configuration with timezone support and per-day activation toggles*
 
 ## Examples

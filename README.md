@@ -60,11 +60,11 @@ This project is currently in **beta development**. Key considerations:
 
 Comprehensive documentation is available in the [docs/](docs/) directory:
 
--   **[Quick Start](dhttps://zerkereod.github.io/krakenhashes/getting-started/quick-start/)** - Quick start guide for installation
+-   **[Quick Start](https://zerkereod.github.io/krakenhashes/getting-started/quick-start/)** - Quick start guide for installation
 -   **[Documentation Index](https://zerkereod.github.io/krakenhashes/)** - Complete documentation overview
 -   **[User Guide](https://zerkereod.github.io/krakenhashes/user-guide/)** - Understanding jobs and workflows
 -   **[Admin Guide](https://zerkereod.github.io/krakenhashes/admin-guide/)** - Creating and managing attack strategies
--   **[Docker Setup](dhttps://zerkereod.github.io/krakenhashes/deployment/docker/)** - Getting started with Docker
+-   **[Docker Setup](https://zerkereod.github.io/krakenhashes/deployment/docker/)** - Getting started with Docker
 
 ## Development
 
