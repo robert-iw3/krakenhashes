@@ -17,7 +17,7 @@ First, we need to upload the hashcat binary that agents will use to perform the 
 1. From the main menu, click **Admin** → **Binary Management**
 2. Click the **Add Binary** button in the top right
 
-![Binary Management Page](../assets/screenshots/binary_management.png){ .screenshot }
+![Binary Management Page](../assets/images/screenshots/binary_management.png){ .screenshot }
 
 ### Upload the Binary
 
@@ -48,7 +48,7 @@ Next, let's create a basic wordlist for our first crack attempt.
 1. From the main menu, click **Resources** → **Wordlists**
 2. Click the **Add Wordlist** button
 
-![Wordlist Management](../assets/screenshots/wordlist_management.png){ .screenshot }
+![Wordlist Management](../assets/images/screenshots/wordlist_management.png){ .screenshot }
 
 ### Create a Test Wordlist
 
@@ -107,7 +107,7 @@ Now let's create some password hashes to crack. We'll use known passwords so you
 
 2. Click **Upload Hashlist**
 
-![Upload Hashlist Dialog](../assets/screenshots/upload_hashlist.png){ .screenshot }
+![Upload Hashlist Dialog](../assets/images/screenshots/upload_hashlist.png){ .screenshot }
 
 3. Fill in the details:
    - **Name**: "Tutorial Test Hashes"
@@ -132,7 +132,7 @@ Agents are the worker machines that perform the actual password cracking. Let's 
 1. Navigate to **Admin** → **Agent Management**
 2. Click **Generate Claim Code**
 
-![Agent Management](../assets/screenshots/agent_management.png){ .screenshot }
+![Agent Management](../assets/images/screenshots/agent_management.png){ .screenshot }
 
 3. A claim code will be generated (e.g., `ABCD-EFGH-IJKL`)
 4. Copy this code - you'll need it for the agent
@@ -170,7 +170,7 @@ Now for the exciting part - let's crack those passwords!
 2. Find your "Tutorial Test Hashes" and click on it
 3. Click **Create Job** button
 
-![Create Job Dialog](../assets/screenshots/create_job.png){ .screenshot }
+![Create Job Dialog](../assets/images/screenshots/create_job.png){ .screenshot }
 
 ### Configure the Job
 
@@ -216,7 +216,7 @@ The job will be:
 1. Navigate to **Jobs** from the main menu
 2. Find your job in the list
 
-![Job Progress](../assets/screenshots/job_management.png){ .screenshot }
+![Job Progress](../assets/images/screenshots/job_management.png){ .screenshot }
 
 You'll see:
 - **Status**: Running 🔄
