@@ -10,8 +10,8 @@ BEGIN
     ON CONFLICT (id) DO NOTHING;
 
     -- Insert admin user for initial login
-    INSERT INTO users (id, username, first_name, last_name, email, password_hash, role)
-    VALUES (admin_id, 'admin', 'Admin', 'User', 'admin@example.com', '$2a$10$2gobOj6ATVGUNNk5CHw9de2reYqSZVHtP/Qrx63.Ho9nTWbo5PW7O', 'admin') -- password: KrakenHashes1!
+    INSERT INTO users (id, username, first_name, last_name, email, password_hash, role, status)
+    VALUES (admin_id, 'admin', 'Admin', 'User', 'admin@example.com', '$2a$10$2gobOj6ATVGUNNk5CHw9de2reYqSZVHtP/Qrx63.Ho9nTWbo5PW7O', 'admin', 'active') -- password: KrakenHashes1!
     ON CONFLICT (id) DO NOTHING;
 END $$;
 
