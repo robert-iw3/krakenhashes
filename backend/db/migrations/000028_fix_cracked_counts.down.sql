@@ -1,0 +1,2 @@
+-- This migration fixes data inconsistencies and cannot be easily rolled back
+-- The down migration is a no-op
