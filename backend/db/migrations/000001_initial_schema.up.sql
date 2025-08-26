@@ -64,46 +64,20 @@ CREATE TRIGGER update_teams_updated_at
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
 
--- Insert sample data with explicit UUIDs for referential integrity
+-- Insert essential users only (no test data)
 DO $$ 
 DECLARE
-    admin_id UUID := 'f1a50a5d-ff43-4617-bc21-61c54b214dee'; -- Hardcoded admin UUID
+    admin_id UUID;
     system_id UUID := '00000000-0000-0000-0000-000000000000'; -- System user with UUID.Nil
-    user1_id UUID;
-    user2_id UUID;
-    team_a_id UUID;
-    team_b_id UUID;
 BEGIN
     -- Insert system user first (cannot be used for login)
-    INSERT INTO users (id, username, email, password_hash, role, status)
-    VALUES (system_id, 'system', 'system@krakenhashes.local', 'SYSTEM_USER_NO_LOGIN', 'system', 'active')
+    INSERT INTO users (id, username, email, password_hash, role)
+    VALUES (system_id, 'system', 'system@krakenhashes.local', 'SYSTEM_USER_NO_LOGIN', 'system')
     ON CONFLICT (id) DO NOTHING;
 
-    -- Insert users and store their IDs for testing
-    INSERT INTO users (id, username, first_name, last_name, email, password_hash, role)
-    VALUES (admin_id, 'admin', 'Admin', 'User', 'admin@example.com', '$2a$10$2gobOj6ATVGUNNk5CHw9de2reYqSZVHtP/Qrx63.Ho9nTWbo5PW7O', 'admin'); -- password: KrakenHashes1!
-
+    -- Insert admin user for initial login
     INSERT INTO users (username, first_name, last_name, email, password_hash, role)
-    VALUES ('user1', 'User', 'One', 'user1@example.com', '$2a$10$2gobOj6ATVGUNNk5CHw9de2reYqSZVHtP/Qrx63.Ho9nTWbo5PW7O', 'user') -- password: KrakenHashes1!
-    RETURNING id INTO user1_id;
+    VALUES ('admin', 'Admin', 'User', 'admin@example.com', '$2a$10$2gobOj6ATVGUNNk5CHw9de2reYqSZVHtP/Qrx63.Ho9nTWbo5PW7O', 'admin') -- password: KrakenHashes1!
+    RETURNING id INTO admin_id;
 
-    INSERT INTO users (username, first_name, last_name, email, password_hash, role)
-    VALUES ('user2', 'User', 'Two', 'user2@example.com', '$2a$10$2gobOj6ATVGUNNk5CHw9de2reYqSZVHtP/Qrx63.Ho9nTWbo5PW7O', 'user') -- password: KrakenHashes1!
-    RETURNING id INTO user2_id;
-
-    -- Insert teams
-    INSERT INTO teams (name, description) 
-    VALUES ('Team A', 'This is Team A') 
-    RETURNING id INTO team_a_id;
-
-    INSERT INTO teams (name, description) 
-    VALUES ('Team B', 'This is Team B') 
-    RETURNING id INTO team_b_id;
-
-    -- Insert team memberships
-    INSERT INTO user_teams (user_id, team_id, role) VALUES
-    (admin_id, team_a_id, 'admin'),
-    (user1_id, team_a_id, 'member'),
-    (user1_id, team_b_id, 'member'),
-    (user2_id, team_b_id, 'admin');
 END $$;
