@@ -302,6 +302,10 @@ export const deleteAdminClient = (id: string) => api.delete<any>(`/api/admin/cli
 
 // --- User Management (Admin) ---
 
+// Create a new user
+export const createAdminUser = (data: { username: string; email: string; password: string; role: string }) =>
+  api.post<{data: {message: string; user_id: string}}>('/api/admin/users', data);
+
 // List all users
 export const listAdminUsers = async () => {
   const response = await api.get('/api/admin/users');

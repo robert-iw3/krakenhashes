@@ -95,6 +95,7 @@ func SetupAdminRoutes(router *mux.Router, database *db.DB, emailService *email.S
 
 	// User Management routes (New)
 	adminRouter.HandleFunc("/users", userHandler.ListUsers).Methods(http.MethodGet, http.MethodOptions)
+	adminRouter.HandleFunc("/users", userHandler.CreateUser).Methods(http.MethodPost, http.MethodOptions)
 	adminRouter.HandleFunc("/users/{id:[0-9a-fA-F-]+}", userHandler.GetUser).Methods(http.MethodGet, http.MethodOptions)
 	adminRouter.HandleFunc("/users/{id:[0-9a-fA-F-]+}", userHandler.UpdateUser).Methods(http.MethodPut, http.MethodOptions)
 	adminRouter.HandleFunc("/users/{id:[0-9a-fA-F-]+}/disable", userHandler.DisableUser).Methods(http.MethodPost, http.MethodOptions)

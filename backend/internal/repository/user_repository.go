@@ -40,6 +40,170 @@ func (r *UserRepository) Create(ctx context.Context, user *models.User) error {
 	return nil
 }
 
+// GetByUsername retrieves a user by username
+func (r *UserRepository) GetByUsername(ctx context.Context, username string) (*models.User, error) {
+	user := &models.User{}
+	var mfaType interface{}
+	var backupCodes interface{}
+	var mfaSecret sql.NullString
+	var preferredMFAMethod sql.NullString
+	var lastFailedAttempt, accountLockedUntil, lastLogin, disabledAt sql.NullTime
+	var disabledReason sql.NullString
+
+	query := `
+		SELECT id, username, email, password_hash, role, created_at, updated_at,
+		       mfa_enabled, mfa_type, mfa_secret, backup_codes, preferred_mfa_method,
+		       last_password_change, failed_login_attempts, last_failed_attempt,
+		       account_locked, account_locked_until, account_enabled, last_login,
+		       disabled_reason, disabled_at, disabled_by
+		FROM users
+		WHERE username = $1
+	`
+
+	err := r.db.QueryRowContext(ctx, query, username).Scan(
+		&user.ID,
+		&user.Username,
+		&user.Email,
+		&user.PasswordHash,
+		&user.Role,
+		&user.CreatedAt,
+		&user.UpdatedAt,
+		&user.MFAEnabled,
+		&mfaType,
+		&mfaSecret,
+		&backupCodes,
+		&preferredMFAMethod,
+		&user.LastPasswordChange,
+		&user.FailedLoginAttempts,
+		&lastFailedAttempt,
+		&user.AccountLocked,
+		&accountLockedUntil,
+		&user.AccountEnabled,
+		&lastLogin,
+		&disabledReason,
+		&disabledAt,
+		&user.DisabledBy,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, nil // Return nil for both to indicate not found
+	} else if err != nil {
+		return nil, fmt.Errorf("failed to get user by username: %w", err)
+	}
+
+	// Handle nullable fields
+	if mfaSecret.Valid {
+		user.MFASecret = mfaSecret.String
+	}
+	if preferredMFAMethod.Valid {
+		user.PreferredMFAMethod = preferredMFAMethod.String
+	}
+	if lastFailedAttempt.Valid {
+		user.LastFailedAttempt = &lastFailedAttempt.Time
+	}
+	if accountLockedUntil.Valid {
+		user.AccountLockedUntil = &accountLockedUntil.Time
+	}
+	if lastLogin.Valid {
+		user.LastLogin = &lastLogin.Time
+	}
+	if disabledReason.Valid {
+		user.DisabledReason = &disabledReason.String
+	}
+	if disabledAt.Valid {
+		user.DisabledAt = &disabledAt.Time
+	}
+
+	// Handle backup codes
+	if backupCodes != nil {
+		// Handle as needed
+	}
+
+	return user, nil
+}
+
+// GetByEmail retrieves a user by email
+func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*models.User, error) {
+	user := &models.User{}
+	var mfaType interface{}
+	var backupCodes interface{}
+	var mfaSecret sql.NullString
+	var preferredMFAMethod sql.NullString
+	var lastFailedAttempt, accountLockedUntil, lastLogin, disabledAt sql.NullTime
+	var disabledReason sql.NullString
+
+	query := `
+		SELECT id, username, email, password_hash, role, created_at, updated_at,
+		       mfa_enabled, mfa_type, mfa_secret, backup_codes, preferred_mfa_method,
+		       last_password_change, failed_login_attempts, last_failed_attempt,
+		       account_locked, account_locked_until, account_enabled, last_login,
+		       disabled_reason, disabled_at, disabled_by
+		FROM users
+		WHERE email = $1
+	`
+
+	err := r.db.QueryRowContext(ctx, query, email).Scan(
+		&user.ID,
+		&user.Username,
+		&user.Email,
+		&user.PasswordHash,
+		&user.Role,
+		&user.CreatedAt,
+		&user.UpdatedAt,
+		&user.MFAEnabled,
+		&mfaType,
+		&mfaSecret,
+		&backupCodes,
+		&preferredMFAMethod,
+		&user.LastPasswordChange,
+		&user.FailedLoginAttempts,
+		&lastFailedAttempt,
+		&user.AccountLocked,
+		&accountLockedUntil,
+		&user.AccountEnabled,
+		&lastLogin,
+		&disabledReason,
+		&disabledAt,
+		&user.DisabledBy,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, nil // Return nil for both to indicate not found
+	} else if err != nil {
+		return nil, fmt.Errorf("failed to get user by email: %w", err)
+	}
+
+	// Handle nullable fields
+	if mfaSecret.Valid {
+		user.MFASecret = mfaSecret.String
+	}
+	if preferredMFAMethod.Valid {
+		user.PreferredMFAMethod = preferredMFAMethod.String
+	}
+	if lastFailedAttempt.Valid {
+		user.LastFailedAttempt = &lastFailedAttempt.Time
+	}
+	if accountLockedUntil.Valid {
+		user.AccountLockedUntil = &accountLockedUntil.Time
+	}
+	if lastLogin.Valid {
+		user.LastLogin = &lastLogin.Time
+	}
+	if disabledReason.Valid {
+		user.DisabledReason = &disabledReason.String
+	}
+	if disabledAt.Valid {
+		user.DisabledAt = &disabledAt.Time
+	}
+
+	// Handle backup codes
+	if backupCodes != nil {
+		// Handle as needed
+	}
+
+	return user, nil
+}
+
 // GetByID retrieves a user by ID
 func (r *UserRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.User, error) {
 	user := &models.User{}

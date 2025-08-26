@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/models"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/repository"
 	"github.com/ZerkerEOD/krakenhashes/backend/pkg/debug"
 	"github.com/ZerkerEOD/krakenhashes/backend/pkg/httputil"
@@ -24,6 +26,129 @@ func NewUserHandler(ur *repository.UserRepository) *UserHandler {
 	return &UserHandler{
 		userRepo: ur,
 	}
+}
+
+// CreateUser godoc
+// @Summary Create a new user
+// @Description Creates a new user account with the specified details
+// @Tags Admin Users
+// @Accept json
+// @Produce json
+// @Param user body object{username=string,email=string,password=string,role=string} true "User creation data"
+// @Success 201 {object} httputil.SuccessResponse{data=object{message=string,user_id=string}}
+// @Failure 400 {object} httputil.ErrorResponse
+// @Failure 409 {object} httputil.ErrorResponse
+// @Failure 500 {object} httputil.ErrorResponse
+// @Router /admin/users [post]
+// @Security ApiKeyAuth
+func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
+	var createData struct {
+		Username string `json:"username"`
+		Email    string `json:"email"`
+		Password string `json:"password"`
+		Role     string `json:"role"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&createData); err != nil {
+		httputil.RespondWithError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	// Validate required fields
+	if createData.Username == "" {
+		httputil.RespondWithError(w, http.StatusBadRequest, "Username is required")
+		return
+	}
+	if createData.Email == "" {
+		httputil.RespondWithError(w, http.StatusBadRequest, "Email is required")
+		return
+	}
+	if createData.Password == "" {
+		httputil.RespondWithError(w, http.StatusBadRequest, "Password is required")
+		return
+	}
+	if createData.Role == "" {
+		createData.Role = "user" // Default to user role if not specified
+	}
+
+	// Validate email format
+	if !strings.Contains(createData.Email, "@") {
+		httputil.RespondWithError(w, http.StatusBadRequest, "Invalid email format")
+		return
+	}
+
+	// Validate role
+	if createData.Role != "admin" && createData.Role != "user" {
+		httputil.RespondWithError(w, http.StatusBadRequest, "Invalid role. Must be 'admin' or 'user'")
+		return
+	}
+
+	// Validate password strength (minimum 8 characters)
+	if len(createData.Password) < 8 {
+		httputil.RespondWithError(w, http.StatusBadRequest, "Password must be at least 8 characters long")
+		return
+	}
+
+	// Check if username or email already exists
+	existingUser, _ := h.userRepo.GetByUsername(r.Context(), createData.Username)
+	if existingUser != nil {
+		httputil.RespondWithError(w, http.StatusConflict, "Username already exists")
+		return
+	}
+
+	existingUser, _ = h.userRepo.GetByEmail(r.Context(), createData.Email)
+	if existingUser != nil {
+		httputil.RespondWithError(w, http.StatusConflict, "Email already exists")
+		return
+	}
+
+	// Hash the password
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(createData.Password), bcrypt.DefaultCost)
+	if err != nil {
+		debug.Error("Failed to hash password: %v", err)
+		httputil.RespondWithError(w, http.StatusInternalServerError, "Failed to process password")
+		return
+	}
+
+	// Create new user object
+	now := time.Now()
+	newUser := &models.User{
+		ID:                 uuid.New(),
+		Username:           createData.Username,
+		Email:              createData.Email,
+		PasswordHash:       string(hashedPassword),
+		Role:               createData.Role,
+		CreatedAt:          now,
+		UpdatedAt:          now,
+		AccountEnabled:     true,
+		LastPasswordChange: now,
+		MFAEnabled:         false,
+		MFAType:            []string{},
+		BackupCodes:        []string{},
+	}
+
+	// Create user in database
+	err = h.userRepo.Create(r.Context(), newUser)
+	if err != nil {
+		debug.Error("Failed to create user: %v", err)
+		if strings.Contains(err.Error(), "duplicate key") {
+			httputil.RespondWithError(w, http.StatusConflict, "Username or email already exists")
+			return
+		}
+		httputil.RespondWithError(w, http.StatusInternalServerError, "Failed to create user")
+		return
+	}
+
+	// Get admin ID from context for logging
+	adminID, _ := r.Context().Value("user_id").(uuid.UUID)
+	debug.Info("Admin %s created new user: %s (username: %s, role: %s)", adminID, newUser.ID, newUser.Username, newUser.Role)
+
+	httputil.RespondWithJSON(w, http.StatusCreated, map[string]interface{}{
+		"data": map[string]string{
+			"message": "User created successfully",
+			"user_id": newUser.ID.String(),
+		},
+	})
 }
 
 // ListUsers godoc
