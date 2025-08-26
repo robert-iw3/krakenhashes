@@ -7,8 +7,7 @@ RUN apk add --no-cache jq
 COPY versions.json ./
 # Install dependencies
 COPY frontend/package*.json ./
-RUN npm install --save-dev @babel/plugin-proposal-private-property-in-object && \
-    npm ci
+RUN npm ci
 COPY frontend/ ./
 RUN VERSION=$(jq -r .frontend versions.json) && \
     echo "REACT_APP_VERSION=$VERSION" >> .env && \
