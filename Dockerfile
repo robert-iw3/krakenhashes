@@ -7,7 +7,7 @@ RUN apk add --no-cache jq
 COPY versions.json ./
 # Install dependencies
 COPY frontend/package*.json ./
-RUN npm ci
+RUN npm install --force
 COPY frontend/ ./
 RUN VERSION=$(jq -r .frontend versions.json) && \
     echo "REACT_APP_VERSION=$VERSION" >> .env && \

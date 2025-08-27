@@ -49,7 +49,7 @@ func SetupAdminRoutes(router *mux.Router, database *db.DB, emailService *email.S
 	jobSettingsHandler := adminsettings.NewJobSettingsHandler(systemSettingsRepo)
 	monitoringSettingsHandler := adminsettings.NewMonitoringSettingsHandler(systemSettingsRepo)
 	clientHandler := adminclient.NewClientHandler(clientRepo, clientService)
-	userHandler := adminuser.NewUserHandler(userRepo)
+	userHandler := adminuser.NewUserHandler(userRepo, database)
 
 	// Create admin router
 	adminRouter := router.PathPrefix("/admin").Subrouter()

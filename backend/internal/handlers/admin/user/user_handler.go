@@ -2,10 +2,12 @@ package user
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/db"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/models"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/repository"
 	"github.com/ZerkerEOD/krakenhashes/backend/pkg/debug"
@@ -19,12 +21,14 @@ import (
 // UserHandler handles API requests for admin user management
 type UserHandler struct {
 	userRepo *repository.UserRepository
+	db       *db.DB
 }
 
 // NewUserHandler creates a new handler instance
-func NewUserHandler(ur *repository.UserRepository) *UserHandler {
+func NewUserHandler(ur *repository.UserRepository, database *db.DB) *UserHandler {
 	return &UserHandler{
 		userRepo: ur,
+		db:       database,
 	}
 }
 
@@ -83,9 +87,39 @@ func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate password strength (minimum 8 characters)
-	if len(createData.Password) < 8 {
-		httputil.RespondWithError(w, http.StatusBadRequest, "Password must be at least 8 characters long")
+	// Get password policy from auth settings
+	authSettings, err := h.db.GetAuthSettings()
+	if err != nil {
+		debug.Error("Failed to get auth settings: %v", err)
+		httputil.RespondWithError(w, http.StatusInternalServerError, "Failed to retrieve password policy")
+		return
+	}
+
+	// Validate password against policy
+	passwordErrors := []string{}
+	
+	if len(createData.Password) < authSettings.MinPasswordLength {
+		passwordErrors = append(passwordErrors, fmt.Sprintf("Password must be at least %d characters long", authSettings.MinPasswordLength))
+	}
+	
+	if authSettings.RequireUppercase && !strings.ContainsAny(createData.Password, "ABCDEFGHIJKLMNOPQRSTUVWXYZ") {
+		passwordErrors = append(passwordErrors, "Password must contain at least one uppercase letter")
+	}
+	
+	if authSettings.RequireLowercase && !strings.ContainsAny(createData.Password, "abcdefghijklmnopqrstuvwxyz") {
+		passwordErrors = append(passwordErrors, "Password must contain at least one lowercase letter")
+	}
+	
+	if authSettings.RequireNumbers && !strings.ContainsAny(createData.Password, "0123456789") {
+		passwordErrors = append(passwordErrors, "Password must contain at least one number")
+	}
+	
+	if authSettings.RequireSpecialChars && !strings.ContainsAny(createData.Password, "!@#$%^&*(),.?\":{}|<>") {
+		passwordErrors = append(passwordErrors, "Password must contain at least one special character")
+	}
+	
+	if len(passwordErrors) > 0 {
+		httputil.RespondWithError(w, http.StatusBadRequest, strings.Join(passwordErrors, "; "))
 		return
 	}
 
@@ -140,8 +174,17 @@ func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get admin ID from context for logging
-	adminID, _ := r.Context().Value("user_id").(uuid.UUID)
-	debug.Info("Admin %s created new user: %s (username: %s, role: %s)", adminID, newUser.ID, newUser.Username, newUser.Role)
+	adminIDStr, ok := r.Context().Value("user_id").(string)
+	if ok {
+		adminID, err := uuid.Parse(adminIDStr)
+		if err == nil {
+			debug.Info("Admin %s created new user: %s (username: %s, role: %s)", adminID, newUser.ID, newUser.Username, newUser.Role)
+		} else {
+			debug.Info("Admin (invalid ID) created new user: %s (username: %s, role: %s)", newUser.ID, newUser.Username, newUser.Role)
+		}
+	} else {
+		debug.Info("Admin (unknown) created new user: %s (username: %s, role: %s)", newUser.ID, newUser.Username, newUser.Role)
+	}
 
 	httputil.RespondWithJSON(w, http.StatusCreated, map[string]interface{}{
 		"data": map[string]string{
@@ -373,9 +416,16 @@ func (h *UserHandler) DisableUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get admin ID from context
-	adminID, ok := r.Context().Value("user_id").(uuid.UUID)
+	adminIDStr, ok := r.Context().Value("user_id").(string)
 	if !ok {
 		httputil.RespondWithError(w, http.StatusInternalServerError, "Failed to get admin ID")
+		return
+	}
+	
+	adminID, err := uuid.Parse(adminIDStr)
+	if err != nil {
+		debug.Error("Failed to parse admin ID: %v", err)
+		httputil.RespondWithError(w, http.StatusInternalServerError, "Invalid admin ID format")
 		return
 	}
 
@@ -430,8 +480,17 @@ func (h *UserHandler) EnableUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get admin ID from context
-	adminID, _ := r.Context().Value("user_id").(uuid.UUID)
-	debug.Info("Admin %s enabled user account: %s", adminID, userID)
+	adminIDStr, ok := r.Context().Value("user_id").(string)
+	if ok {
+		adminID, err := uuid.Parse(adminIDStr)
+		if err == nil {
+			debug.Info("Admin %s enabled user account: %s", adminID, userID)
+		} else {
+			debug.Info("Admin (invalid ID) enabled user account: %s", userID)
+		}
+	} else {
+		debug.Info("Admin (unknown) enabled user account: %s", userID)
+	}
 
 	httputil.RespondWithJSON(w, http.StatusOK, map[string]interface{}{
 		"data": map[string]string{"message": "User account enabled successfully"},
@@ -529,8 +588,17 @@ func (h *UserHandler) ResetUserPassword(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Get admin ID from context
-	adminID, _ := r.Context().Value("user_id").(uuid.UUID)
-	debug.Info("Admin %s reset password for user: %s", adminID, userID)
+	adminIDStr, ok := r.Context().Value("user_id").(string)
+	if ok {
+		adminID, err := uuid.Parse(adminIDStr)
+		if err == nil {
+			debug.Info("Admin %s reset password for user: %s", adminID, userID)
+		} else {
+			debug.Info("Admin (invalid ID) reset password for user: %s", userID)
+		}
+	} else {
+		debug.Info("Admin (unknown) reset password for user: %s", userID)
+	}
 
 	response := map[string]interface{}{
 		"data": map[string]string{
@@ -580,8 +648,17 @@ func (h *UserHandler) DisableUserMFA(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get admin ID from context
-	adminID, _ := r.Context().Value("user_id").(uuid.UUID)
-	debug.Info("Admin %s disabled MFA for user: %s", adminID, userID)
+	adminIDStr, ok := r.Context().Value("user_id").(string)
+	if ok {
+		adminID, err := uuid.Parse(adminIDStr)
+		if err == nil {
+			debug.Info("Admin %s disabled MFA for user: %s", adminID, userID)
+		} else {
+			debug.Info("Admin (invalid ID) disabled MFA for user: %s", userID)
+		}
+	} else {
+		debug.Info("Admin (unknown) disabled MFA for user: %s", userID)
+	}
 
 	httputil.RespondWithJSON(w, http.StatusOK, map[string]interface{}{
 		"data": map[string]string{"message": "MFA disabled successfully"},
@@ -622,8 +699,17 @@ func (h *UserHandler) UnlockUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get admin ID from context
-	adminID, _ := r.Context().Value("user_id").(uuid.UUID)
-	debug.Info("Admin %s unlocked user account: %s", adminID, userID)
+	adminIDStr, ok := r.Context().Value("user_id").(string)
+	if ok {
+		adminID, err := uuid.Parse(adminIDStr)
+		if err == nil {
+			debug.Info("Admin %s unlocked user account: %s", adminID, userID)
+		} else {
+			debug.Info("Admin (invalid ID) unlocked user account: %s", userID)
+		}
+	} else {
+		debug.Info("Admin (unknown) unlocked user account: %s", userID)
+	}
 
 	httputil.RespondWithJSON(w, http.StatusOK, map[string]interface{}{
 		"data": map[string]string{"message": "User account unlocked successfully"},

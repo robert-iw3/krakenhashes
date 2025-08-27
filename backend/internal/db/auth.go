@@ -15,6 +15,8 @@ import (
 // GetUserByUsername retrieves a user by their username
 func (db *DB) GetUserByUsername(username string) (*models.User, error) {
 	user := &models.User{}
+	var accountLockedUntil, lastFailedAttempt sql.NullTime
+	
 	err := db.QueryRow(queries.GetUserByUsername, username).Scan(
 		&user.ID,
 		&user.Username,
@@ -23,6 +25,11 @@ func (db *DB) GetUserByUsername(username string) (*models.User, error) {
 		&user.Role,
 		&user.CreatedAt,
 		&user.UpdatedAt,
+		&user.AccountEnabled,
+		&user.AccountLocked,
+		&accountLockedUntil,
+		&user.FailedLoginAttempts,
+		&lastFailedAttempt,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -31,6 +38,15 @@ func (db *DB) GetUserByUsername(username string) (*models.User, error) {
 		debug.Error("Failed to get user by username: %v", err)
 		return nil, err
 	}
+	
+	// Handle nullable time fields
+	if accountLockedUntil.Valid {
+		user.AccountLockedUntil = &accountLockedUntil.Time
+	}
+	if lastFailedAttempt.Valid {
+		user.LastFailedAttempt = &lastFailedAttempt.Time
+	}
+	
 	return user, nil
 }
 

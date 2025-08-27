@@ -32,7 +32,8 @@ const MFASettings: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
-  const availableMethods: MFAMethod[] = ['email', 'authenticator', 'passkey'];
+  // Note: passkey is not yet implemented, so we exclude it from available methods
+  const availableMethods: MFAMethod[] = ['email', 'authenticator'];
 
   useEffect(() => {
     loadSettings();
@@ -163,6 +164,17 @@ const MFASettings: React.FC = () => {
               label={method.charAt(0).toUpperCase() + method.slice(1)}
             />
           ))}
+          
+          {/* Show passkey as coming soon */}
+          <FormControlLabel
+            control={
+              <Checkbox
+                checked={false}
+                disabled={true}
+              />
+            }
+            label="Passkey (Coming Soon)"
+          />
 
           <Box sx={{ mt: 2 }}>
             <TextField

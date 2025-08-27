@@ -18,7 +18,10 @@ const (
 	EnableMFAQuery = `
 		UPDATE users 
 		SET mfa_enabled = true, 
-			mfa_type = array_append(CASE WHEN NOT $2 = ANY(mfa_type) THEN mfa_type ELSE mfa_type END, $2),
+			mfa_type = CASE 
+				WHEN $2 = ANY(mfa_type) THEN mfa_type 
+				ELSE array_append(mfa_type, $2)
+			END,
 			mfa_secret = $3, 
 			preferred_mfa_method = $2,
 			updated_at = NOW() 
@@ -64,9 +67,9 @@ const (
 		UPDATE users 
 		SET backup_codes = $2,
 			mfa_type = CASE 
-				WHEN NOT 'backup' = ANY(mfa_type) AND array_length($2, 1) > 0 
+				WHEN NOT 'backup' = ANY(mfa_type) AND array_length($2::text[], 1) > 0 
 				THEN array_append(mfa_type, 'backup')
-				WHEN array_length($2, 1) = 0 
+				WHEN array_length($2::text[], 1) = 0 
 				THEN array_remove(mfa_type, 'backup')
 				ELSE mfa_type
 			END,

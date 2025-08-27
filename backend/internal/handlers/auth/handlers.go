@@ -126,6 +126,14 @@ func (h *Handler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
 		return
 	}
+	
+	// Get auth settings once at the beginning
+	authSettings, err := h.db.GetAuthSettings()
+	if err != nil {
+		debug.Error("Failed to get auth settings: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
 
 	user, err := h.db.GetUserByUsername(req.Username)
 	if err != nil {
@@ -141,11 +149,60 @@ func (h *Handler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check if account is disabled
+	if !user.AccountEnabled {
+		debug.Warning("Login attempt for disabled account: %s", req.Username)
+		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
+		return
+	}
+
+	// Check if account is locked
+	if user.AccountLocked {
+		// Check if lock has expired
+		if user.AccountLockedUntil != nil && time.Now().After(*user.AccountLockedUntil) {
+			// Lock has expired, unlock the account
+			debug.Info("Account lock expired for user: %s, unlocking", req.Username)
+			err = h.db.ResetFailedAttempts(user.ID)
+			if err != nil {
+				debug.Error("Failed to unlock account: %v", err)
+			}
+			user.AccountLocked = false
+			user.AccountLockedUntil = nil
+		} else {
+			debug.Warning("Login attempt for locked account: %s", req.Username)
+			http.Error(w, "Account temporarily locked due to multiple failed login attempts", http.StatusUnauthorized)
+			return
+		}
+	}
+
 	// Check password
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
 		debug.Info("Invalid password for user '%s'", req.Username)
+		
+		// Increment failed login attempts
+		attempts, err := h.db.IncrementFailedAttempts(user.ID)
+		if err != nil {
+			debug.Error("Failed to increment login attempts: %v", err)
+		} else if attempts >= authSettings.MaxFailedAttempts {
+			// Lock the account
+			err = h.db.LockUserAccount(user.ID, authSettings.LockoutDurationMinutes)
+			if err != nil {
+				debug.Error("Failed to lock account: %v", err)
+			} else {
+				debug.Warning("Account locked after %d failed attempts: %s", attempts, req.Username)
+			}
+		}
+		
 		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
 		return
+	}
+	
+	// Reset failed attempts on successful password check
+	if user.FailedLoginAttempts > 0 {
+		err = h.db.ResetFailedAttempts(user.ID)
+		if err != nil {
+			debug.Error("Failed to reset login attempts: %v", err)
+		}
 	}
 
 	// Check user's MFA settings and global MFA requirement
@@ -164,6 +221,14 @@ func (h *Handler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check if email provider is configured
+	hasEmailProvider, err := h.db.HasActiveEmailProvider()
+	if err != nil {
+		debug.Error("error checking email provider: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
 	// If either user has MFA enabled or it's globally required
 	if mfaSettings.MFAEnabled || globalMFARequired {
 		// Create MFA session
@@ -176,7 +241,7 @@ func (h *Handler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// If email is the preferred method and it's available, send the code
-		if mfaSettings.PreferredMFAMethod == "email" && contains(mfaSettings.MFAType, "email") {
+		if mfaSettings.PreferredMFAMethod == "email" && contains(mfaSettings.MFAType, "email") && hasEmailProvider {
 			code, err := generateEmailCode()
 			if err != nil {
 				debug.Error("error generating email code: %v", err)
@@ -200,23 +265,36 @@ func (h *Handler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		// Filter MFA types based on email provider availability
+		filteredMFATypes := make([]string, 0, len(mfaSettings.MFAType))
+		for _, method := range mfaSettings.MFAType {
+			// Only include email if email provider is configured
+			if method == "email" && !hasEmailProvider {
+				continue
+			}
+			filteredMFATypes = append(filteredMFATypes, method)
+		}
+
+		// Adjust preferred method if email is not available
+		preferredMethod := mfaSettings.PreferredMFAMethod
+		if preferredMethod == "email" && !hasEmailProvider {
+			// Fall back to authenticator if available
+			if contains(filteredMFATypes, "authenticator") {
+				preferredMethod = "authenticator"
+			} else if len(filteredMFATypes) > 0 {
+				preferredMethod = filteredMFATypes[0]
+			}
+		}
+
 		// Return MFA required response
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"mfa_required":     true,
 			"session_token":    sessionToken,
-			"mfa_type":         mfaSettings.MFAType,
-			"preferred_method": mfaSettings.PreferredMFAMethod,
+			"mfa_type":         filteredMFATypes,
+			"preferred_method": preferredMethod,
 			"expires_at":       session.ExpiresAt.Format(time.RFC3339),
 		})
-		return
-	}
-
-	// Get JWT expiry from auth settings
-	authSettings, err := h.db.GetAuthSettings()
-	if err != nil {
-		debug.Error("Failed to get auth settings: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 

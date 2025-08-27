@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Button,
@@ -24,6 +24,13 @@ const UserMenu: React.FC = () => {
   const navigate = useNavigate();
   const open = Boolean(anchorEl);
 
+  // Cleanup on unmount to prevent stale menu state
+  useEffect(() => {
+    return () => {
+      setAnchorEl(null);
+    };
+  }, []);
+
   const handleClick = (event: React.MouseEvent<HTMLElement>) => {
     setAnchorEl(event.currentTarget);
   };
@@ -43,8 +50,11 @@ const UserMenu: React.FC = () => {
   };
 
   const handleSettings = () => {
-    handleClose();
-    navigate('/settings/profile');
+    setAnchorEl(null); // Immediately close the menu
+    // Small delay to ensure menu animation completes before navigation
+    setTimeout(() => {
+      navigate('/settings/profile');
+    }, 100);
   };
 
   return (
@@ -68,7 +78,6 @@ const UserMenu: React.FC = () => {
         anchorEl={anchorEl}
         open={open}
         onClose={handleClose}
-        onClick={handleClose}
         PaperProps={{
           elevation: 0,
           sx: {

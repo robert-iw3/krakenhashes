@@ -39,7 +39,21 @@ const MFAVerification: React.FC<MFAVerificationProps> = ({
 
   // Get available methods including backup if it exists in mfaType
   const getAvailableMethods = () => {
-    return mfaType.filter(m => m !== 'backup').concat(mfaType.includes('backup') ? ['backup'] : []);
+    // Filter out any invalid or unavailable methods
+    const validMethods = mfaType.filter(m => {
+      // Always include authenticator and backup if present
+      if (m === 'authenticator' || m === 'backup') return true;
+      // Only include email if it's in the mfaType (backend should have already filtered based on provider)
+      if (m === 'email') return true;
+      // Filter out any unknown methods
+      return false;
+    });
+    
+    // Separate backup from other methods for proper ordering
+    const nonBackupMethods = validMethods.filter(m => m !== 'backup');
+    const hasBackup = validMethods.includes('backup');
+    
+    return nonBackupMethods.concat(hasBackup ? ['backup'] : []);
   };
 
   const handleMethodChange = async (newMethod: string) => {

@@ -288,35 +288,6 @@ func (r *UserRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.Use
 	return user, nil
 }
 
-// GetByEmail retrieves a user by email
-func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*models.User, error) {
-	user := &models.User{}
-
-	err := r.db.QueryRowContext(ctx, queries.GetUserByEmail, email).Scan(
-		&user.ID,
-		&user.Username,
-		&user.Email,
-		&user.PasswordHash,
-		&user.Role,
-		&user.CreatedAt,
-		&user.UpdatedAt,
-	)
-
-	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("user not found with email: %s", email)
-	} else if err != nil {
-		return nil, fmt.Errorf("failed to get user by email: %w", err)
-	}
-
-	// Get user's teams
-	teams, err := r.getUserTeams(ctx, user.ID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get user teams: %w", err)
-	}
-	user.Teams = teams
-
-	return user, nil
-}
 
 // Update updates a user
 func (r *UserRepository) Update(ctx context.Context, user *models.User) error {

@@ -17,6 +17,9 @@ import { format } from 'date-fns';
 
 import { User } from '../../types/user';
 import { listAdminUsers, enableAdminUser, disableAdminUser, createAdminUser } from '../../services/api';
+import { getPasswordPolicy } from '../../services/auth';
+import { PasswordPolicy } from '../../types/auth';
+import PasswordValidation from '../../components/common/PasswordValidation';
 import { useAuth } from '../../contexts/AuthContext';
 
 const UserList: React.FC = () => {
@@ -34,6 +37,10 @@ const UserList: React.FC = () => {
         role: 'user'
     });
     const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+    const [policy, setPolicy] = useState<PasswordPolicy | null>(null);
+    const [disableDialogOpen, setDisableDialogOpen] = useState(false);
+    const [disableUserId, setDisableUserId] = useState<string | null>(null);
+    const [disableReason, setDisableReason] = useState('');
 
     const { enqueueSnackbar } = useSnackbar();
     const { userRole } = useAuth();
@@ -57,6 +64,16 @@ const UserList: React.FC = () => {
     useEffect(() => {
         if (userRole === 'admin') { 
             fetchUsers();
+            // Load password policy
+            const loadPolicy = async () => {
+                try {
+                    const policyData = await getPasswordPolicy();
+                    setPolicy(policyData);
+                } catch (error) {
+                    console.error('Failed to load password policy:', error);
+                }
+            };
+            loadPolicy();
         }
     }, [userRole, fetchUsers]);
 
@@ -74,21 +91,31 @@ const UserList: React.FC = () => {
         }
     };
 
-    const handleDisableUser = async (userId: string) => {
-        const reason = prompt('Please provide a reason for disabling this user:');
-        if (!reason) return;
+    const handleDisableUser = async () => {
+        if (!disableUserId || !disableReason.trim()) {
+            enqueueSnackbar('Please provide a reason for disabling this user', { variant: 'warning' });
+            return;
+        }
 
-        setActionLoading(userId);
+        setActionLoading(disableUserId);
         try {
-            await disableAdminUser(userId, { reason });
+            await disableAdminUser(disableUserId, { reason: disableReason });
             enqueueSnackbar('User disabled successfully', { variant: 'success' });
             fetchUsers(); // Refresh list
+            setDisableDialogOpen(false);
+            setDisableUserId(null);
+            setDisableReason('');
         } catch (err) {
             console.error('Failed to disable user:', err);
             enqueueSnackbar('Failed to disable user', { variant: 'error' });
         } finally {
             setActionLoading(null);
         }
+    };
+
+    const openDisableDialog = (userId: string) => {
+        setDisableUserId(userId);
+        setDisableDialogOpen(true);
     };
 
     const handleCreateUser = async () => {
@@ -110,8 +137,33 @@ const UserList: React.FC = () => {
         
         if (!formData.password) {
             errors.password = 'Password is required';
-        } else if (formData.password.length < 8) {
-            errors.password = 'Password must be at least 8 characters';
+        } else if (policy) {
+            // Validate against actual policy
+            const passwordErrors: string[] = [];
+            
+            if (formData.password.length < policy.minPasswordLength) {
+                passwordErrors.push(`at least ${policy.minPasswordLength} characters`);
+            }
+            
+            if (policy.requireUppercase && !/[A-Z]/.test(formData.password)) {
+                passwordErrors.push('one uppercase letter');
+            }
+            
+            if (policy.requireLowercase && !/[a-z]/.test(formData.password)) {
+                passwordErrors.push('one lowercase letter');
+            }
+            
+            if (policy.requireNumbers && !/[0-9]/.test(formData.password)) {
+                passwordErrors.push('one number');
+            }
+            
+            if (policy.requireSpecialChars && !/[!@#$%^&*(),.?":{}|<>]/.test(formData.password)) {
+                passwordErrors.push('one special character');
+            }
+            
+            if (passwordErrors.length > 0) {
+                errors.password = `Password must contain ${passwordErrors.join(', ')}`;
+            }
         }
         
         if (!formData.confirmPassword) {
@@ -253,7 +305,7 @@ const UserList: React.FC = () => {
                             <Tooltip title="Disable User">
                                 <IconButton
                                     size="small"
-                                    onClick={() => handleDisableUser(user.id)}
+                                    onClick={() => openDisableDialog(user.id)}
                                     disabled={isLoading}
                                     color="error"
                                 >
@@ -381,10 +433,13 @@ const UserList: React.FC = () => {
                             value={formData.password}
                             onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                             error={!!formErrors.password}
-                            helperText={formErrors.password || "Minimum 8 characters"}
+                            helperText={formErrors.password}
                             margin="normal"
                             required
                         />
+                        {formData.password && (
+                            <PasswordValidation password={formData.password} />
+                        )}
                         <TextField
                             fullWidth
                             label="Confirm Password"
@@ -433,6 +488,56 @@ const UserList: React.FC = () => {
                         disabled={createLoading}
                     >
                         {createLoading ? <CircularProgress size={24} /> : 'Create'}
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Disable User Dialog */}
+            <Dialog 
+                open={disableDialogOpen} 
+                onClose={() => {
+                    setDisableDialogOpen(false);
+                    setDisableUserId(null);
+                    setDisableReason('');
+                }}
+                maxWidth="sm"
+                fullWidth
+            >
+                <DialogTitle>Disable User Account</DialogTitle>
+                <DialogContent>
+                    <Box sx={{ mt: 2 }}>
+                        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                            Please provide a reason for disabling this user account. This will be logged for audit purposes.
+                        </Typography>
+                        <TextField
+                            fullWidth
+                            label="Reason for Disabling"
+                            value={disableReason}
+                            onChange={(e) => setDisableReason(e.target.value)}
+                            multiline
+                            rows={3}
+                            required
+                            placeholder="e.g., Account compromise, Terms violation, User request, etc."
+                        />
+                    </Box>
+                </DialogContent>
+                <DialogActions>
+                    <Button 
+                        onClick={() => {
+                            setDisableDialogOpen(false);
+                            setDisableUserId(null);
+                            setDisableReason('');
+                        }}
+                    >
+                        Cancel
+                    </Button>
+                    <Button 
+                        onClick={handleDisableUser}
+                        variant="contained"
+                        color="error"
+                        disabled={!disableReason.trim()}
+                    >
+                        Disable User
                     </Button>
                 </DialogActions>
             </Dialog>

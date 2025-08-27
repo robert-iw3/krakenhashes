@@ -4,7 +4,9 @@ const (
 	// Existing Auth Queries
 	GetUserByUsername = `
 		SELECT id, username, email, password_hash, role,
-			created_at, updated_at
+			created_at, updated_at,
+			account_enabled, account_locked, account_locked_until,
+			failed_login_attempts, last_failed_attempt
 		FROM users
 		WHERE username = $1`
 

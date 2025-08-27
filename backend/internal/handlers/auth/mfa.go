@@ -13,6 +13,7 @@ import (
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/db"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/db/queries"
 	"github.com/ZerkerEOD/krakenhashes/backend/pkg/debug"
+	"github.com/lib/pq"
 	"github.com/pquerna/otp"
 	"github.com/pquerna/otp/totp"
 	"github.com/skip2/go-qrcode"
@@ -811,15 +812,11 @@ func (h *MFAHandler) EnableMFA(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// If no email provider and method is email, switch to authenticator
+	// If no email provider and method is email, return error
 	if !hasEmailProvider && req.Method == "email" {
-		req.Method = "authenticator"
-		// Don't enable email MFA since there's no provider
-		if err := h.db.DisableMFA(userID); err != nil {
-			debug.Error("Failed to disable email MFA: %v", err)
-			http.Error(w, "Failed to setup MFA", http.StatusInternalServerError)
-			return
-		}
+		debug.Error("Email MFA requested but no email provider configured")
+		http.Error(w, "Email MFA requires email configuration. Please use authenticator method instead.", http.StatusBadRequest)
+		return
 	}
 
 	switch req.Method {
@@ -965,8 +962,21 @@ func (h *MFAHandler) VerifyMFASetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Start transaction for atomic MFA setup
+	tx, err := h.db.Begin()
+	if err != nil {
+		debug.Error("Failed to start transaction: %v", err)
+		http.Error(w, "Failed to enable MFA", http.StatusInternalServerError)
+		return
+	}
+	defer func() {
+		if err != nil {
+			tx.Rollback()
+		}
+	}()
+
 	// Enable authenticator MFA
-	if err := h.db.EnableMFA(userID, "authenticator", secret); err != nil {
+	if _, err = tx.Exec(queries.EnableMFAQuery, userID, "authenticator", secret); err != nil {
 		debug.Error("Failed to enable authenticator MFA: %v", err)
 		http.Error(w, "Failed to enable MFA", http.StatusInternalServerError)
 		return
@@ -991,7 +1001,7 @@ func (h *MFAHandler) VerifyMFASetup(w http.ResponseWriter, r *http.Request) {
 	for i := range codes {
 		// Generate 5 random bytes for 8 characters when base32 encoded
 		bytes := make([]byte, 5)
-		if _, err := rand.Read(bytes); err != nil {
+		if _, err = rand.Read(bytes); err != nil {
 			debug.Error("Failed to generate backup code: %v", err)
 			http.Error(w, "Failed to generate backup codes", http.StatusInternalServerError)
 			return
@@ -1001,9 +1011,16 @@ func (h *MFAHandler) VerifyMFASetup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Store the codes directly without hashing
-	if err := h.db.StoreBackupCodes(userID, codes); err != nil {
+	if _, err = tx.Exec(queries.StoreBackupCodesQuery, userID, pq.Array(codes)); err != nil {
 		debug.Error("Failed to store backup codes: %v", err)
 		http.Error(w, "Failed to store backup codes", http.StatusInternalServerError)
+		return
+	}
+
+	// Commit the transaction
+	if err = tx.Commit(); err != nil {
+		debug.Error("Failed to commit MFA setup transaction: %v", err)
+		http.Error(w, "Failed to complete MFA setup", http.StatusInternalServerError)
 		return
 	}
 
@@ -1360,6 +1377,24 @@ func (h *MFAHandler) GetUserMFASettings(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Check if email provider is configured
+	hasEmailProvider, err := h.db.HasActiveEmailProvider()
+	if err != nil {
+		debug.Error("Failed to check email provider: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Filter allowed methods based on actual availability
+	allowedMethods := make([]string, 0, len(settings.AllowedMFAMethods))
+	for _, method := range settings.AllowedMFAMethods {
+		// Only include email if email provider is configured
+		if method == "email" && !hasEmailProvider {
+			continue
+		}
+		allowedMethods = append(allowedMethods, method)
+	}
+
 	// Get user's MFA settings
 	mfaSettings, err := h.db.GetUserMFASettings(userID)
 	if err != nil {
@@ -1383,7 +1418,7 @@ func (h *MFAHandler) GetUserMFASettings(w http.ResponseWriter, r *http.Request) 
 		RemainingBackupCodes int      `json:"remainingBackupCodes"`
 	}{
 		RequireMFA:           settings.RequireMFA,
-		AllowedMFAMethods:    settings.AllowedMFAMethods,
+		AllowedMFAMethods:    allowedMethods,
 		MfaEnabled:           mfaSettings.MFAEnabled,
 		MfaType:              mfaSettings.MFAType,
 		PreferredMethod:      mfaSettings.PreferredMFAMethod,

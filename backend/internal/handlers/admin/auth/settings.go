@@ -283,7 +283,7 @@ func validateMFASettings(s *struct {
 	validMethods := map[string]bool{
 		"email":         true,
 		"authenticator": true,
-		"passkey":       true,
+		// "passkey":       true, // Not yet implemented
 	}
 
 	for _, method := range s.AllowedMFAMethods {
