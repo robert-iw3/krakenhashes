@@ -15,6 +15,7 @@ import {
   Checkbox,
 } from '@mui/material';
 import { getPasswordPolicy, getAccountSecurity, getAdminMFASettings, updateMFASettings } from '../../services/auth';
+import { getEmailConfig } from '../../services/api';
 import { PasswordPolicy, AccountSecurity, AuthSettingsUpdate, MFASettings as MFASettingsType } from '../../types/auth';
 
 interface AuthSettingsFormProps {
@@ -33,6 +34,7 @@ const AuthSettingsForm: React.FC<AuthSettingsFormProps> = ({ onSave, loading = f
   const [error, setError] = useState<string | null>(null);
   const [hasLocalChanges, setHasLocalChanges] = useState(false);
   const [lastSavedTimestamp, setLastSavedTimestamp] = useState<number>(0);
+  const [hasEmailGateway, setHasEmailGateway] = useState(false);
 
   // Load settings on mount or when lastSavedTimestamp changes
   useEffect(() => {
@@ -77,6 +79,15 @@ const AuthSettingsForm: React.FC<AuthSettingsFormProps> = ({ onSave, loading = f
       const currentTime = Date.now();
       const lastFetch = localStorage.getItem(LAST_FETCH_KEY);
       const savedDraft = localStorage.getItem(STORAGE_KEY);
+
+      // Check email gateway status
+      try {
+        const emailConfig = await getEmailConfig();
+        setHasEmailGateway(!!emailConfig?.data?.provider_type && emailConfig?.data?.is_active !== false);
+      } catch (err) {
+        // If we can't fetch email config, assume no gateway
+        setHasEmailGateway(false);
+      }
 
       // If we have a saved draft and it's newer than our last fetch, use it
       if (savedDraft && (!lastFetch || JSON.parse(savedDraft).timestamp > JSON.parse(lastFetch).timestamp)) {
@@ -428,9 +439,10 @@ const AuthSettingsForm: React.FC<AuthSettingsFormProps> = ({ onSave, loading = f
                     <Switch
                       checked={mfaSettings?.requireMfa}
                       onChange={e => setMFASettings(prev => ({ ...prev!, requireMfa: e.target.checked }))}
+                      disabled={!hasEmailGateway}
                     />
                   }
-                  label="Require MFA for all users"
+                  label={hasEmailGateway ? "Require MFA for all users" : "Require MFA for all users (Email config required)"}
                 />
                 <Typography variant="subtitle1" sx={{ mt: 2, mb: 1 }}>
                   Allowed MFA Methods
@@ -472,19 +484,11 @@ const AuthSettingsForm: React.FC<AuthSettingsFormProps> = ({ onSave, loading = f
                 <FormControlLabel
                   control={
                     <Checkbox
-                      checked={mfaSettings?.allowedMfaMethods.includes('passkey')}
-                      onChange={e => {
-                        const methods = new Set(mfaSettings?.allowedMfaMethods || []);
-                        if (e.target.checked) {
-                          methods.add('passkey');
-                        } else {
-                          methods.delete('passkey');
-                        }
-                        setMFASettings(prev => ({ ...prev!, allowedMfaMethods: Array.from(methods) }));
-                      }}
+                      checked={false}
+                      disabled={true}
                     />
                   }
-                  label="Passkey"
+                  label="Passkey (Not currently implemented)"
                 />
                 <Typography variant="subtitle1" sx={{ mt: 3, mb: 1 }}>
                   Code Settings

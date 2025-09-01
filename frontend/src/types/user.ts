@@ -63,3 +63,14 @@ export interface UserListResponse {
 export interface UserDetailResponse {
   data: User;
 }
+
+export interface ProfileUpdate {
+  email?: string;
+  currentPassword?: string;
+  newPassword?: string;
+}
+
+export interface NotificationPreferences {
+  notifyOnJobCompletion: boolean;
+  emailConfigured: boolean;
+}

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/binary"
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/db"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/models"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/repository"
 	"github.com/ZerkerEOD/krakenhashes/backend/pkg/debug"
@@ -21,6 +22,7 @@ import (
 
 // JobExecutionService handles job execution orchestration
 type JobExecutionService struct {
+	db                 *db.DB // Store db connection for notification service
 	jobExecRepo        *repository.JobExecutionRepository
 	jobTaskRepo        *repository.JobTaskRepository
 	benchmarkRepo      *repository.BenchmarkRepository
@@ -42,6 +44,7 @@ type JobExecutionService struct {
 
 // NewJobExecutionService creates a new job execution service
 func NewJobExecutionService(
+	database *db.DB,
 	jobExecRepo *repository.JobExecutionRepository,
 	jobTaskRepo *repository.JobTaskRepository,
 	benchmarkRepo *repository.BenchmarkRepository,
@@ -67,6 +70,7 @@ func NewJobExecutionService(
 	ruleSplitManager := NewRuleSplitManager(ruleSplitDir, fileRepo)
 
 	return &JobExecutionService{
+		db:                 database,
 		jobExecRepo:        jobExecRepo,
 		jobTaskRepo:        jobTaskRepo,
 		benchmarkRepo:      benchmarkRepo,
@@ -1109,9 +1113,24 @@ func (s *JobExecutionService) StartJobExecution(ctx context.Context, jobExecutio
 
 // CompleteJobExecution marks a job execution as completed
 func (s *JobExecutionService) CompleteJobExecution(ctx context.Context, jobExecutionID uuid.UUID) error {
+	// First mark the job as completed
 	err := s.jobExecRepo.CompleteExecution(ctx, jobExecutionID)
 	if err != nil {
 		return fmt.Errorf("failed to complete job execution: %w", err)
+	}
+
+	// Get the job execution to find the user who created it
+	jobExec, err := s.jobExecRepo.GetByID(ctx, jobExecutionID)
+	if err != nil {
+		debug.Error("Failed to get job execution for notification: %v", err)
+		// Don't fail the completion due to notification errors
+	} else if jobExec.CreatedBy != nil {
+		// Send completion email notification
+		notificationService := NewNotificationService(s.db.DB)
+		if notifErr := notificationService.SendJobCompletionEmail(ctx, jobExecutionID, *jobExec.CreatedBy); notifErr != nil {
+			debug.Error("Failed to send job completion email: %v", notifErr)
+			// Don't fail the completion due to email errors
+		}
 	}
 
 	// Clean up resources for completed job

@@ -8,6 +8,7 @@ import (
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/db"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/email"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/handlers"
+	agenthandlers "github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/agent"
 	authhandler "github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/auth"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/services"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/tls"
@@ -48,6 +49,10 @@ func SetupPublicRoutes(apiRouter *mux.Router, database *db.DB, agentService *ser
 	registrationHandler := handlers.NewRegistrationHandler(agentService, appConfig, tlsProvider)
 	apiRouter.HandleFunc("/agent/register", registrationHandler.HandleRegistration).Methods("POST", "OPTIONS")
 	debug.Info("Configured agent registration endpoint: /agent/register")
+
+	// Agent configuration endpoint - publicly accessible for agents to get WebSocket config
+	apiRouter.HandleFunc("/agent/config", agenthandlers.GetConfig).Methods("GET", "OPTIONS")
+	debug.Info("Configured agent configuration endpoint: /agent/config")
 
 	// Get password policy endpoint
 	publicRouter.HandleFunc("/password/policy", func(w http.ResponseWriter, r *http.Request) {

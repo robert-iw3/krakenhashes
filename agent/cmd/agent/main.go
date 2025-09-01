@@ -34,12 +34,15 @@ type agentConfig struct {
 
 /*
  * loadConfig processes configuration from multiple sources in the following order:
- * 1. Command line flags
+ * 1. Command line flags (already parsed in main)
  * 2. Environment variables
  * 3. .env file
  *
  * If a required configuration value is not found, the function will exit with an error.
  * When running for the first time, it saves the configuration to a .env file for future use.
+ *
+ * Parameters:
+ *   - cfg: Pre-populated configuration from command-line flags
  *
  * Returns:
  *   - config: Populated configuration struct
@@ -47,25 +50,13 @@ type agentConfig struct {
  * Required Configuration:
  *   - Backend Host
  */
-func loadConfig() agentConfig {
-	cfg := agentConfig{}
-
-	// Define command line flags with usage documentation
-	flag.StringVar(&cfg.host, "host", "", "Backend server host (e.g., localhost:31337)")
-	flag.BoolVar(&cfg.useTLS, "tls", true, "Use TLS for secure communication (default: true)")
-	flag.StringVar(&cfg.listenInterface, "interface", "", "Network interface to listen on (optional)")
-	flag.IntVar(&cfg.heartbeatInterval, "heartbeat", 0, "Heartbeat interval in seconds (default: 5)")
-	flag.StringVar(&cfg.claimCode, "claim", "", "Agent claim code (required only for first-time registration)")
-	flag.BoolVar(&cfg.debug, "debug", false, "Enable debug logging (default: false)")
-	flag.StringVar(&cfg.hashcatExtraParams, "hashcat-params", "", "Extra parameters to pass to hashcat (e.g., '-O -w 3')")
-	flag.Parse()
-
+func loadConfig(cfg agentConfig) agentConfig {
 	// Load .env file if it exists
 	if err := godotenv.Load(); err != nil {
 		log.Println("No .env file found, using command line flags and environment variables")
 	}
 
-	// Reinitialize debug after loading .env
+	// Reinitialize debug after loading .env (in case .env has different settings)
 	debug.Reinitialize()
 
 	// Override with environment variables if not set by flags
@@ -118,6 +109,11 @@ func loadConfig() agentConfig {
 			port = "31337" // Default port if not specified
 		}
 
+		// Get current working directory for data and config paths
+		cwd, _ := os.Getwd()
+		configDir := filepath.Join(cwd, "config")
+		dataDir := filepath.Join(cwd, "data")
+
 		env := fmt.Sprintf(`# KrakenHashes Agent Configuration
 # Generated on: %s
 
@@ -131,6 +127,10 @@ HEARTBEAT_INTERVAL=%d
 # Agent Configuration
 KH_CLAIM_CODE=%s
 
+# Directory Configuration
+KH_CONFIG_DIR=%s  # Configuration directory for certificates and credentials
+KH_DATA_DIR=%s    # Data directory for binaries, wordlists, rules, and hashlists
+
 # File Transfer Configuration
 KH_MAX_CONCURRENT_DOWNLOADS=3  # Maximum number of concurrent file downloads
 KH_DOWNLOAD_TIMEOUT=1h        # Timeout for large file downloads
@@ -141,7 +141,7 @@ HASHCAT_EXTRA_PARAMS=%s  # Extra parameters to pass to hashcat (e.g., "-O -w 3" 
 # Logging Configuration
 DEBUG=%t
 LOG_LEVEL=%s
-`, time.Now().Format(time.RFC3339), host, port, cfg.useTLS, cfg.listenInterface, cfg.heartbeatInterval, cfg.claimCode, cfg.hashcatExtraParams, cfg.debug, "DEBUG")
+`, time.Now().Format(time.RFC3339), host, port, cfg.useTLS, cfg.listenInterface, cfg.heartbeatInterval, cfg.claimCode, configDir, dataDir, cfg.hashcatExtraParams, cfg.debug, "DEBUG")
 
 		if err := os.WriteFile(".env", []byte(env), 0644); err != nil {
 			log.Printf("Warning: Could not save configuration to .env file: %v", err)
@@ -201,9 +201,27 @@ func commentOutClaimCode() error {
  * The agent will continue running until terminated or a fatal error occurs.
  */
 func main() {
-	// Initialize debug package first with default settings
+	// Parse command-line flags FIRST before anything else
+	// This ensures debug flag is processed before any logging
+	cfg := agentConfig{}
+	flag.StringVar(&cfg.host, "host", "", "Backend server host (e.g., localhost:31337)")
+	flag.BoolVar(&cfg.useTLS, "tls", true, "Use TLS for secure communication (default: true)")
+	flag.StringVar(&cfg.listenInterface, "interface", "", "Network interface to listen on (optional)")
+	flag.IntVar(&cfg.heartbeatInterval, "heartbeat", 0, "Heartbeat interval in seconds (default: 5)")
+	flag.StringVar(&cfg.claimCode, "claim", "", "Agent claim code (required only for first-time registration)")
+	flag.BoolVar(&cfg.debug, "debug", false, "Enable debug logging (default: false)")
+	flag.StringVar(&cfg.hashcatExtraParams, "hashcat-params", "", "Extra parameters to pass to hashcat (e.g., '-O -w 3')")
+	flag.Parse()
+
+	// Set debug environment variable if debug flag is set
+	if cfg.debug {
+		os.Setenv("DEBUG", "true")
+		os.Setenv("LOG_LEVEL", "DEBUG")
+	}
+
+	// Initialize debug package with settings from flags/environment
 	debug.Reinitialize()
-	debug.Info("Debug logging initialized with default settings")
+	debug.Info("Debug logging initialized - Debug enabled: %v", cfg.debug || os.Getenv("DEBUG") == "true")
 
 	// Get and log current working directory
 	cwd, err := os.Getwd()
@@ -308,9 +326,9 @@ func main() {
 	debug.Reinitialize()
 	debug.Info("Debug logging reinitialized with environment variables")
 
-	// Load configuration
+	// Load configuration (pass the pre-parsed cfg)
 	debug.Info("Loading agent configuration...")
-	cfg := loadConfig()
+	cfg = loadConfig(cfg)
 	debug.Info("Agent configuration loaded successfully")
 
 	// Set environment variables from config

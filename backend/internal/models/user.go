@@ -35,9 +35,16 @@ type User struct {
 	AccountLockedUntil  *time.Time `json:"account_locked_until" db:"account_locked_until"`
 	AccountEnabled      bool       `json:"account_enabled" db:"account_enabled"`
 	LastLogin           *time.Time `json:"last_login" db:"last_login"`
-	DisabledReason      *string    `json:"disabled_reason" db:"disabled_reason"`
-	DisabledAt          *time.Time `json:"disabled_at" db:"disabled_at"`
-	DisabledBy          *uuid.UUID `json:"disabled_by" db:"disabled_by"`
+	DisabledReason         *string    `json:"disabled_reason" db:"disabled_reason"`
+	DisabledAt             *time.Time `json:"disabled_at" db:"disabled_at"`
+	DisabledBy             *uuid.UUID `json:"disabled_by" db:"disabled_by"`
+	NotifyOnJobCompletion  bool       `json:"notify_on_job_completion" db:"notify_on_job_completion"`
+}
+
+// NotificationPreferences represents user notification settings
+type NotificationPreferences struct {
+	NotifyOnJobCompletion bool    `json:"notifyOnJobCompletion"`
+	EmailConfigured       bool    `json:"emailConfigured"`
 }
 
 // UserMFAData represents sensitive MFA data for a user

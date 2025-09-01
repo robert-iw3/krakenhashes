@@ -207,6 +207,17 @@ var (
 	pingPeriod time.Duration
 )
 
+// BackendConfig represents the configuration received from the backend
+type BackendConfig struct {
+	WebSocket struct {
+		WriteWait  string `json:"write_wait"`
+		PongWait   string `json:"pong_wait"`
+		PingPeriod string `json:"ping_period"`
+	} `json:"websocket"`
+	HeartbeatInterval int    `json:"heartbeat_interval"`
+	ServerVersion     string `json:"server_version"`
+}
+
 // getEnvDuration gets a duration from an environment variable with a default value
 func getEnvDuration(key string, defaultValue time.Duration) time.Duration {
 	debug.Info("Attempting to load environment variable: %s", key)
@@ -225,12 +236,87 @@ func getEnvDuration(key string, defaultValue time.Duration) time.Duration {
 	return defaultValue
 }
 
-// initTimingConfig initializes the timing configuration from environment variables
-func initTimingConfig() {
+// fetchBackendConfig fetches WebSocket configuration from the backend
+func fetchBackendConfig(urlConfig *config.URLConfig) (*BackendConfig, error) {
+	debug.Info("Fetching backend configuration from %s", urlConfig.GetAPIBaseURL())
+	
+	// Create the request
+	url := fmt.Sprintf("%s/agent/config", urlConfig.GetAPIBaseURL())
+	debug.Debug("Fetching config from: %s", url)
+	
+	// Create HTTP client with TLS configuration
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: true, // Skip verification for self-signed certs
+		},
+	}
+	client := &http.Client{
+		Transport: tr,
+		Timeout:   10 * time.Second,
+	}
+	
+	resp, err := client.Get(url)
+	if err != nil {
+		debug.Error("Failed to fetch backend configuration: %v", err)
+		return nil, fmt.Errorf("failed to fetch backend configuration: %w", err)
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != http.StatusOK {
+		debug.Error("Backend returned non-OK status: %d", resp.StatusCode)
+		return nil, fmt.Errorf("backend returned status %d", resp.StatusCode)
+	}
+	
+	var config BackendConfig
+	if err := json.NewDecoder(resp.Body).Decode(&config); err != nil {
+		debug.Error("Failed to decode backend configuration: %v", err)
+		return nil, fmt.Errorf("failed to decode backend configuration: %w", err)
+	}
+	
+	debug.Info("Successfully fetched backend configuration:")
+	debug.Info("- WebSocket WriteWait: %s", config.WebSocket.WriteWait)
+	debug.Info("- WebSocket PongWait: %s", config.WebSocket.PongWait)
+	debug.Info("- WebSocket PingPeriod: %s", config.WebSocket.PingPeriod)
+	debug.Info("- Heartbeat Interval: %d", config.HeartbeatInterval)
+	debug.Info("- Server Version: %s", config.ServerVersion)
+	
+	return &config, nil
+}
+
+// initTimingConfig initializes the timing configuration from backend config or defaults
+func initTimingConfig(backendConfig *BackendConfig) {
 	debug.Info("Initializing WebSocket timing configuration")
-	writeWait = getEnvDuration("KH_WRITE_WAIT", defaultWriteWait)
-	pongWait = getEnvDuration("KH_PONG_WAIT", defaultPongWait)
-	pingPeriod = getEnvDuration("KH_PING_PERIOD", defaultPingPeriod)
+	
+	if backendConfig != nil {
+		// Parse timing from backend config
+		var err error
+		writeWait, err = time.ParseDuration(backendConfig.WebSocket.WriteWait)
+		if err != nil {
+			debug.Warning("Failed to parse WriteWait from backend: %v, using default", err)
+			writeWait = defaultWriteWait
+		}
+		
+		pongWait, err = time.ParseDuration(backendConfig.WebSocket.PongWait)
+		if err != nil {
+			debug.Warning("Failed to parse PongWait from backend: %v, using default", err)
+			pongWait = defaultPongWait
+		}
+		
+		pingPeriod, err = time.ParseDuration(backendConfig.WebSocket.PingPeriod)
+		if err != nil {
+			debug.Warning("Failed to parse PingPeriod from backend: %v, using default", err)
+			pingPeriod = defaultPingPeriod
+		}
+		
+		debug.Info("Using backend WebSocket configuration")
+	} else {
+		// Fall back to defaults if no backend config
+		debug.Warning("No backend configuration available, using defaults")
+		writeWait = defaultWriteWait
+		pongWait = defaultPongWait
+		pingPeriod = defaultPingPeriod
+	}
+	
 	debug.Info("WebSocket timing configuration initialized:")
 	debug.Info("- Write Wait: %v", writeWait)
 	debug.Info("- Pong Wait: %v", pongWait)
@@ -476,8 +562,15 @@ func loadClientCertificate() (tls.Certificate, error) {
 func NewConnection(urlConfig *config.URLConfig) (*Connection, error) {
 	debug.Info("Creating new WebSocket connection")
 
-	// Initialize timing configuration
-	initTimingConfig()
+	// Fetch backend configuration for WebSocket timing
+	backendConfig, err := fetchBackendConfig(urlConfig)
+	if err != nil {
+		debug.Warning("Failed to fetch backend configuration: %v, will use defaults", err)
+		// Continue with defaults if fetch fails
+	}
+
+	// Initialize timing configuration with backend config or defaults
+	initTimingConfig(backendConfig)
 
 	// Get data directory for hardware monitor
 	cfg := config.NewConfig()
@@ -537,6 +630,18 @@ func NewConnection(urlConfig *config.URLConfig) (*Connection, error) {
 // connect establishes a WebSocket connection to the server
 func (c *Connection) connect() error {
 	debug.Info("Starting WebSocket connection attempt")
+
+	// Refetch backend configuration on each connection attempt
+	// This ensures we always have the latest WebSocket timing
+	backendConfig, err := fetchBackendConfig(c.urlConfig)
+	if err != nil {
+		debug.Warning("Failed to fetch backend configuration on reconnect: %v, using existing timing", err)
+		// Continue with existing timing if fetch fails
+	} else {
+		// Update timing configuration with fresh backend config
+		initTimingConfig(backendConfig)
+		debug.Info("Updated WebSocket timing from backend for reconnection")
+	}
 
 	// Load API key and agent ID
 	apiKey, agentIDStr, err := auth.LoadAgentKey(config.GetConfigDir())

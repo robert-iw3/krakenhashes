@@ -17,6 +17,7 @@ import { getPasswordPolicy } from '../../services/auth';
 import { PasswordPolicy } from '../../types/auth';
 import PasswordValidation from '../../components/common/PasswordValidation';
 import MFACard from '../../components/settings/MFACard';
+import NotificationCard from '../../components/settings/NotificationCard';
 
 interface UserProfile {
   username: string;
@@ -261,6 +262,11 @@ const ProfileSettings: React.FC = () => {
           if (setUser && user) {
             setUser({ ...user });
           }
+        }} />
+
+        <NotificationCard onNotificationChange={() => {
+          // You can add any refresh logic here if needed
+          console.log('Notification preferences updated');
         }} />
       </form>
     </Box>

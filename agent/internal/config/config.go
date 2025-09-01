@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/ZerkerEOD/krakenhashes/agent/pkg/debug"
 )
@@ -73,11 +74,12 @@ func GetDataDirs() (*DataDirs, error) {
 	cwd, err := os.Getwd()
 	if err != nil {
 		debug.Error("Failed to get current working directory: %v", err)
+		cwd = "."
 	} else {
 		debug.Info("Current working directory in GetDataDirs: %s", cwd)
 	}
 
-	// Check environment variable first (useful for testing)
+	// Check environment variable first (this is the preferred method)
 	if envDir := os.Getenv("KH_DATA_DIR"); envDir != "" {
 		debug.Info("Using data directory from environment: %s", envDir)
 
@@ -97,14 +99,23 @@ func GetDataDirs() (*DataDirs, error) {
 			}
 		}
 	} else {
-		// Get the executable's directory
+		// For development/go run: use current working directory
+		// For production: fall back to executable directory
+		debug.Info("KH_DATA_DIR not set, determining best directory to use")
+		
+		// Check if we're running via go run (executable is in temp directory)
 		execPath, err := os.Executable()
-		if err != nil {
+		if err == nil && strings.Contains(execPath, "go-build") {
+			// We're running via `go run`, use current working directory
+			baseDataDir = filepath.Join(cwd, DefaultDataDir)
+			debug.Info("Detected go run execution, using data directory relative to CWD: %s", baseDataDir)
+		} else if err != nil {
+			// Can't get executable path, use current directory
 			debug.Error("Could not get executable path: %v", err)
 			debug.Info("Using current directory with default data dir: %s", DefaultDataDir)
-			baseDataDir = DefaultDataDir
+			baseDataDir = filepath.Join(cwd, DefaultDataDir)
 		} else {
-			// Use the data directory relative to the executable
+			// Production build - use the data directory relative to the executable
 			execDir := filepath.Dir(execPath)
 			baseDataDir = filepath.Join(execDir, DefaultDataDir)
 			debug.Info("Using data directory relative to executable: %s", baseDataDir)
@@ -201,7 +212,7 @@ func GetConfigDir() string {
 		debug.Info("Current working directory in GetConfigDir: %s", cwd)
 	}
 
-	// Check environment variable first (useful for testing)
+	// Check environment variable first (this is the preferred method)
 	if envDir := os.Getenv("KH_CONFIG_DIR"); envDir != "" {
 		debug.Info("Using config directory from environment: %s", envDir)
 
@@ -221,14 +232,23 @@ func GetConfigDir() string {
 			}
 		}
 	} else {
-		// Get the executable's directory
+		// For development/go run: use current working directory
+		// For production: fall back to executable directory
+		debug.Info("KH_CONFIG_DIR not set, determining best directory to use")
+		
+		// Check if we're running via go run (executable is in temp directory)
 		execPath, err := os.Executable()
-		if err != nil {
+		if err == nil && strings.Contains(execPath, "go-build") {
+			// We're running via `go run`, use current working directory
+			configDir = filepath.Join(cwd, DefaultConfigDir)
+			debug.Info("Detected go run execution, using config directory relative to CWD: %s", configDir)
+		} else if err != nil {
+			// Can't get executable path, use current directory
 			debug.Error("Could not get executable path: %v", err)
 			debug.Info("Using current directory with default config dir: %s", DefaultConfigDir)
-			configDir = DefaultConfigDir
+			configDir = filepath.Join(cwd, DefaultConfigDir)
 		} else {
-			// Use the config directory relative to the executable
+			// Production build - use the config directory relative to the executable
 			execDir := filepath.Dir(execPath)
 			configDir = filepath.Join(execDir, DefaultConfigDir)
 			debug.Info("Using config directory relative to executable: %s", configDir)

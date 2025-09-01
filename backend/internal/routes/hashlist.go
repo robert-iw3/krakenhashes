@@ -117,10 +117,10 @@ func registerHashlistRoutes(r *mux.Router, sqlDB *sql.DB, cfg *config.Config, ag
 
 	// 2.2. Hash Types API
 	hashTypeRouter := r.PathPrefix("/hashtypes").Subrouter() // Use 'r' directly
-	hashTypeRouter.HandleFunc("", h.handleListHashTypes).Methods(http.MethodGet)
-	hashTypeRouter.HandleFunc("", h.handleCreateHashType).Methods(http.MethodPost)
-	hashTypeRouter.HandleFunc("/{id}", h.handleUpdateHashType).Methods(http.MethodPut)
-	hashTypeRouter.HandleFunc("/{id}", h.handleDeleteHashType).Methods(http.MethodDelete)
+	hashTypeRouter.HandleFunc("", h.handleListHashTypes).Methods(http.MethodGet, http.MethodOptions)
+	hashTypeRouter.HandleFunc("", h.handleCreateHashType).Methods(http.MethodPost, http.MethodOptions)
+	hashTypeRouter.HandleFunc("/{id}", h.handleUpdateHashType).Methods(http.MethodPut, http.MethodOptions)
+	hashTypeRouter.HandleFunc("/{id}", h.handleDeleteHashType).Methods(http.MethodDelete, http.MethodOptions)
 
 	// 2.3. Clients API
 	clientRouter := r.PathPrefix("/clients").Subrouter() // Use 'r' directly

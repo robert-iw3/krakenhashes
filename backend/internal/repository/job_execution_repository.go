@@ -493,6 +493,32 @@ func (r *JobExecutionRepository) GetInterruptibleJobs(ctx context.Context, prior
 	return executions, nil
 }
 
+// UpdateEmailStatus updates the email notification status for a job execution
+func (r *JobExecutionRepository) UpdateEmailStatus(ctx context.Context, id uuid.UUID, sent bool, sentAt *time.Time, errorMsg *string) error {
+	query := `UPDATE job_executions 
+		SET completion_email_sent = $2,
+			completion_email_sent_at = $3,
+			completion_email_error = $4,
+			updated_at = NOW()
+		WHERE id = $1`
+		
+	result, err := r.db.ExecContext(ctx, query, id, sent, sentAt, errorMsg)
+	if err != nil {
+		return fmt.Errorf("failed to update email status: %w", err)
+	}
+	
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	
+	if rows == 0 {
+		return fmt.Errorf("job execution not found: %s", id)
+	}
+	
+	return nil
+}
+
 // ClearError clears the error message for a job execution
 func (r *JobExecutionRepository) ClearError(ctx context.Context, id uuid.UUID) error {
 	query := `UPDATE job_executions SET error_message = NULL WHERE id = $1`

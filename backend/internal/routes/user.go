@@ -52,6 +52,7 @@ func CreateJobsHandler(database *db.DB, dataDir string, binaryManager binary.Man
 
 	// Create job execution service
 	jobExecutionService := services.NewJobExecutionService(
+		database,
 		jobExecRepo,
 		jobTaskRepo,
 		benchmarkRepo,
@@ -155,6 +156,11 @@ func SetupUserRoutes(router *mux.Router, database *db.DB, dataDir string, binary
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(profile)
 	}).Methods("GET")
+
+	// Notification preferences
+	notificationHandler := user.NewNotificationPreferencesHandler(database.DB)
+	router.HandleFunc("/user/notification-preferences", notificationHandler.GetNotificationPreferences).Methods("GET")
+	router.HandleFunc("/user/notification-preferences", notificationHandler.UpdateNotificationPreferences).Methods("PUT")
 
 	// Update password
 	router.HandleFunc("/user/password", func(w http.ResponseWriter, r *http.Request) {

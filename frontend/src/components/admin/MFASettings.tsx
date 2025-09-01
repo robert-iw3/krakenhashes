@@ -15,6 +15,7 @@ import {
 } from '@mui/material';
 import { MFASettings as IMFASettings, MFAMethod } from '../../types/auth';
 import { getAdminMFASettings, updateMFASettings } from '../../services/auth';
+import { getEmailConfig } from '../../services/api';
 
 const MFASettings: React.FC = () => {
   const [settings, setSettings] = useState<IMFASettings>({
@@ -31,6 +32,7 @@ const MFASettings: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [hasEmailGateway, setHasEmailGateway] = useState(false);
 
   // Note: passkey is not yet implemented, so we exclude it from available methods
   const availableMethods: MFAMethod[] = ['email', 'authenticator'];
@@ -41,6 +43,15 @@ const MFASettings: React.FC = () => {
 
   const loadSettings = async () => {
     try {
+      // Check email gateway status
+      try {
+        const emailConfig = await getEmailConfig();
+        setHasEmailGateway(!!emailConfig?.data?.provider_type && emailConfig?.data?.is_active !== false);
+      } catch (err) {
+        // If we can't fetch email config, assume no gateway
+        setHasEmailGateway(false);
+      }
+
       const data = await getAdminMFASettings();
       setSettings(data);
       setError(null);
@@ -142,9 +153,10 @@ const MFASettings: React.FC = () => {
                       : prev.allowedMfaMethods
                   }));
                 }}
+                disabled={!hasEmailGateway}
               />
             }
-            label="Require MFA for all users"
+            label={hasEmailGateway ? "Require MFA for all users" : "Require MFA for all users (Email config required)"}
           />
 
           <Typography variant="subtitle1" sx={{ mt: 2, mb: 1 }}>
@@ -165,7 +177,7 @@ const MFASettings: React.FC = () => {
             />
           ))}
           
-          {/* Show passkey as coming soon */}
+          {/* Show passkey as not currently implemented */}
           <FormControlLabel
             control={
               <Checkbox
@@ -173,7 +185,7 @@ const MFASettings: React.FC = () => {
                 disabled={true}
               />
             }
-            label="Passkey (Coming Soon)"
+            label="Passkey (Not currently implemented)"
           />
 
           <Box sx={{ mt: 2 }}>

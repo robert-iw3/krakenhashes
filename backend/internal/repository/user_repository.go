@@ -237,6 +237,7 @@ func (r *UserRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.Use
 		&disabledReason,
 		&disabledAt,
 		&user.DisabledBy,
+		&user.NotifyOnJobCompletion,
 	)
 
 	if err == sql.ErrNoRows {
@@ -630,6 +631,30 @@ func (r *UserRepository) EnableAccount(ctx context.Context, userID uuid.UUID) er
 		return fmt.Errorf("user not found: %s", userID)
 	}
 
+	return nil
+}
+
+// UpdateNotificationPreferences updates user's notification preferences
+func (r *UserRepository) UpdateNotificationPreferences(ctx context.Context, userID uuid.UUID, notifyOnCompletion bool) error {
+	query := `UPDATE users SET 
+		notify_on_job_completion = $2,
+		updated_at = NOW()
+		WHERE id = $1`
+		
+	result, err := r.db.ExecContext(ctx, query, userID, notifyOnCompletion)
+	if err != nil {
+		return fmt.Errorf("failed to update notification preferences: %w", err)
+	}
+	
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	
+	if rows == 0 {
+		return fmt.Errorf("user not found: %s", userID)
+	}
+	
 	return nil
 }
 

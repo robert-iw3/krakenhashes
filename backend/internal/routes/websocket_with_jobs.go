@@ -58,6 +58,7 @@ func SetupWebSocketWithJobRoutes(
 
 	// Create services
 	jobExecutionService := services.NewJobExecutionService(
+		database,
 		jobExecutionRepo,
 		jobTaskRepo,
 		benchmarkRepo,

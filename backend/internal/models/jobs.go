@@ -169,6 +169,11 @@ type JobExecution struct {
 	LastProgressUpdate     *time.Time `json:"last_progress_update" db:"last_progress_update"`         // Last time progress was updated
 	DispatchedKeyspace     int64      `json:"dispatched_keyspace" db:"dispatched_keyspace"`           // Total keyspace dispatched to tasks
 
+	// Email notification tracking
+	CompletionEmailSent   bool       `json:"completion_email_sent" db:"completion_email_sent"`
+	CompletionEmailSentAt *time.Time `json:"completion_email_sent_at" db:"completion_email_sent_at"`
+	CompletionEmailError  *string    `json:"completion_email_error" db:"completion_email_error"`
+
 	// Populated fields from JOINs
 	PresetJobName string `json:"preset_job_name,omitempty" db:"preset_job_name"`
 	HashlistName  string `json:"hashlist_name,omitempty" db:"hashlist_name"`

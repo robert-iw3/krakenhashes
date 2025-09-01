@@ -55,6 +55,7 @@ type HashType struct {
 	NeedsProcessing bool    `json:"needs_processing"`           // Flag if special processing is needed before cracking (e.g., NTLM)
 	ProcessingLogic *string `json:"processing_logic,omitempty"` // Description or identifier for the processing logic (pointer to handle NULL)
 	IsEnabled       bool    `json:"is_enabled"`                 // Whether this hash type is currently supported/enabled
+	Slow            bool    `json:"slow"`                       // Flag indicating if this is a slow hash algorithm (computationally expensive)
 }
 
 // Client represents a client or engagement associated with hashlists.

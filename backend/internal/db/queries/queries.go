@@ -97,7 +97,7 @@ const (
 			last_failed_attempt, account_locked,
 			account_locked_until, account_enabled,
 			last_login, disabled_reason, disabled_at,
-			disabled_by
+			disabled_by, notify_on_job_completion
 		FROM users
 		WHERE id = $1`
 
