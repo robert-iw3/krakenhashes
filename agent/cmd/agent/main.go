@@ -30,16 +30,17 @@ type agentConfig struct {
 	claimCode          string // Unique code for agent registration
 	debug              bool   // Enable debug logging
 	hashcatExtraParams string // Extra parameters to pass to hashcat (e.g., "-O -w 3")
+	configDir          string // Configuration directory for certificates and credentials
+	dataDir            string // Data directory for binaries, wordlists, rules, and hashlists
 }
 
 /*
  * loadConfig processes configuration from multiple sources in the following order:
  * 1. Command line flags (already parsed in main)
- * 2. Environment variables
- * 3. .env file
+ * 2. .env file values (NOT environment variables to avoid conflicts with backend)
  *
  * If a required configuration value is not found, the function will exit with an error.
- * When running for the first time, it saves the configuration to a .env file for future use.
+ * The function will create or update the .env file with any missing values.
  *
  * Parameters:
  *   - cfg: Pre-populated configuration from command-line flags
@@ -51,18 +52,26 @@ type agentConfig struct {
  *   - Backend Host
  */
 func loadConfig(cfg agentConfig) agentConfig {
-	// Load .env file if it exists
-	if err := godotenv.Load(); err != nil {
-		log.Println("No .env file found, using command line flags and environment variables")
+	// Load existing .env file values into a map
+	envMap := make(map[string]string)
+	envFileExists := false
+	
+	if _, err := os.Stat(".env"); err == nil {
+		envFileExists = true
+		// Read .env file
+		envFile, err := godotenv.Read(".env")
+		if err == nil {
+			envMap = envFile
+		}
 	}
 
-	// Reinitialize debug after loading .env (in case .env has different settings)
-	debug.Reinitialize()
-
-	// Override with environment variables if not set by flags
-	if cfg.host == "" {
-		host := os.Getenv("KH_HOST")
-		port := os.Getenv("KH_PORT")
+	// Apply values from .env file if command-line flags weren't provided
+	// Priority: command-line flags > .env file > defaults
+	
+	// Host configuration
+	if cfg.host == "" && envFileExists {
+		host := envMap["KH_HOST"]
+		port := envMap["KH_PORT"]
 		if host != "" {
 			if port != "" {
 				cfg.host = fmt.Sprintf("%s:%s", host, port)
@@ -71,84 +80,251 @@ func loadConfig(cfg agentConfig) agentConfig {
 			}
 		}
 	}
-	// Override TLS setting if environment variable is explicitly set
-	if tlsEnv := os.Getenv("USE_TLS"); tlsEnv != "" {
-		cfg.useTLS = tlsEnv == "true"
+	
+	// TLS setting
+	if envFileExists && envMap["USE_TLS"] != "" {
+		// Only override if not set by command line (check if it's still the default)
+		if cfg.useTLS == true && !isFlagPassed("tls") {
+			cfg.useTLS = envMap["USE_TLS"] == "true"
+		}
 	}
-	if cfg.listenInterface == "" {
-		cfg.listenInterface = os.Getenv("LISTEN_INTERFACE")
+	
+	// Listen interface
+	if cfg.listenInterface == "" && envFileExists {
+		cfg.listenInterface = envMap["LISTEN_INTERFACE"]
 	}
-	if cfg.heartbeatInterval == 0 {
-		if i, err := strconv.Atoi(os.Getenv("HEARTBEAT_INTERVAL")); err == nil {
+	
+	// Heartbeat interval
+	if cfg.heartbeatInterval == 0 && envFileExists {
+		if i, err := strconv.Atoi(envMap["HEARTBEAT_INTERVAL"]); err == nil && i > 0 {
 			cfg.heartbeatInterval = i
 		} else {
 			cfg.heartbeatInterval = 5 // default to 5 seconds
 		}
+	} else if cfg.heartbeatInterval == 0 {
+		cfg.heartbeatInterval = 5
 	}
-	if cfg.claimCode == "" {
-		cfg.claimCode = os.Getenv("KH_CLAIM_CODE")
+	
+	// Claim code
+	if cfg.claimCode == "" && envFileExists {
+		cfg.claimCode = envMap["KH_CLAIM_CODE"]
 	}
-	if !cfg.debug {
-		cfg.debug = os.Getenv("DEBUG") == "true"
+	
+	// Debug setting
+	if !cfg.debug && envFileExists {
+		cfg.debug = envMap["DEBUG"] == "true"
 	}
-	if cfg.hashcatExtraParams == "" {
-		cfg.hashcatExtraParams = os.Getenv("HASHCAT_EXTRA_PARAMS")
+	
+	// Hashcat extra params
+	if cfg.hashcatExtraParams == "" && envFileExists {
+		cfg.hashcatExtraParams = envMap["HASHCAT_EXTRA_PARAMS"]
 	}
+	
+	// Directory configuration
+	cwd, _ := os.Getwd()
+	
+	// Config directory
+	if cfg.configDir == "" && envFileExists {
+		cfg.configDir = envMap["KH_CONFIG_DIR"]
+	}
+	if cfg.configDir == "" {
+		cfg.configDir = filepath.Join(cwd, "config")
+	}
+	
+	// Data directory
+	if cfg.dataDir == "" && envFileExists {
+		cfg.dataDir = envMap["KH_DATA_DIR"]
+	}
+	if cfg.dataDir == "" {
+		cfg.dataDir = filepath.Join(cwd, "data")
+	}
+
+	// Reinitialize debug after loading configuration
+	if cfg.debug {
+		os.Setenv("DEBUG", "true")
+		os.Setenv("LOG_LEVEL", "DEBUG")
+	}
+	debug.Reinitialize()
 
 	// Validate required configuration
 	if cfg.host == "" {
-		log.Fatal("Backend host must be provided via --host flag or KH_HOST/KH_PORT environment variables")
+		log.Fatal("Backend host must be provided via --host flag or KH_HOST/KH_PORT in .env file")
 	}
 
-	// Save configuration to .env file if it doesn't exist
-	if _, err := os.Stat(".env"); os.IsNotExist(err) {
-		// Split host and port for .env file
-		host, port, err := net.SplitHostPort(cfg.host)
-		if err != nil {
-			host = cfg.host
-			port = "31337" // Default port if not specified
+	// Update or create .env file with current configuration
+	updateEnvFile(cfg, envMap, envFileExists)
+	
+	// Set environment variables from resolved configuration
+	// This ensures the config package uses our values instead of system environment
+	os.Setenv("KH_CONFIG_DIR", cfg.configDir)
+	os.Setenv("KH_DATA_DIR", cfg.dataDir)
+	os.Setenv("KH_HOST", cfg.host)
+	os.Setenv("USE_TLS", fmt.Sprintf("%t", cfg.useTLS))
+	os.Setenv("HEARTBEAT_INTERVAL", fmt.Sprintf("%d", cfg.heartbeatInterval))
+	
+	debug.Info("Set KH_CONFIG_DIR to: %s", cfg.configDir)
+	debug.Info("Set KH_DATA_DIR to: %s", cfg.dataDir)
+
+	return cfg
+}
+
+// updateEnvFile creates or updates the .env file with current configuration
+func updateEnvFile(cfg agentConfig, existingEnv map[string]string, fileExists bool) {
+	// Split host and port for .env file
+	host, port, err := net.SplitHostPort(cfg.host)
+	if err != nil {
+		host = cfg.host
+		port = "31337" // Default port if not specified
+	}
+
+	// Prepare the configuration values
+	newEnv := map[string]string{
+		"KH_HOST":                     host,
+		"KH_PORT":                     port,
+		"USE_TLS":                     fmt.Sprintf("%t", cfg.useTLS),
+		"LISTEN_INTERFACE":            cfg.listenInterface,
+		"HEARTBEAT_INTERVAL":          fmt.Sprintf("%d", cfg.heartbeatInterval),
+		"KH_CLAIM_CODE":               cfg.claimCode,
+		"KH_CONFIG_DIR":               cfg.configDir,
+		"KH_DATA_DIR":                 cfg.dataDir,
+		"HASHCAT_EXTRA_PARAMS":        cfg.hashcatExtraParams,
+		"DEBUG":                       fmt.Sprintf("%t", cfg.debug),
+		"LOG_LEVEL":                   "DEBUG",
+		"KH_MAX_CONCURRENT_DOWNLOADS": "3",
+		"KH_DOWNLOAD_TIMEOUT":         "1h",
+	}
+
+	// Merge with existing values (existing values take precedence for non-command-line settings)
+	finalEnv := make(map[string]string)
+	if fileExists {
+		// Start with existing values
+		for k, v := range existingEnv {
+			finalEnv[k] = v
 		}
+		// Add any missing keys from newEnv
+		for k, v := range newEnv {
+			if _, exists := finalEnv[k]; !exists {
+				finalEnv[k] = v
+			}
+		}
+		// Override with command-line values if they were explicitly set
+		// (This ensures command-line flags take precedence)
+		if isFlagPassed("host") {
+			finalEnv["KH_HOST"] = host
+			finalEnv["KH_PORT"] = port
+		}
+		if isFlagPassed("tls") {
+			finalEnv["USE_TLS"] = fmt.Sprintf("%t", cfg.useTLS)
+		}
+		if isFlagPassed("interface") {
+			finalEnv["LISTEN_INTERFACE"] = cfg.listenInterface
+		}
+		if isFlagPassed("heartbeat") {
+			finalEnv["HEARTBEAT_INTERVAL"] = fmt.Sprintf("%d", cfg.heartbeatInterval)
+		}
+		if isFlagPassed("claim") {
+			finalEnv["KH_CLAIM_CODE"] = cfg.claimCode
+		}
+		if isFlagPassed("debug") {
+			finalEnv["DEBUG"] = fmt.Sprintf("%t", cfg.debug)
+		}
+		if isFlagPassed("hashcat-params") {
+			finalEnv["HASHCAT_EXTRA_PARAMS"] = cfg.hashcatExtraParams
+		}
+		if isFlagPassed("config-dir") {
+			finalEnv["KH_CONFIG_DIR"] = cfg.configDir
+		}
+		if isFlagPassed("data-dir") {
+			finalEnv["KH_DATA_DIR"] = cfg.dataDir
+		}
+	} else {
+		// New file, use all values from config
+		finalEnv = newEnv
+	}
 
-		// Get current working directory for data and config paths
-		cwd, _ := os.Getwd()
-		configDir := filepath.Join(cwd, "config")
-		dataDir := filepath.Join(cwd, "data")
-
-		env := fmt.Sprintf(`# KrakenHashes Agent Configuration
+	// Generate .env file content
+	env := fmt.Sprintf(`# KrakenHashes Agent Configuration
 # Generated on: %s
 
 # Server Configuration
 KH_HOST=%s  # Backend server hostname
 KH_PORT=%s  # Backend server port
-USE_TLS=%t       # Use TLS for secure communication (wss:// and https://)
+USE_TLS=%s       # Use TLS for secure communication (wss:// and https://)
 LISTEN_INTERFACE=%s
-HEARTBEAT_INTERVAL=%d
+HEARTBEAT_INTERVAL=%s
 
 # Agent Configuration
-KH_CLAIM_CODE=%s
+%s
 
 # Directory Configuration
 KH_CONFIG_DIR=%s  # Configuration directory for certificates and credentials
 KH_DATA_DIR=%s    # Data directory for binaries, wordlists, rules, and hashlists
 
+# WebSocket Timing Configuration
+KH_WRITE_WAIT=10s   # Timeout for writing messages to WebSocket
+KH_PONG_WAIT=60s    # Timeout for receiving pong from server
+KH_PING_PERIOD=54s  # Interval for sending ping to server (must be less than pong wait)
+
 # File Transfer Configuration
-KH_MAX_CONCURRENT_DOWNLOADS=3  # Maximum number of concurrent file downloads
-KH_DOWNLOAD_TIMEOUT=1h        # Timeout for large file downloads
+KH_MAX_CONCURRENT_DOWNLOADS=%s  # Maximum number of concurrent file downloads
+KH_DOWNLOAD_TIMEOUT=%s        # Timeout for large file downloads
 
 # Hashcat Configuration
 HASHCAT_EXTRA_PARAMS=%s  # Extra parameters to pass to hashcat (e.g., "-O -w 3" for optimized kernels and high workload)
 
 # Logging Configuration
-DEBUG=%t
+DEBUG=%s
 LOG_LEVEL=%s
-`, time.Now().Format(time.RFC3339), host, port, cfg.useTLS, cfg.listenInterface, cfg.heartbeatInterval, cfg.claimCode, configDir, dataDir, cfg.hashcatExtraParams, cfg.debug, "DEBUG")
+`, 
+		time.Now().Format(time.RFC3339),
+		finalEnv["KH_HOST"],
+		finalEnv["KH_PORT"],
+		finalEnv["USE_TLS"],
+		finalEnv["LISTEN_INTERFACE"],
+		finalEnv["HEARTBEAT_INTERVAL"],
+		formatClaimCode(finalEnv["KH_CLAIM_CODE"]),
+		finalEnv["KH_CONFIG_DIR"],
+		finalEnv["KH_DATA_DIR"],
+		getEnvOrDefault(finalEnv, "KH_MAX_CONCURRENT_DOWNLOADS", "3"),
+		getEnvOrDefault(finalEnv, "KH_DOWNLOAD_TIMEOUT", "1h"),
+		finalEnv["HASHCAT_EXTRA_PARAMS"],
+		finalEnv["DEBUG"],
+		getEnvOrDefault(finalEnv, "LOG_LEVEL", "DEBUG"))
 
-		if err := os.WriteFile(".env", []byte(env), 0644); err != nil {
-			log.Printf("Warning: Could not save configuration to .env file: %v", err)
-		}
+	if err := os.WriteFile(".env", []byte(env), 0644); err != nil {
+		log.Printf("Warning: Could not save configuration to .env file: %v", err)
 	}
+}
 
-	return cfg
+// formatClaimCode formats the claim code line, commenting it out if already used
+func formatClaimCode(claimCode string) string {
+	if claimCode == "" {
+		return "# KH_CLAIM_CODE=  # Add claim code for first-time registration"
+	}
+	// Check if claim code starts with # (already commented)
+	if strings.HasPrefix(claimCode, "#") {
+		return claimCode
+	}
+	return fmt.Sprintf("KH_CLAIM_CODE=%s", claimCode)
+}
+
+// getEnvOrDefault returns the value from the map or a default if not present
+func getEnvOrDefault(envMap map[string]string, key, defaultValue string) string {
+	if val, exists := envMap[key]; exists && val != "" {
+		return val
+	}
+	return defaultValue
+}
+
+// isFlagPassed checks if a specific flag was passed on the command line
+func isFlagPassed(name string) bool {
+	found := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == name {
+			found = true
+		}
+	})
+	return found
 }
 
 // commentOutClaimCode comments out the CLAIM_CODE line in the .env file
@@ -211,6 +387,8 @@ func main() {
 	flag.StringVar(&cfg.claimCode, "claim", "", "Agent claim code (required only for first-time registration)")
 	flag.BoolVar(&cfg.debug, "debug", false, "Enable debug logging (default: false)")
 	flag.StringVar(&cfg.hashcatExtraParams, "hashcat-params", "", "Extra parameters to pass to hashcat (e.g., '-O -w 3')")
+	flag.StringVar(&cfg.configDir, "config-dir", "", "Configuration directory for certificates and credentials")
+	flag.StringVar(&cfg.dataDir, "data-dir", "", "Data directory for binaries, wordlists, rules, and hashlists")
 	flag.Parse()
 
 	// Set debug environment variable if debug flag is set

@@ -212,16 +212,49 @@ func (r *AgentRepository) Delete(ctx context.Context, id int) error {
 	}
 	defer tx.Rollback()
 
-	// Delete agent metrics
-	_, err = tx.ExecContext(ctx, `DELETE FROM agent_metrics WHERE agent_id = $1`, id)
+	// Delete agent benchmarks
+	_, err = tx.ExecContext(ctx, `DELETE FROM agent_benchmarks WHERE agent_id = $1`, id)
 	if err != nil {
-		return fmt.Errorf("failed to delete agent metrics: %w", err)
+		return fmt.Errorf("failed to delete agent benchmarks: %w", err)
+	}
+
+	// Delete agent devices
+	_, err = tx.ExecContext(ctx, `DELETE FROM agent_devices WHERE agent_id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("failed to delete agent devices: %w", err)
+	}
+
+	// Delete agent hashlists
+	_, err = tx.ExecContext(ctx, `DELETE FROM agent_hashlists WHERE agent_id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("failed to delete agent hashlists: %w", err)
+	}
+
+	// Delete agent performance metrics
+	_, err = tx.ExecContext(ctx, `DELETE FROM agent_performance_metrics WHERE agent_id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("failed to delete agent performance metrics: %w", err)
+	}
+
+	// Delete agent schedules
+	_, err = tx.ExecContext(ctx, `DELETE FROM agent_schedules WHERE agent_id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("failed to delete agent schedules: %w", err)
 	}
 
 	// Delete agent team associations
 	_, err = tx.ExecContext(ctx, `DELETE FROM agent_teams WHERE agent_id = $1`, id)
 	if err != nil {
 		return fmt.Errorf("failed to delete agent team associations: %w", err)
+	}
+
+	// Update job_tasks to remove reference to this agent (preserve task history)
+	_, err = tx.ExecContext(ctx, `
+		UPDATE job_tasks 
+		SET agent_id = NULL 
+		WHERE agent_id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("failed to update job tasks: %w", err)
 	}
 
 	// Update claim vouchers to remove reference to this agent

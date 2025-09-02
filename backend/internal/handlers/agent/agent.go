@@ -100,6 +100,7 @@ func (h *AgentHandler) DeleteAgent(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Agent not found", http.StatusNotFound)
 			return
 		}
+		debug.Error("Failed to delete agent %d: %v", id, err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}

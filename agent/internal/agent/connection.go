@@ -2119,14 +2119,15 @@ func (c *Connection) DetectAndSendDevices() error {
 		}
 		errorJSON, _ := json.Marshal(errorPayload)
 		
-		msg := WSMessage{
+		msg := &WSMessage{
 			Type:      WSTypeDeviceDetection,
 			Payload:   errorJSON,
 			Timestamp: time.Now(),
 		}
 		
-		if writeErr := c.ws.WriteJSON(msg); writeErr != nil {
-			debug.Error("Failed to send device detection error: %v", writeErr)
+		// Use safeSendMessage to avoid concurrent writes
+		if !c.safeSendMessage(msg, 5000) {
+			debug.Error("Failed to send device detection error")
 		}
 		
 		return err
@@ -2140,15 +2141,16 @@ func (c *Connection) DetectAndSendDevices() error {
 	}
 	
 	// Send device information to server
-	msg := WSMessage{
+	msg := &WSMessage{
 		Type:      WSTypeDeviceDetection,
 		Payload:   devicesJSON,
 		Timestamp: time.Now(),
 	}
 	
-	if err := c.ws.WriteJSON(msg); err != nil {
-		debug.Error("Failed to send device detection result: %v", err)
-		return fmt.Errorf("failed to send device detection result: %w", err)
+	// Use safeSendMessage to avoid concurrent writes
+	if !c.safeSendMessage(msg, 5000) {
+		debug.Error("Failed to send device detection result")
+		return fmt.Errorf("failed to send device detection result: channel blocked or timeout")
 	}
 	
 	debug.Info("Successfully sent device detection result with %d devices", len(result.Devices))

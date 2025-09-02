@@ -6,80 +6,74 @@ This guide covers all configuration options available for KrakenHashes agents.
 
 ## Configuration File
 
-The agent uses a YAML configuration file, typically located at `/etc/krakenhashes/agent.yaml`.
+The agent uses a `.env` configuration file that is automatically created on first run. The file is located in the agent's working directory and contains all necessary configuration.
 
-### Basic Configuration
+### Location
 
-```yaml
-# Server connection
-server:
-  url: https://your-server:31337
-  api_key: YOUR_API_KEY_HERE  # Added during registration
-  
-# Data storage
-data:
-  directory: /var/lib/krakenhashes/agent
-  
-# Logging
-logging:
-  level: info  # debug, info, warn, error
-  file: /var/log/krakenhashes/agent.log
-  max_size: 100  # MB
-  max_backups: 5
-  max_age: 30  # days
+- **Default**: `./.env` (in the current working directory)
+- **Custom**: Specified via command-line flags on first run
+
+### Configuration Management
+
+The `.env` file is automatically managed by the agent:
+- Created on first run with values from command-line flags
+- Updated with any missing configuration keys on subsequent runs
+- Preserves existing values when new options are added
+
+### Manual Editing
+
+You can manually edit the `.env` file to adjust configuration:
+
+```bash
+# Stop the agent
+sudo systemctl stop krakenhashes-agent
+
+# Edit the configuration
+nano .env
+
+# Restart the agent
+sudo systemctl start krakenhashes-agent
 ```
 
-### Advanced Configuration
+## Environment Variables (.env File)
 
-```yaml
-# Performance settings
-performance:
-  max_concurrent_downloads: 3
-  download_timeout: 3600  # seconds
-  chunk_size: 10485760  # 10MB chunks for downloads
-  
-# Hashcat settings
-hashcat:
-  binary_path: /usr/bin/hashcat  # Custom path if needed
-  extra_args: "-w 3 -O"  # Default extra arguments
-  workload_profile: 3  # 1-4, higher = more GPU usage
-  
-# Device settings
-devices:
-  skip_cpu: true  # Don't use CPU for cracking
-  opencl_device_types: 1,2,3  # 1=CPU, 2=GPU, 3=ACCELERATOR
-  cuda_devices: all  # or specific IDs like "0,1"
-  
-# Network settings
-network:
-  retry_attempts: 3
-  retry_delay: 5  # seconds
-  connection_timeout: 30  # seconds
-  keep_alive_interval: 60  # seconds
-  
-# Resource limits
-limits:
-  max_memory: 8192  # MB
-  max_cpu_percent: 80
-  gpu_temp_limit: 83  # Celsius
-  gpu_temp_resume: 75  # Resume when cooled to this
+The agent uses a `.env` file for configuration, which is automatically created during first run. The file is loaded at startup and values are NOT taken from system environment variables to avoid conflicts when running on the same host as the backend.
+
+### .env File Structure
+
+```bash
+# Server Configuration
+KH_HOST=your-server          # Backend server hostname
+KH_PORT=31337                # Backend server port
+USE_TLS=true                 # Use TLS for secure communication
+LISTEN_INTERFACE=            # Network interface to bind to
+HEARTBEAT_INTERVAL=5         # Heartbeat interval in seconds
+
+# Agent Configuration
+KH_CLAIM_CODE=               # Claim code (commented out after registration)
+
+# Directory Configuration
+KH_CONFIG_DIR=/path/to/config  # Configuration directory
+KH_DATA_DIR=/path/to/data      # Data directory
+
+# WebSocket Timing Configuration
+KH_WRITE_WAIT=10s            # Timeout for writing messages
+KH_PONG_WAIT=60s             # Timeout for receiving pong
+KH_PING_PERIOD=54s           # Ping interval
+
+# File Transfer Configuration
+KH_MAX_CONCURRENT_DOWNLOADS=3  # Max concurrent downloads
+KH_DOWNLOAD_TIMEOUT=1h         # Download timeout
+
+# Hashcat Configuration
+HASHCAT_EXTRA_PARAMS=        # Extra hashcat parameters
+
+# Logging Configuration
+DEBUG=false                  # Enable debug mode
+LOG_LEVEL=INFO              # Log level
 ```
 
-## Environment Variables
-
-Configuration can also be set via environment variables:
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `KH_CONFIG_FILE` | Path to config file | `/etc/krakenhashes/agent.yaml` |
-| `KH_SERVER_URL` | Backend server URL | - |
-| `KH_API_KEY` | Agent API key | - |
-| `KH_DATA_DIR` | Data directory | `/var/lib/krakenhashes/agent` |
-| `KH_LOG_LEVEL` | Log level | `info` |
-| `KH_LOG_FILE` | Log file path | `/var/log/krakenhashes/agent.log` |
-| `KH_DEBUG` | Enable debug mode | `false` |
-
-Environment variables override config file settings.
+Note: The agent reads from the `.env` file, not from system environment variables. This prevents conflicts when running the agent and backend on the same host.
 
 ## Command Line Options
 
@@ -87,22 +81,44 @@ Environment variables override config file settings.
 krakenhashes-agent [flags]
 
 Flags:
-  -c, --config string     Config file path
-  -d, --debug            Enable debug logging
-  -s, --server string    Backend server URL
-  -k, --api-key string   API key for authentication
-  --data-dir string      Data directory path
-  --version              Show version information
-  -h, --help             Show help
+  -host string           Backend server host (e.g., localhost:31337)
+  -tls                   Use TLS for secure communication (default: true)
+  -interface string      Network interface to listen on (optional)
+  -heartbeat int         Heartbeat interval in seconds (default: 5)
+  -claim string          Agent claim code (required only for first-time registration)
+  -debug                 Enable debug logging (default: false)
+  -hashcat-params string Extra parameters to pass to hashcat (e.g., '-O -w 3')
+  -config-dir string     Configuration directory for certificates and credentials
+  -data-dir string       Data directory for binaries, wordlists, rules, and hashlists
+  -help                  Show help
+```
+
+### Example Usage
+
+```bash
+# First-time registration with custom directories
+krakenhashes-agent \
+  -host your-server:31337 \
+  -claim YOUR_CLAIM_CODE \
+  -config-dir /opt/krakenhashes/config \
+  -data-dir /opt/krakenhashes/data \
+  -debug
+
+# Subsequent runs (uses .env file created during first run)
+krakenhashes-agent
+
+# Override specific settings
+krakenhashes-agent -debug -hashcat-params "-O -w 4"
 ```
 
 ## Configuration Precedence
 
 Settings are applied in this order (later overrides earlier):
 1. Default values
-2. Configuration file
-3. Environment variables
-4. Command line flags
+2. `.env` file values (created/updated on first run)
+3. Command line flags
+
+**Important**: The agent does NOT read from system environment variables to avoid conflicts when running on the same host as the backend. All configuration is handled through the `.env` file and command-line flags.
 
 ## Device Configuration
 

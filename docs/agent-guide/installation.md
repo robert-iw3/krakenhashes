@@ -8,7 +8,7 @@ This guide covers installing and setting up KrakenHashes agents on various platf
 
 ### Minimum Requirements
 - 4GB RAM
-- 10GB free disk space
+- 10GB free disk space (You need enough disk space to cover all wordlists)
 - Linux (Ubuntu 20.04+, Debian 11+, RHEL 8+, or similar)
 - Network connectivity to backend server
 
@@ -91,29 +91,24 @@ This guide covers installing and setting up KrakenHashes agents on various platf
 
 ## Initial Configuration
 
-1. **Create configuration file**:
-   ```bash
-   sudo mkdir -p /etc/krakenhashes
-   sudo tee /etc/krakenhashes/agent.yaml > /dev/null <<EOF
-   # KrakenHashes Agent Configuration
-   server:
-     url: https://your-server:31337
-     # API key will be added during registration
-   
-   data:
-     directory: /var/lib/krakenhashes/agent
-   
-   logging:
-     level: info
-     file: /var/log/krakenhashes/agent.log
-   EOF
-   ```
+The agent automatically creates a `.env` configuration file on first run. You can specify custom directories using command-line flags during the initial registration:
 
-2. **Set permissions**:
-   ```bash
-   sudo chown krakenhashes:krakenhashes /etc/krakenhashes/agent.yaml
-   sudo chmod 600 /etc/krakenhashes/agent.yaml
-   ```
+```bash
+# The agent will create a .env file with your configuration
+krakenhashes-agent \
+  -host your-server:31337 \
+  -claim YOUR_CLAIM_CODE \
+  -config-dir /var/lib/krakenhashes/agent/config \
+  -data-dir /var/lib/krakenhashes/agent/data
+```
+
+After the first run, the agent will use the `.env` file for all configuration. You can edit this file manually if needed:
+
+```bash
+# View/edit the generated configuration
+cat .env
+nano .env  # or your preferred editor
+```
 
 ## Agent Registration
 
@@ -124,15 +119,31 @@ This guide covers installing and setting up KrakenHashes agents on various platf
 
 2. **Register the agent**:
    ```bash
+   # Basic registration (uses default directories in current working directory)
    sudo -u krakenhashes krakenhashes-agent \
-     --host your-server:31337 \
-     --claim YOUR_CLAIM_CODE
+     -host your-server:31337 \
+     -claim YOUR_CLAIM_CODE
+   
+   # Registration with custom directories (Should only be used when testing)
+   sudo -u krakenhashes krakenhashes-agent \
+     -host your-server:31337 \
+     -claim YOUR_CLAIM_CODE \
+     -config-dir /var/lib/krakenhashes/agent/config \
+     -data-dir /var/lib/krakenhashes/agent/data \
+     -debug
    ```
+   
+   **Note**: The agent will create a `.env` file on first run with all configuration. Subsequent runs will use this file automatically.
 
-3. **Start the agent**:
+3. **Start the agent** (for systemd installations):
    ```bash
    sudo systemctl start krakenhashes-agent
    sudo systemctl status krakenhashes-agent
+   ```
+   
+   Or run directly (uses `.env` file):
+   ```bash
+   sudo -u krakenhashes krakenhashes-agent
    ```
 
 ## GPU Driver Installation
