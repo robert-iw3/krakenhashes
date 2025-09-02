@@ -67,6 +67,15 @@ func (s *NotificationService) SendJobCompletionEmail(ctx context.Context, jobExe
 		return fmt.Errorf("failed to get job execution: %w", err)
 	}
 
+	// Check if email has already been sent for this job
+	if jobExec.CompletionEmailSent {
+		debug.Log("Job completion email already sent", map[string]interface{}{
+			"job_id": jobExecutionID,
+			"sent_at": jobExec.CompletionEmailSentAt,
+		})
+		return nil
+	}
+
 	// Get hashlist details for statistics
 	hashlist, err := s.hashlistRepo.GetByID(ctx, jobExec.HashlistID)
 	if err != nil {

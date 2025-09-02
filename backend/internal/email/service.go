@@ -436,7 +436,7 @@ func (s *Service) SendEmail(ctx context.Context, data *emailtypes.EmailData) err
 	// Create email data with template content
 	emailData := &emailtypes.EmailData{
 		To:        data.To,
-		Subject:   template.Subject,
+		Subject:   data.Subject,
 		Variables: data.Variables,
 		Template:  template,
 	}
