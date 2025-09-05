@@ -25,15 +25,28 @@ The `.env` file is automatically managed by the agent:
 You can manually edit the `.env` file to adjust configuration:
 
 ```bash
-# Stop the agent
+# Stop the agent (choose based on your setup)
+
+# For manual run: Ctrl+C in the terminal or kill the process
+# For user service:
+systemctl --user stop krakenhashes-agent
+# For system service:
 sudo systemctl stop krakenhashes-agent
 
 # Edit the configuration
 nano .env
 
 # Restart the agent
+
+# For manual run:
+./krakenhashes-agent
+# For user service:
+systemctl --user start krakenhashes-agent
+# For system service:
 sudo systemctl start krakenhashes-agent
 ```
+
+**Note**: If you haven't set up systemd yet, see the [Systemd Service Setup](systemd-setup.md) guide for automatic startup and easier management.
 
 ## Environment Variables (.env File)
 

@@ -35,29 +35,9 @@ This guide covers installing and setting up KrakenHashes agents on various platf
    sudo chown krakenhashes:krakenhashes /var/lib/krakenhashes/agent
    ```
 
-3. **Install as systemd service**:
-   ```bash
-   sudo tee /etc/systemd/system/krakenhashes-agent.service > /dev/null <<EOF
-   [Unit]
-   Description=KrakenHashes Agent
-   After=network.target
-
-   [Service]
-   Type=simple
-   User=krakenhashes
-   Group=krakenhashes
-   ExecStart=/usr/local/bin/krakenhashes-agent
-   Restart=always
-   RestartSec=10
-   Environment="KH_DATA_DIR=/var/lib/krakenhashes/agent"
-
-   [Install]
-   WantedBy=multi-user.target
-   EOF
-
-   sudo systemctl daemon-reload
-   sudo systemctl enable krakenhashes-agent
-   ```
+3. **Optional: Set up as a service**:
+   
+   For automatic startup and easier management, see [Systemd Service Setup](systemd-setup.md) guide.
 
 ### Method 2: Docker Installation
 
@@ -192,15 +172,20 @@ nano .env  # or your preferred editor
    
    **Note**: The agent will create a `.env` file on first run with all configuration. Subsequent runs will use this file automatically.
 
-3. **Start the agent** (for systemd installations):
+3. **Start the agent**:
+   
+   For manual run (uses `.env` file):
    ```bash
-   sudo systemctl start krakenhashes-agent
-   sudo systemctl status krakenhashes-agent
+   ./krakenhashes-agent
    ```
    
-   Or run directly (uses `.env` file):
+   Or if you've set up systemd (see [Systemd Service Setup](systemd-setup.md)):
    ```bash
-   sudo -u krakenhashes krakenhashes-agent
+   # For user service
+   systemctl --user start krakenhashes-agent
+   
+   # For system service
+   sudo systemctl start krakenhashes-agent
    ```
 
 ## GPU Driver Installation
@@ -230,12 +215,31 @@ sudo apt install rocm-dev
 ## Verification
 
 1. **Check agent status**:
+   
+   For manual run, check if the process is running:
    ```bash
+   ps aux | grep krakenhashes-agent
+   ```
+   
+   For systemd service:
+   ```bash
+   # User service
+   systemctl --user status krakenhashes-agent
+   
+   # System service  
    sudo systemctl status krakenhashes-agent
    ```
 
 2. **View logs**:
+   
+   For manual run, check the terminal output or log files in the agent directory.
+   
+   For systemd service:
    ```bash
+   # User service
+   journalctl --user -u krakenhashes-agent -f
+   
+   # System service
    sudo journalctl -u krakenhashes-agent -f
    ```
 
