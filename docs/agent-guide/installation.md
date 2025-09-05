@@ -53,12 +53,16 @@ chmod +x krakenhashes-agent
 ### Step 3: Verify Installation
 
 ```bash
-# Check the agent version
-./krakenhashes-agent --version
+# Verify the binary is executable
+ls -la ~/krakenhashes-agent/krakenhashes-agent
+# Should show executable permissions (x)
 
-# The agent should be in your directory
-ls -la ~/krakenhashes-agent/
-# Should show: krakenhashes-agent (executable)
+# Check available options
+./krakenhashes-agent -help
+
+# Test connectivity (without registering)
+./krakenhashes-agent -host your-server:31337 -debug
+# This will show connection attempts even without a claim code
 ```
 
 ### Optional: Set up as a Service
