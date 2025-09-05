@@ -17,57 +17,53 @@ This guide covers installing and setting up KrakenHashes agents on various platf
 - AMD: ROCm compatible GPU or OpenCL support
 - Intel: OpenCL compatible GPU
 
-## Installation Methods
+## Installation
 
-### Method 1: Binary Installation (Recommended)
+The agent is distributed as a standalone binary that runs from your home directory. No root access is required for basic installation.
 
-1. **Download the agent binary**:
-   ```bash
-   wget https://github.com/ZerkerEOD/krakenhashes/releases/latest/download/krakenhashes-agent-linux-amd64
-   chmod +x krakenhashes-agent-linux-amd64
-   mv krakenhashes-agent-linux-amd64 /usr/local/bin/krakenhashes-agent
-   ```
+### Step 1: Create Agent Directory
 
-2. **Create system user**:
-   ```bash
-   sudo useradd -r -s /bin/false krakenhashes
-   sudo mkdir -p /var/lib/krakenhashes/agent
-   sudo chown krakenhashes:krakenhashes /var/lib/krakenhashes/agent
-   ```
+```bash
+# Create a directory for the agent in your home folder
+mkdir ~/krakenhashes-agent
+cd ~/krakenhashes-agent
+```
 
-3. **Optional: Set up as a service**:
-   
-   For automatic startup and easier management, see [Systemd Service Setup](systemd-setup.md) guide.
+### Step 2: Download the Agent Binary
 
-### Method 2: Docker Installation
+Download the appropriate binary for your platform from the [GitHub Releases](https://github.com/ZerkerEOD/krakenhashes/releases) page:
 
-1. **Pull the Docker image**:
-   ```bash
-   docker pull ghcr.io/zerkereod/krakenhashes-agent:latest
-   ```
+```bash
+# For Linux AMD64 (most common)
+wget https://github.com/ZerkerEOD/krakenhashes/releases/latest/download/krakenhashes-agent-linux-amd64 -O krakenhashes-agent
 
-2. **Run with Docker Compose**:
-   ```yaml
-   version: '3.8'
-   services:
-     agent:
-       image: ghcr.io/zerkereod/krakenhashes-agent:latest
-       container_name: krakenhashes-agent
-       volumes:
-         - ./data:/data
-         - ./config:/config
-       environment:
-         - KH_CONFIG_FILE=/config/agent.yaml
-       restart: unless-stopped
-       # For GPU support
-       deploy:
-         resources:
-           reservations:
-             devices:
-               - driver: nvidia
-                 count: all
-                 capabilities: [gpu]
-   ```
+# For Linux ARM64
+wget https://github.com/ZerkerEOD/krakenhashes/releases/latest/download/krakenhashes-agent-linux-arm64 -O krakenhashes-agent
+
+# For macOS AMD64
+wget https://github.com/ZerkerEOD/krakenhashes/releases/latest/download/krakenhashes-agent-darwin-amd64 -O krakenhashes-agent
+
+# For macOS ARM64 (Apple Silicon)
+wget https://github.com/ZerkerEOD/krakenhashes/releases/latest/download/krakenhashes-agent-darwin-arm64 -O krakenhashes-agent
+
+# Make the binary executable
+chmod +x krakenhashes-agent
+```
+
+### Step 3: Verify Installation
+
+```bash
+# Check the agent version
+./krakenhashes-agent --version
+
+# The agent should be in your directory
+ls -la ~/krakenhashes-agent/
+# Should show: krakenhashes-agent (executable)
+```
+
+### Optional: Set up as a Service
+
+For automatic startup and easier management, see the [Systemd Service Setup](systemd-setup.md) guide. This allows the agent to run in the background and start automatically on boot.
 
 ## Initial Configuration
 
@@ -75,26 +71,37 @@ The agent supports two configuration methods:
 
 ### Method 1: Automatic Configuration (Recommended)
 
-The agent automatically creates a `.env` configuration file on first run. You can specify custom directories using command-line flags during the initial registration:
+The agent automatically creates a `.env` configuration file on first run. From the agent directory:
 
 ```bash
-# The agent will create a .env file with your configuration
-krakenhashes-agent \
+cd ~/krakenhashes-agent
+
+# Run with your server details and claim code
+./krakenhashes-agent \
   -host your-server:31337 \
-  -claim YOUR_CLAIM_CODE \
-  -config-dir /var/lib/krakenhashes/agent/config \
-  -data-dir /var/lib/krakenhashes/agent/data
+  -claim YOUR_CLAIM_CODE
+
+# The agent will create:
+# - .env configuration file
+# - config/ directory for certificates
+# - data/ directory for files
 ```
 
 ### Method 2: Manual .env File Creation
 
 You can manually create a `.env` file before running the agent:
 
-1. Create a `.env` file in the agent's working directory:
+1. Create a `.env` file in `~/krakenhashes-agent/.env`:
+
+```bash
+cd ~/krakenhashes-agent
+nano .env  # or your preferred editor
+```
+
+2. Add the following configuration:
 
 ```bash
 # KrakenHashes Agent Configuration
-# Generated on: 2025-09-05T12:05:32+01:00
 
 # Server Configuration
 KH_HOST=your-server.example.com  # Backend server hostname
@@ -127,8 +134,8 @@ DEBUG=false            # Enable debug logging
 LOG_LEVEL=INFO        # Log level
 ```
 
-2. Replace the placeholder values with your actual configuration
-3. Run the agent: `./krakenhashes-agent`
+3. Replace the placeholder values with your actual configuration
+4. Run the agent: `cd ~/krakenhashes-agent && ./krakenhashes-agent`
 
 **Important Note on HASHCAT_EXTRA_PARAMS:**
 - Parameters configured via the frontend (per-agent settings) take precedence
@@ -149,44 +156,52 @@ nano .env  # or your preferred editor
 
 ## Agent Registration
 
-1. **Generate a claim code** in the Admin UI:
-   - Navigate to Agents → Manage Vouchers
-   - Click "Create Voucher"
-   - Copy the generated code
+### Step 1: Generate a Claim Code
 
-2. **Register the agent**:
-   ```bash
-   # Basic registration (uses default directories in current working directory)
-   sudo -u krakenhashes krakenhashes-agent \
-     -host your-server:31337 \
-     -claim YOUR_CLAIM_CODE
-   
-   # Registration with custom directories (Should only be used when testing)
-   sudo -u krakenhashes krakenhashes-agent \
-     -host your-server:31337 \
-     -claim YOUR_CLAIM_CODE \
-     -config-dir /var/lib/krakenhashes/agent/config \
-     -data-dir /var/lib/krakenhashes/agent/data \
-     -debug
-   ```
-   
-   **Note**: The agent will create a `.env` file on first run with all configuration. Subsequent runs will use this file automatically.
+In the KrakenHashes Admin UI:
+1. Navigate to **Agents → Manage Vouchers**
+2. Click **"Create Voucher"**
+3. Choose voucher type (one-time or continuous)
+4. Copy the generated code
 
-3. **Start the agent**:
-   
-   For manual run (uses `.env` file):
-   ```bash
-   ./krakenhashes-agent
-   ```
-   
-   Or if you've set up systemd (see [Systemd Service Setup](systemd-setup.md)):
-   ```bash
-   # For user service
-   systemctl --user start krakenhashes-agent
-   
-   # For system service
-   sudo systemctl start krakenhashes-agent
-   ```
+### Step 2: Register the Agent
+
+From your agent directory, run the agent with your claim code:
+
+```bash
+cd ~/krakenhashes-agent
+
+# Register and run the agent
+./krakenhashes-agent \
+  -host your-server:31337 \
+  -claim YOUR_CLAIM_CODE
+
+# With debug output (helpful for troubleshooting)
+./krakenhashes-agent \
+  -host your-server:31337 \
+  -claim YOUR_CLAIM_CODE \
+  -debug
+```
+
+The agent will:
+- Connect to the backend server
+- Register using the claim code
+- Generate certificates and API keys
+- Create a `.env` file with your configuration
+- Automatically comment out the claim code after successful registration
+
+### Step 3: Running the Agent
+
+After registration, simply run:
+
+```bash
+cd ~/krakenhashes-agent
+./krakenhashes-agent
+```
+
+The agent will use the `.env` file created during registration. You don't need to specify the claim code again.
+
+For automatic startup, see the [Systemd Service Setup](systemd-setup.md) guide.
 
 ## GPU Driver Installation
 

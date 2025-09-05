@@ -31,8 +31,9 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-# Adjust the working directory to where your agent is located
+# Working directory where the agent and .env file are located
 WorkingDirectory=%h/krakenhashes-agent
+# Path to the agent executable
 ExecStart=%h/krakenhashes-agent/krakenhashes-agent
 Restart=on-failure
 RestartSec=10
@@ -91,9 +92,11 @@ systemctl --user restart krakenhashes-agent
 systemctl --user disable krakenhashes-agent
 ```
 
-## System Service Setup (Requires Root)
+## System Service Setup (Advanced - Requires Root)
 
-System services run at the system level and can be configured to run as any user. This approach requires root/sudo access.
+System services run at the system level and require root/sudo access. This approach is typically used for production servers where the agent needs to run before any user logs in.
+
+**Note**: Most users should use the User Service setup above. Only use system services if you specifically need the agent to run at boot before login.
 
 ### 1. Create a Dedicated User (Optional but Recommended)
 
@@ -104,28 +107,29 @@ sudo useradd -r -s /bin/false -d /var/lib/krakenhashes -m krakenhashes
 ### 2. Install the Agent
 
 ```bash
-# Copy agent binary to system location
-sudo cp krakenhashes-agent /usr/local/bin/
-sudo chmod +x /usr/local/bin/krakenhashes-agent
+# Create directory structure
+sudo mkdir -p /opt/krakenhashes-agent
+sudo chown krakenhashes:krakenhashes /opt/krakenhashes-agent
 
-# Create data directory
-sudo mkdir -p /var/lib/krakenhashes/agent
-sudo chown -R krakenhashes:krakenhashes /var/lib/krakenhashes
+# Copy agent binary from your download location
+sudo cp ~/krakenhashes-agent/krakenhashes-agent /opt/krakenhashes-agent/
+sudo chown krakenhashes:krakenhashes /opt/krakenhashes-agent/krakenhashes-agent
+sudo chmod +x /opt/krakenhashes-agent/krakenhashes-agent
 ```
 
 ### 3. Create Configuration
 
-Create `/var/lib/krakenhashes/agent/.env` with your configuration:
+Create `/opt/krakenhashes-agent/.env` with your configuration:
 
 ```bash
-sudo -u krakenhashes tee /var/lib/krakenhashes/agent/.env > /dev/null <<EOF
+sudo -u krakenhashes tee /opt/krakenhashes-agent/.env > /dev/null <<EOF
 # Agent configuration
 KH_HOST=your-server.example.com
 KH_PORT=31337
 USE_TLS=true
 KH_CLAIM_CODE=YOUR-CLAIM-CODE-HERE
-KH_CONFIG_DIR=/var/lib/krakenhashes/agent/config
-KH_DATA_DIR=/var/lib/krakenhashes/agent/data
+KH_CONFIG_DIR=/opt/krakenhashes-agent/config
+KH_DATA_DIR=/opt/krakenhashes-agent/data
 # Add other configuration as needed
 EOF
 ```
@@ -144,8 +148,8 @@ Wants=network-online.target
 Type=simple
 User=krakenhashes
 Group=krakenhashes
-WorkingDirectory=/var/lib/krakenhashes/agent
-ExecStart=/usr/local/bin/krakenhashes-agent
+WorkingDirectory=/opt/krakenhashes-agent
+ExecStart=/opt/krakenhashes-agent/krakenhashes-agent
 Restart=always
 RestartSec=10
 
@@ -154,15 +158,15 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/lib/krakenhashes
+ReadWritePaths=/opt/krakenhashes-agent
 
 # Resource limits (optional)
 # MemoryLimit=4G
 # CPUQuota=80%
 
-# Environment
-Environment="KH_DATA_DIR=/var/lib/krakenhashes/agent/data"
-Environment="KH_CONFIG_DIR=/var/lib/krakenhashes/agent/config"
+# Environment (optional - .env file is preferred)
+# Environment="KH_DATA_DIR=/opt/krakenhashes-agent/data"
+# Environment="KH_CONFIG_DIR=/opt/krakenhashes-agent/config"
 
 [Install]
 WantedBy=multi-user.target

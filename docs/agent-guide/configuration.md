@@ -139,19 +139,19 @@ Flags:
 ### Example Usage
 
 ```bash
-# First-time registration with custom directories
-krakenhashes-agent \
+# First-time registration from agent directory
+cd ~/krakenhashes-agent
+./krakenhashes-agent \
   -host your-server:31337 \
   -claim YOUR_CLAIM_CODE \
-  -config-dir /opt/krakenhashes/config \
-  -data-dir /opt/krakenhashes/data \
   -debug
 
 # Subsequent runs (uses .env file created during first run)
-krakenhashes-agent
+cd ~/krakenhashes-agent
+./krakenhashes-agent
 
 # Override specific settings
-krakenhashes-agent -debug -hashcat-params "-O -w 4"
+./krakenhashes-agent -debug -hashcat-params "-O -w 4"
 ```
 
 ## Configuration Precedence
@@ -277,19 +277,19 @@ See [Agent Scheduling](scheduling.md) for detailed scheduling configuration.
 
 ## Troubleshooting Configuration Issues
 
-### Validation
-
-Check configuration validity:
-```bash
-krakenhashes-agent validate --config /etc/krakenhashes/agent.yaml
-```
-
 ### Debug Mode
 
 Enable debug logging to see configuration loading:
 ```bash
-krakenhashes-agent --debug --config /etc/krakenhashes/agent.yaml
+cd ~/krakenhashes-agent
+./krakenhashes-agent -debug
 ```
+
+This will show:
+- Configuration file loading
+- Connection attempts
+- Certificate validation
+- File synchronization
 
 ### Common Issues
 
