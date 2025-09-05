@@ -91,6 +91,10 @@ This guide covers installing and setting up KrakenHashes agents on various platf
 
 ## Initial Configuration
 
+The agent supports two configuration methods:
+
+### Method 1: Automatic Configuration (Recommended)
+
 The agent automatically creates a `.env` configuration file on first run. You can specify custom directories using command-line flags during the initial registration:
 
 ```bash
@@ -102,12 +106,65 @@ krakenhashes-agent \
   -data-dir /var/lib/krakenhashes/agent/data
 ```
 
+### Method 2: Manual .env File Creation
+
+You can manually create a `.env` file before running the agent:
+
+1. Create a `.env` file in the agent's working directory:
+
+```bash
+# KrakenHashes Agent Configuration
+# Generated on: 2025-09-05T12:05:32+01:00
+
+# Server Configuration
+KH_HOST=your-server.example.com  # Backend server hostname
+KH_PORT=31337                    # Backend server port
+USE_TLS=true                     # Use TLS for secure communication
+LISTEN_INTERFACE=                # Network interface to bind to
+HEARTBEAT_INTERVAL=5             # Heartbeat interval in seconds
+
+# Agent Configuration
+KH_CLAIM_CODE=YOUR-CLAIM-CODE-HERE  # Your claim code from Admin UI
+
+# Directory Configuration
+KH_CONFIG_DIR=./config  # Configuration directory
+KH_DATA_DIR=./data      # Data directory
+
+# WebSocket Timing Configuration
+KH_WRITE_WAIT=10s   # Timeout for writing messages
+KH_PONG_WAIT=60s    # Timeout for receiving pong
+KH_PING_PERIOD=54s  # Ping interval
+
+# File Transfer Configuration
+KH_MAX_CONCURRENT_DOWNLOADS=3  # Max concurrent downloads
+KH_DOWNLOAD_TIMEOUT=1h         # Download timeout
+
+# Hashcat Configuration
+HASHCAT_EXTRA_PARAMS=  # Extra hashcat parameters (see note below)
+
+# Logging Configuration
+DEBUG=false            # Enable debug logging
+LOG_LEVEL=INFO        # Log level
+```
+
+2. Replace the placeholder values with your actual configuration
+3. Run the agent: `./krakenhashes-agent`
+
+**Important Note on HASHCAT_EXTRA_PARAMS:**
+- Parameters configured via the frontend (per-agent settings) take precedence
+- The .env file parameters are only used as a fallback
+- Best practice: Configure parameters via the frontend UI for centralized management
+
+### Post-Configuration
+
 After the first run, the agent will use the `.env` file for all configuration. You can edit this file manually if needed:
 
 ```bash
 # View/edit the generated configuration
 cat .env
 nano .env  # or your preferred editor
+
+# Note: After successful registration, the KH_CLAIM_CODE will be automatically commented out
 ```
 
 ## Agent Registration

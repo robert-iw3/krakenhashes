@@ -118,6 +118,11 @@ func loadConfig(cfg agentConfig) agentConfig {
 	// Hashcat extra params
 	if cfg.hashcatExtraParams == "" && envFileExists {
 		cfg.hashcatExtraParams = envMap["HASHCAT_EXTRA_PARAMS"]
+		// Clean up any accidental comment that might have been included in the value
+		if strings.Contains(cfg.hashcatExtraParams, "#") {
+			parts := strings.Split(cfg.hashcatExtraParams, "#")
+			cfg.hashcatExtraParams = strings.TrimSpace(parts[0])
+		}
 	}
 	
 	// Directory configuration
