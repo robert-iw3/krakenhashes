@@ -82,16 +82,19 @@ export interface JobExecution {
 // Job task information
 export interface JobTask {
   id: string;
-  job_id: string;
+  job_id?: string;
   job_execution_id?: string;
   agent_id?: number;
-  status: string;
-  priority: number;
-  chunk_start: number;
-  chunk_end: number;
-  keyspace_start?: number;
-  keyspace_end?: number;
-  keyspace_processed?: number;
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'reconnect_pending';
+  priority?: number;
+  chunk_start?: number;
+  chunk_end?: number;
+  keyspace_start: number;
+  keyspace_end: number;
+  keyspace_processed: number;
+  effective_keyspace_start?: number;
+  effective_keyspace_end?: number;
+  effective_keyspace_processed?: number;
   benchmark_speed?: number;
   chunk_duration?: number;
   assigned_agent_id?: string;
@@ -100,8 +103,10 @@ export interface JobTask {
   completed_at?: string;
   last_checkpoint?: string;
   error_message?: string;
-  crack_count?: number;
+  crack_count: number;
   progress_percent?: number;
+  detailed_status?: string;
+  created_at?: string;
 }
 
 // Job agent information
@@ -118,6 +123,51 @@ export interface JobListResponse {
   jobs: JobSummary[];
   pagination: PaginationInfo;
   status_counts: Record<string, number>;
+}
+
+// Job detail response from API
+export interface JobDetailsResponse {
+  id: string;
+  name: string;
+  hashlist_id: number;
+  hashlist_name: string;
+  status: JobStatus;
+  priority: number;
+  max_agents: number;
+  attack_mode: number;
+  total_keyspace?: number;
+  effective_keyspace?: number;
+  base_keyspace?: number;
+  processed_keyspace?: number;
+  dispatched_keyspace?: number;
+  dispatched_percent: number;
+  searched_percent: number;
+  cracked_count: number;
+  agent_count: number;
+  total_speed: number;
+  created_at: string;
+  started_at?: string;
+  completed_at?: string;
+  updated_at?: string;
+  error_message?: string;
+  tasks: JobTask[];
+  tasks_page?: number;
+  tasks_per_page?: number;
+  total_tasks?: number;
+  multiplication_factor?: number;
+  uses_rule_splitting?: boolean;
+  rule_split_count?: number;
+  overall_progress_percent?: number;
+  consecutive_failures?: number;
+  wordlist_ids?: number[];
+  rule_ids?: number[];
+  mask?: string;
+  binary_version_id?: number;
+  chunk_size_seconds?: number;
+  status_updates_enabled?: boolean;
+  allow_high_priority_override?: boolean;
+  additional_args?: string;
+  hash_type?: number;
 }
 
 // Job detail response

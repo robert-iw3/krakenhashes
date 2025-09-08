@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -275,7 +276,8 @@ KH_MAX_CONCURRENT_DOWNLOADS=%s  # Maximum number of concurrent file downloads
 KH_DOWNLOAD_TIMEOUT=%s        # Timeout for large file downloads
 
 # Hashcat Configuration
-HASHCAT_EXTRA_PARAMS=%s  # Extra parameters to pass to hashcat (e.g., "-O -w 3" for optimized kernels and high workload)
+# Extra parameters to pass to hashcat (e.g., "-O -w 3" for optimized kernels and high workload)
+HASHCAT_EXTRA_PARAMS=%s
 
 # Logging Configuration
 DEBUG=%s
@@ -719,7 +721,26 @@ func main() {
 	<-sigChan
 
 	debug.Info("Shutting down agent...")
+	
+	// First, stop the job manager to cleanly stop all running jobs
+	if jobManager != nil {
+		debug.Info("Stopping job manager and all running tasks...")
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := jobManager.Shutdown(ctx); err != nil {
+			debug.Error("Error during job manager shutdown: %v", err)
+		} else {
+			debug.Info("Job manager shutdown complete")
+		}
+	}
+	
+	// Send shutdown notification to server before closing connection
 	if conn != nil {
+		debug.Info("Sending shutdown notification to server...")
+		conn.SendShutdownNotification()
+		time.Sleep(500 * time.Millisecond) // Give time for the message to be sent
+		
+		debug.Info("Stopping connection...")
 		conn.Stop() // Stop the active connection and maintenance routines
 	}
 	time.Sleep(time.Second) // Give connections time to close gracefully

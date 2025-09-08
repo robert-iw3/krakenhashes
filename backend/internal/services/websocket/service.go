@@ -17,6 +17,7 @@ type JobHandler interface {
 	ProcessJobProgress(ctx context.Context, agentID int, payload json.RawMessage) error
 	ProcessBenchmarkResult(ctx context.Context, agentID int, payload json.RawMessage) error
 	RecoverTask(ctx context.Context, taskID string, agentID int, keyspaceProcessed int64) error
+	HandleAgentReconnectionWithNoTask(ctx context.Context, agentID int) (int, error)
 }
 
 // MessageType represents the type of WebSocket message
@@ -38,6 +39,7 @@ const (
 	TypeDeviceUpdate     MessageType = "device_update"
 	TypeBufferedMessages MessageType = "buffered_messages"
 	TypeCurrentTaskStatus MessageType = "current_task_status"
+	TypeAgentShutdown    MessageType = "agent_shutdown"
 
 	// Server -> Agent messages
 	TypeTaskAssignment   MessageType = "task_assignment"
@@ -272,6 +274,14 @@ func (s *Service) HandleMessage(ctx context.Context, agent *models.Agent, msg *M
 		return s.handleSyncCommand(ctx, agent, msg)
 	case TypeHashcatOutput:
 		return s.handleHashcatOutput(ctx, agent, msg)
+	case TypeCurrentTaskStatus:
+		// Current task status is handled in the handler layer
+		// Just update heartbeat here
+		return nil
+	case TypeAgentShutdown:
+		// Agent shutdown is handled in the handler layer
+		// Just update heartbeat here
+		return nil
 	default:
 		return fmt.Errorf("unknown message type: %s", msg.Type)
 	}

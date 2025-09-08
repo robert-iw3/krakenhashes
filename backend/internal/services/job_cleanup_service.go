@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/models"
@@ -93,13 +94,29 @@ func (s *JobCleanupService) CleanupStaleTasksOnStartup(ctx context.Context) erro
 
 // handleGracePeriodExpiration handles the expiration of the grace period for reconnect_pending tasks
 func (s *JobCleanupService) handleGracePeriodExpiration(ctx context.Context, tasks []*models.JobTask) {
-	// Wait for 2-minute grace period
-	gracePeriod := 2 * time.Minute
+	// Get grace period from settings or use default
+	gracePeriod := 5 * time.Minute // Default 5 minutes instead of 2
+	gracePeriodSetting, err := s.systemSettingsRepo.GetSetting(ctx, "reconnect_grace_period_minutes")
+	if err == nil && gracePeriodSetting.Value != nil {
+		if minutes, err := strconv.Atoi(*gracePeriodSetting.Value); err == nil {
+			gracePeriod = time.Duration(minutes) * time.Minute
+		}
+	}
+	
 	debug.Info("Starting grace period timer for %d tasks - duration: %v", len(tasks), gracePeriod)
 	
 	time.Sleep(gracePeriod)
 	
 	debug.Info("Grace period expired - checking for tasks that didn't reconnect")
+	
+	// Get max retry attempts from settings
+	maxRetries := 3
+	retrySetting, err := s.systemSettingsRepo.GetSetting(ctx, "max_chunk_retry_attempts")
+	if err == nil && retrySetting.Value != nil {
+		if retries, err := strconv.Atoi(*retrySetting.Value); err == nil {
+			maxRetries = retries
+		}
+	}
 	
 	// Group tasks by job for efficient job status updates
 	jobTaskMap := make(map[uuid.UUID][]*models.JobTask)
@@ -112,25 +129,43 @@ func (s *JobCleanupService) handleGracePeriodExpiration(ctx context.Context, tas
 			continue
 		}
 		
-		// If task is still reconnect_pending, mark it as failed
+		// If task is still reconnect_pending, handle based on retry count
 		if currentTask.Status == models.JobTaskStatusReconnectPending {
-			errorMsg := "Agent failed to reconnect within grace period"
-			err := s.jobTaskRepo.UpdateTaskError(ctx, task.ID, errorMsg)
-			if err != nil {
-				debug.Error("Failed to mark task %s as failed: %v", task.ID, err)
-				continue
-			}
-			
 			agentID := 0
-			if task.AgentID != nil {
-				agentID = *task.AgentID
+			if currentTask.AgentID != nil {
+				agentID = *currentTask.AgentID
 			}
-			debug.Info("Task marked as failed after grace period - Task ID: %s, Agent: %d", task.ID, agentID)
 			
-			// Track tasks by job for status update
-			jobTaskMap[task.JobExecutionID] = append(jobTaskMap[task.JobExecutionID], task)
+			// Check if task can be retried
+			if currentTask.RetryCount < maxRetries {
+				// Reset task for retry
+				err := s.jobTaskRepo.ResetTaskForRetry(ctx, currentTask.ID)
+				if err != nil {
+					debug.Error("Failed to reset task %s for retry: %v", currentTask.ID, err)
+					// Fall back to marking as failed
+					errorMsg := fmt.Sprintf("Agent failed to reconnect within grace period (attempt %d/%d)", 
+						currentTask.RetryCount+1, maxRetries)
+					s.jobTaskRepo.UpdateTaskError(ctx, currentTask.ID, errorMsg)
+				} else {
+					debug.Info("Task reset for retry after grace period - Task ID: %s, Agent: %d, Retry: %d/%d", 
+						currentTask.ID, agentID, currentTask.RetryCount+1, maxRetries)
+				}
+			} else {
+				// Mark as permanently failed after all retries exhausted
+				errorMsg := fmt.Sprintf("Agent failed to reconnect after %d attempts", currentTask.RetryCount)
+				err := s.jobTaskRepo.UpdateTaskError(ctx, currentTask.ID, errorMsg)
+				if err != nil {
+					debug.Error("Failed to mark task %s as failed: %v", currentTask.ID, err)
+					continue
+				}
+				debug.Info("Task permanently failed after %d retries - Task ID: %s, Agent: %d", 
+					currentTask.RetryCount, currentTask.ID, agentID)
+				
+				// Track tasks by job for status update
+				jobTaskMap[currentTask.JobExecutionID] = append(jobTaskMap[currentTask.JobExecutionID], currentTask)
+			}
 		} else {
-			debug.Info("Task %s reconnected successfully - status: %s", task.ID, currentTask.Status)
+			debug.Info("Task %s reconnected successfully - status: %s", currentTask.ID, currentTask.Status)
 		}
 	}
 	

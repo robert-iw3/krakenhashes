@@ -498,6 +498,16 @@ export const toggleAgentScheduling = async (agentId: number, enabled: boolean, t
   return response.data;
 };
 
+// --- Job Details ---
+
+// Get detailed job information including tasks
+export const getJobDetails = async (id: string): Promise<any> => {
+  logApiCall('GET', `/api/jobs/${id}`);
+  const response = await api.get(`/api/jobs/${id}`);
+  logApiResponse('GET', `/api/jobs/${id}`, response.data);
+  return response.data;
+};
+
 // --- SSE Integration ---
 
 // Get the SSE endpoint URL for job streaming

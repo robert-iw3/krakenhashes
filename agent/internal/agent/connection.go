@@ -61,6 +61,9 @@ const (
 	// Buffer-related message types
 	WSTypeBufferedMessages WSMessageType = "buffered_messages"
 	WSTypeBufferAck        WSMessageType = "buffer_ack"
+	
+	// Shutdown message type
+	WSTypeAgentShutdown    WSMessageType = "agent_shutdown"
 )
 
 // WSMessage represents a WebSocket message
@@ -1955,6 +1958,16 @@ func (c *Connection) Start() error {
 	go c.maintainConnection()
 	go c.readPump()
 	go c.writePump()
+	
+	// Send current task status after initial connection
+	// This ensures the backend knows if we have any running tasks
+	// Important for crash recovery: if agent restarts, it will report no tasks
+	// and backend can immediately reset any reconnect_pending tasks
+	go func() {
+		// Small delay to ensure connection is fully established
+		time.Sleep(2 * time.Second)
+		c.sendCurrentTaskStatus()
+	}()
 
 	return nil
 }
@@ -1969,13 +1982,115 @@ func (c *Connection) SetJobManager(jm JobManager) {
 	c.jobManager = jm
 }
 
+// SendShutdownNotification sends a notification to the backend that the agent is shutting down gracefully
+func (c *Connection) SendShutdownNotification() {
+	debug.Info("Sending shutdown notification to backend")
+	
+	// Check if connected
+	if !c.isConnected.Load() {
+		debug.Warning("Not connected, cannot send shutdown notification")
+		return
+	}
+	
+	// Create shutdown payload with current task status
+	shutdownPayload := struct {
+		AgentID        int    `json:"agent_id"`
+		Reason         string `json:"reason"`
+		HasRunningTask bool   `json:"has_running_task"`
+		TaskID         string `json:"task_id,omitempty"`
+		JobID          string `json:"job_id,omitempty"`
+	}{
+		Reason: "graceful_shutdown",
+	}
+	
+	// Try to get agent ID from config
+	configDir := config.GetConfigDir()
+	agentIDPath := filepath.Join(configDir, "agent_id")
+	agentIDBytes, err := os.ReadFile(agentIDPath)
+	if err == nil {
+		agentIDStr := strings.TrimSpace(string(agentIDBytes))
+		if agentID, err := strconv.Atoi(agentIDStr); err == nil {
+			shutdownPayload.AgentID = agentID
+		}
+	}
+	
+	// Get current task status from job manager if available
+	if c.jobManager != nil {
+		if jm, ok := c.jobManager.(*jobs.JobManager); ok {
+			hasTask, taskID, jobID, _ := jm.GetCurrentTaskStatus()
+			shutdownPayload.HasRunningTask = hasTask
+			shutdownPayload.TaskID = taskID
+			shutdownPayload.JobID = jobID
+		}
+	}
+	
+	// Marshal the payload
+	payloadBytes, err := json.Marshal(shutdownPayload)
+	if err != nil {
+		debug.Error("Failed to marshal shutdown payload: %v", err)
+		return
+	}
+	
+	// Create the message
+	msg := &WSMessage{
+		Type:      WSTypeAgentShutdown,
+		Payload:   payloadBytes,
+		Timestamp: time.Now(),
+	}
+	
+	// Send with a short timeout since we're shutting down
+	if c.safeSendMessage(msg, 2000) {
+		debug.Info("Successfully sent shutdown notification - HasTask: %v, TaskID: %s", 
+			shutdownPayload.HasRunningTask, shutdownPayload.TaskID)
+	} else {
+		debug.Warning("Failed to send shutdown notification (timeout or channel blocked)")
+	}
+}
+
 // sendCurrentTaskStatus sends the current task status to the backend
 func (c *Connection) sendCurrentTaskStatus() {
 	debug.Info("Sending current task status to backend")
 	
 	// Check if we have a job manager
 	if c.jobManager == nil {
-		debug.Warning("No job manager available, cannot send task status")
+		debug.Warning("No job manager available, sending empty task status")
+		// Send empty status to indicate no running tasks
+		// This is important for crash recovery
+		var statusPayload CurrentTaskStatusPayload
+		
+		// Try to get agent ID from config
+		configDir := config.GetConfigDir()
+		agentIDPath := filepath.Join(configDir, "agent_id")
+		agentIDBytes, err := os.ReadFile(agentIDPath)
+		if err == nil {
+			agentIDStr := strings.TrimSpace(string(agentIDBytes))
+			if agentID, err := strconv.Atoi(agentIDStr); err == nil {
+				statusPayload.AgentID = agentID
+			}
+		}
+		
+		statusPayload.HasRunningTask = false
+		statusPayload.Status = "idle"
+		
+		// Marshal the payload
+		payloadBytes, err := json.Marshal(statusPayload)
+		if err != nil {
+			debug.Error("Failed to marshal empty task status payload: %v", err)
+			return
+		}
+		
+		// Create and send the message
+		msg := &WSMessage{
+			Type:      WSTypeCurrentTaskStatus,
+			Payload:   payloadBytes,
+			Timestamp: time.Now(),
+		}
+		
+		if c.safeSendMessage(msg, 5000) {
+			debug.Info("Successfully sent empty task status (no job manager)")
+		} else {
+			debug.Error("Failed to send empty task status")
+		}
 		return
 	}
 	

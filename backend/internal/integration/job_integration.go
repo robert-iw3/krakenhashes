@@ -107,6 +107,11 @@ func (m *JobIntegrationManager) RecoverTask(ctx context.Context, taskID string, 
 	return m.wsIntegration.RecoverTask(ctx, taskID, agentID, keyspaceProcessed)
 }
 
+// HandleAgentReconnectionWithNoTask handles when an agent reconnects without a running task (implements interfaces.JobHandler)
+func (m *JobIntegrationManager) HandleAgentReconnectionWithNoTask(ctx context.Context, agentID int) (int, error) {
+	return m.wsIntegration.HandleAgentReconnectionWithNoTask(ctx, agentID)
+}
+
 // GetWebSocketIntegration returns the WebSocket integration instance
 func (m *JobIntegrationManager) GetWebSocketIntegration() *JobWebSocketIntegration {
 	return m.wsIntegration

@@ -130,6 +130,119 @@ To ensure optimal performance:
 3. **Monitor Progress**: Check job status regularly for time-sensitive tasks
 4. **Communicate Urgency**: Work with administrators to set correct priorities for critical audits
 
+## Monitoring Job Execution
+
+### The Job Details Page
+
+Once you've submitted a job, you can monitor its progress in real-time through the Job Details page. Access it by clicking on any job in the Jobs list or navigating to `/jobs/{job-id}`.
+
+![Job Details Page](../assets/images/screenshots/job_details.png)
+*The Job Details page showing real-time progress, assigned agents, and crack results*
+
+### Real-Time Updates
+
+The Job Details page provides live updates for active jobs:
+
+#### Auto-Refresh
+- **Automatic Updates**: The page refreshes every 5 seconds for running jobs (configurable by administrators)
+- **Smart Refresh**: Auto-refresh pauses when you're editing settings to prevent data loss
+- **Manual Refresh**: Click the refresh button for immediate updates
+- **Status-Based**: Auto-refresh only active for pending, running, or paused jobs
+
+#### Progress Visualization
+
+The new progress bar provides at-a-glance job status:
+- **Visual Progress**: Color-coded bar showing completion percentage
+- **Keyspace Coverage**: Shows processed vs. total keyspace
+- **Time Estimates**: Estimated time remaining based on current speed
+- **Agent Distribution**: See how work is distributed across agents
+
+### Information Available
+
+#### Job Summary
+- **Status**: Current job state (pending, running, completed, failed)
+- **Priority**: Job priority level and queue position
+- **Hashlist**: Target hashlist being processed
+- **Workflow**: Associated workflow and current preset job
+
+#### Performance Metrics
+- **Hash Rate**: Combined speed across all agents (H/s, MH/s, GH/s)
+- **Keyspace Progress**: Amount of keyspace processed
+- **Cracks Found**: Real-time count of cracked passwords
+- **Efficiency**: Cracks per billion attempts
+
+#### Agent Assignment
+- **Active Agents**: List of agents currently working on the job
+- **Agent Performance**: Individual agent hash rates and progress
+- **Task Distribution**: How chunks are distributed
+- **Agent Status**: Online/offline status of assigned agents
+
+#### Crack Results
+- **Real-Time Cracks**: See passwords as they're cracked
+- **Crack Positions**: Where in the attack the crack occurred
+- **Plain Text**: Recovered passwords (if permissions allow)
+- **Export Options**: Download results in various formats
+
+### Interactive Controls
+
+While monitoring your job, you can:
+
+#### Adjust Settings
+- **Change Priority**: Modify job priority to speed up or slow down execution
+- **Agent Limits**: Adjust maximum agents assigned to the job
+- **Pause/Resume**: Temporarily halt job execution
+
+#### Job Actions
+- **Stop Job**: Terminate the job (progress is saved)
+- **Clone Job**: Create a new job with the same settings
+- **View Logs**: Access detailed execution logs
+- **Export Results**: Download crack results and reports
+
+### Understanding Progress Indicators
+
+#### Keyspace Progress
+The keyspace represents the total search space:
+- **Linear Progress**: Steady advancement through wordlist attacks
+- **Chunk-Based**: Progress jumps as chunks complete
+- **Rule Multiplication**: Progress may seem slow with large rule sets
+
+#### Time Estimates
+Estimated completion times are based on:
+- Current hash rate
+- Remaining keyspace
+- Historical performance
+- Agent availability
+
+!!! note "Estimate Accuracy"
+    Time estimates become more accurate as the job progresses and the system learns the actual performance characteristics.
+
+### Monitoring Best Practices
+
+1. **Check Early Progress**: Verify the job started correctly in the first few minutes
+2. **Monitor Agent Assignment**: Ensure sufficient agents are assigned
+3. **Watch for Stalls**: If progress stops, check agent status
+4. **Review Partial Results**: Examine cracked passwords as they appear
+5. **Adjust Priority if Needed**: Increase priority for time-sensitive jobs
+
+### Troubleshooting Job Issues
+
+#### Job Stuck in Pending
+- Check if agents are available
+- Verify agent scheduling settings
+- Review job priority relative to other jobs
+
+#### Slow Progress
+- Check assigned agent count
+- Review chunk size settings
+- Verify network connectivity
+- Consider increasing job priority
+
+#### No Cracks Found
+- Normal for strong passwords
+- Review attack methodology
+- Consider different workflows
+- Check hashlist format
+
 ## Real-World Applications
 
 ### Compliance Auditing

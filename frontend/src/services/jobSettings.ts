@@ -13,6 +13,7 @@ export interface JobExecutionSettings {
   job_refresh_interval_seconds: number;
   max_chunk_retry_attempts: number;
   jobs_per_page_default: number;
+  reconnect_grace_period_minutes: number;
   // Rule splitting settings
   rule_split_enabled: boolean;
   rule_split_threshold: number;

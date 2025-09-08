@@ -179,12 +179,28 @@ func (s *JobSchedulingService) assignWorkToAgent(ctx context.Context, agent *mod
 			"error":    err.Error(),
 		})
 	} else if len(reconnectPendingTasks) > 0 {
-		debug.Log("Agent has reconnect_pending tasks, waiting for recovery", map[string]interface{}{
-			"agent_id":    agent.ID,
-			"task_count":  len(reconnectPendingTasks),
-			"task_ids":    reconnectPendingTasks,
-		})
-		return nil, nil, nil // Agent might reconnect with task still running
+		// Check if agent is actually busy (has reported a running task)
+		isBusy := false
+		if agent.Metadata != nil {
+			if busyStatus, ok := agent.Metadata["busy_status"]; ok && busyStatus == "true" {
+				isBusy = true
+			}
+		}
+		
+		if isBusy {
+			debug.Log("Agent has reconnect_pending tasks and is busy, waiting for recovery", map[string]interface{}{
+				"agent_id":    agent.ID,
+				"task_count":  len(reconnectPendingTasks),
+				"task_ids":    reconnectPendingTasks,
+			})
+			return nil, nil, nil // Agent is still running the task
+		} else {
+			debug.Log("Agent has reconnect_pending tasks but is not busy, these should have been reset", map[string]interface{}{
+				"agent_id":    agent.ID,
+				"task_count":  len(reconnectPendingTasks),
+			})
+			// Continue with assignment - the tasks should have been reset already
+		}
 	}
 
 	// Get the next job with available work (respects priority + FIFO and max_agents)

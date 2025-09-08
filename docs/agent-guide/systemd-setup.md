@@ -2,6 +2,8 @@
 
 ## Overview
 
+I have yet to test systemd. Please open any issues you may have so that I can address them as needed.
+
 This guide explains how to set up the KrakenHashes agent as a systemd service for automatic startup and management. There are two approaches: user services (recommended for personal use) and system services (for production servers).
 
 ## Quick Decision Guide

@@ -206,6 +206,13 @@ func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) {
 	// NOTE: We no longer immediately mark agent as active here
 	// The agent will be marked active after we receive its current task status
 	debug.Info("Agent %d connected - waiting for task status report before marking as active", agent.ID)
+	
+	// Log job handler status for debugging
+	if h.wsService.GetJobHandler() != nil {
+		debug.Info("Agent %d connected - job handler is available", agent.ID)
+	} else {
+		debug.Warning("Agent %d connected - job handler is NOT available", agent.ID)
+	}
 
 	// Update heartbeat timestamp
 	if err := h.agentService.UpdateHeartbeat(ctx, agent.ID); err != nil {
@@ -338,6 +345,9 @@ func (c *Client) readPump() {
 		
 		case wsservice.TypeCurrentTaskStatus:
 			c.handler.handleCurrentTaskStatus(c, &msg)
+		
+		case wsservice.TypeAgentShutdown:
+			c.handler.handleAgentShutdown(c, &msg)
 
 		default:
 			// Handle other message types
@@ -952,6 +962,23 @@ func (h *Handler) handleCurrentTaskStatus(client *Client, msg *wsservice.Message
 	
 	// Only mark agent as active/available if it has no running tasks
 	if !status.HasRunningTask {
+		// Check if there are any reconnect_pending tasks for this agent
+		// If there are, reset them for retry immediately instead of waiting for grace period
+		jobHandler := h.wsService.GetJobHandler()
+		if jobHandler != nil {
+			debug.Info("Agent %d: Calling HandleAgentReconnectionWithNoTask", client.agent.ID)
+			resetCount, err := jobHandler.HandleAgentReconnectionWithNoTask(client.ctx, client.agent.ID)
+			if err != nil {
+				debug.Error("Agent %d: Failed to handle reconnection with no task: %v", client.agent.ID, err)
+			} else if resetCount > 0 {
+				debug.Info("Agent %d: Reset %d reconnect_pending tasks for immediate retry", client.agent.ID, resetCount)
+			} else {
+				debug.Info("Agent %d: No reconnect_pending tasks to reset", client.agent.ID)
+			}
+		} else {
+			debug.Warning("Agent %d: JobHandler is nil, cannot handle reconnection", client.agent.ID)
+		}
+		
 		// Clear busy status in metadata
 		if client.agent.Metadata == nil {
 			client.agent.Metadata = make(map[string]string)
@@ -970,5 +997,63 @@ func (h *Handler) handleCurrentTaskStatus(client *Client, msg *wsservice.Message
 		} else {
 			debug.Info("Agent %d marked as active and available for work", client.agent.ID)
 		}
+	}
+}
+
+// handleAgentShutdown processes graceful shutdown notification from an agent
+func (h *Handler) handleAgentShutdown(client *Client, msg *wsservice.Message) {
+	debug.Info("Agent %d: Received graceful shutdown notification", client.agent.ID)
+	
+	// Parse the shutdown payload
+	var shutdownPayload struct {
+		AgentID        int    `json:"agent_id"`
+		Reason         string `json:"reason"`
+		HasRunningTask bool   `json:"has_running_task"`
+		TaskID         string `json:"task_id,omitempty"`
+		JobID          string `json:"job_id,omitempty"`
+	}
+	
+	if err := json.Unmarshal(msg.Payload, &shutdownPayload); err != nil {
+		debug.Error("Agent %d: Failed to parse shutdown payload: %v", client.agent.ID, err)
+		return
+	}
+	
+	debug.Info("Agent %d: Shutdown reason: %s, HasTask: %v, TaskID: %s", 
+		client.agent.ID, shutdownPayload.Reason, shutdownPayload.HasRunningTask, shutdownPayload.TaskID)
+	
+	// If agent had running tasks, reset them immediately
+	if shutdownPayload.HasRunningTask || shutdownPayload.TaskID != "" {
+		debug.Info("Agent %d: Agent was running task %s, will reset for immediate retry", 
+			client.agent.ID, shutdownPayload.TaskID)
+		
+		// Get the job handler and reset any tasks
+		jobHandler := h.wsService.GetJobHandler()
+		if jobHandler != nil {
+			resetCount, err := jobHandler.HandleAgentReconnectionWithNoTask(client.ctx, client.agent.ID)
+			if err != nil {
+				debug.Error("Agent %d: Failed to reset tasks on shutdown: %v", client.agent.ID, err)
+			} else if resetCount > 0 {
+				debug.Info("Agent %d: Reset %d tasks on graceful shutdown", client.agent.ID, resetCount)
+			}
+		}
+	}
+	
+	// Mark agent as inactive
+	if err := h.agentService.UpdateAgentStatus(client.ctx, client.agent.ID, models.AgentStatusInactive, nil); err != nil {
+		debug.Error("Agent %d: Failed to update status to inactive: %v", client.agent.ID, err)
+	} else {
+		debug.Info("Agent %d: Marked as inactive due to graceful shutdown", client.agent.ID)
+	}
+	
+	// Clear agent metadata
+	if client.agent.Metadata == nil {
+		client.agent.Metadata = make(map[string]string)
+	}
+	client.agent.Metadata["busy_status"] = "false"
+	client.agent.Metadata["current_task_id"] = ""
+	client.agent.Metadata["current_job_id"] = ""
+	
+	if err := h.agentService.Update(client.ctx, client.agent); err != nil {
+		debug.Error("Agent %d: Failed to clear metadata on shutdown: %v", client.agent.ID, err)
 	}
 }

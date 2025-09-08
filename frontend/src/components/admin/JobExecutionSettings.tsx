@@ -242,6 +242,20 @@ const JobExecutionSettingsComponent: React.FC = () => {
                   }}
                 />
               </Grid>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  type="number"
+                  label="Reconnect Grace Period"
+                  value={settings.reconnect_grace_period_minutes}
+                  onChange={handleChange('reconnect_grace_period_minutes')}
+                  helperText="Time to wait for agents to reconnect after server restart"
+                  InputProps={{
+                    inputProps: { min: 1, max: 60 },
+                    endAdornment: <InputAdornment position="end">minutes</InputAdornment>,
+                  }}
+                />
+              </Grid>
             </Grid>
           </Paper>
         </Grid>

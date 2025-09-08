@@ -680,17 +680,44 @@ func (h *UserJobsHandler) GetJobDetail(w http.ResponseWriter, r *http.Request) {
 	// Prepare task summaries
 	taskSummaries := make([]map[string]interface{}, 0, len(tasks))
 	for _, task := range tasks {
+		// Calculate task progress percentage based on effective or regular keyspace
+		taskProgressPercent := task.ProgressPercent
+		if taskProgressPercent == 0 {
+			// Fallback calculation if not set in database
+			if task.EffectiveKeyspaceStart != nil && task.EffectiveKeyspaceEnd != nil && task.EffectiveKeyspaceProcessed != nil {
+				effectiveSize := *task.EffectiveKeyspaceEnd - *task.EffectiveKeyspaceStart
+				if effectiveSize > 0 {
+					taskProgressPercent = float64(*task.EffectiveKeyspaceProcessed) / float64(effectiveSize) * 100
+				}
+			} else {
+				taskKeyspaceSize := task.KeyspaceEnd - task.KeyspaceStart
+				if taskKeyspaceSize > 0 {
+					taskProgressPercent = float64(task.KeyspaceProcessed) / float64(taskKeyspaceSize) * 100
+				}
+			}
+			if taskProgressPercent > 100 {
+				taskProgressPercent = 100
+			}
+		}
+
 		taskSummary := map[string]interface{}{
-			"id":                 task.ID.String(),
-			"agent_id":           task.AgentID,
-			"status":             string(task.Status),
-			"keyspace_start":     task.KeyspaceStart,
-			"keyspace_end":       task.KeyspaceEnd,
-			"keyspace_processed": task.KeyspaceProcessed,
-			"crack_count":        task.CrackCount,
-			"detailed_status":    task.DetailedStatus,
-			"error_message":      task.ErrorMessage,
-			"created_at":         task.CreatedAt.Format(time.RFC3339),
+			"id":                           task.ID.String(),
+			"agent_id":                     task.AgentID,
+			"status":                       string(task.Status),
+			"keyspace_start":               task.KeyspaceStart,
+			"keyspace_end":                 task.KeyspaceEnd,
+			"keyspace_processed":           task.KeyspaceProcessed,
+			"effective_keyspace_start":     task.EffectiveKeyspaceStart,
+			"effective_keyspace_end":       task.EffectiveKeyspaceEnd,
+			"effective_keyspace_processed": task.EffectiveKeyspaceProcessed,
+			"rule_start_index":             task.RuleStartIndex,
+			"rule_end_index":               task.RuleEndIndex,
+			"is_rule_split_task":           task.IsRuleSplitTask,
+			"progress_percent":             taskProgressPercent,
+			"crack_count":                  task.CrackCount,
+			"detailed_status":              task.DetailedStatus,
+			"error_message":                task.ErrorMessage,
+			"created_at":                   task.CreatedAt.Format(time.RFC3339),
 		}
 
 		if task.StartedAt != nil {
@@ -706,25 +733,41 @@ func (h *UserJobsHandler) GetJobDetail(w http.ResponseWriter, r *http.Request) {
 		taskSummaries = append(taskSummaries, taskSummary)
 	}
 
+	// Calculate overall progress percentage
+	overallProgressPercent := 0.0
+	if totalKeyspace != nil && *totalKeyspace > 0 {
+		overallProgressPercent = float64(job.ProcessedKeyspace) / float64(*totalKeyspace) * 100
+		if overallProgressPercent > 100 {
+			overallProgressPercent = 100
+		}
+	}
+
 	// Prepare response
 	response := map[string]interface{}{
-		"id":                 jobID.String(),
-		"name":               getJobName(*job, hashlist),
-		"hashlist_id":        job.HashlistID,
-		"hashlist_name":      hashlist.Name,
-		"status":             string(job.Status),
-		"priority":           job.Priority,
-		"max_agents":         job.MaxAgents,
-		"attack_mode":        job.AttackMode,
-		"total_keyspace":     job.TotalKeyspace,
-		"dispatched_percent": dispatchedPercent,
-		"searched_percent":   searchedPercent,
-		"cracked_count":      crackedCount,
-		"agent_count":        agentCount,
-		"total_speed":        totalSpeed,
-		"created_at":         job.CreatedAt.Format(time.RFC3339),
-		"updated_at":         job.UpdatedAt.Format(time.RFC3339),
-		"tasks":              taskSummaries,
+		"id":                        jobID.String(),
+		"name":                      getJobName(*job, hashlist),
+		"hashlist_id":               job.HashlistID,
+		"hashlist_name":             hashlist.Name,
+		"status":                    string(job.Status),
+		"priority":                  job.Priority,
+		"max_agents":                job.MaxAgents,
+		"attack_mode":               job.AttackMode,
+		"total_keyspace":            job.TotalKeyspace,
+		"effective_keyspace":        job.EffectiveKeyspace,
+		"base_keyspace":             job.BaseKeyspace,
+		"processed_keyspace":        job.ProcessedKeyspace,
+		"dispatched_keyspace":       job.DispatchedKeyspace,
+		"dispatched_percent":        dispatchedPercent,
+		"searched_percent":          searchedPercent,
+		"overall_progress_percent":  overallProgressPercent,
+		"multiplication_factor":     job.MultiplicationFactor,
+		"uses_rule_splitting":       job.UsesRuleSplitting,
+		"cracked_count":             crackedCount,
+		"agent_count":               agentCount,
+		"total_speed":               totalSpeed,
+		"created_at":                job.CreatedAt.Format(time.RFC3339),
+		"updated_at":                job.UpdatedAt.Format(time.RFC3339),
+		"tasks":                     taskSummaries,
 		"task_pagination": map[string]interface{}{
 			"page":        page,
 			"page_size":   pageSize,

@@ -73,12 +73,10 @@ func (r *JobExecutionRepository) GetByID(ctx context.Context, id uuid.UUID) (*mo
 			je.overall_progress_percent, je.last_progress_update,
 			je.dispatched_keyspace,
 			je.completion_email_sent, je.completion_email_sent_at, je.completion_email_error,
-			pj.name as preset_job_name,
 			h.name as hashlist_name,
 			h.total_hashes as total_hashes,
 			h.cracked_hashes as cracked_hashes
 		FROM job_executions je
-		JOIN preset_jobs pj ON je.preset_job_id = pj.id
 		JOIN hashlists h ON je.hashlist_id = h.id
 		WHERE je.id = $1`
 
@@ -93,7 +91,7 @@ func (r *JobExecutionRepository) GetByID(ctx context.Context, id uuid.UUID) (*mo
 		&exec.OverallProgressPercent, &exec.LastProgressUpdate,
 		&exec.DispatchedKeyspace,
 		&exec.CompletionEmailSent, &exec.CompletionEmailSentAt, &exec.CompletionEmailError,
-		&exec.PresetJobName, &exec.HashlistName, &exec.TotalHashes, &exec.CrackedHashes,
+		&exec.HashlistName, &exec.TotalHashes, &exec.CrackedHashes,
 	)
 
 	if err == sql.ErrNoRows {

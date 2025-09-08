@@ -18,7 +18,10 @@ func (r *JobTaskRepository) GetTasksByJobExecutionWithPagination(ctx context.Con
 			COALESCE(detailed_status, 'pending') as detailed_status,
 			COALESCE(retry_count, 0) as retry_count,
 			error_message,
-			created_at, started_at, completed_at, updated_at
+			created_at, started_at, completed_at, updated_at,
+			effective_keyspace_start, effective_keyspace_end, effective_keyspace_processed,
+			rule_start_index, rule_end_index, is_rule_split_task,
+			progress_percent
 		FROM job_tasks
 		WHERE job_execution_id = $1
 		ORDER BY created_at ASC
@@ -40,6 +43,9 @@ func (r *JobTaskRepository) GetTasksByJobExecutionWithPagination(ctx context.Con
 			&task.CrackCount, &task.DetailedStatus, &task.RetryCount,
 			&task.ErrorMessage,
 			&task.CreatedAt, &task.StartedAt, &task.CompletedAt, &task.UpdatedAt,
+			&task.EffectiveKeyspaceStart, &task.EffectiveKeyspaceEnd, &task.EffectiveKeyspaceProcessed,
+			&task.RuleStartIndex, &task.RuleEndIndex, &task.IsRuleSplitTask,
+			&task.ProgressPercent,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan job task: %w", err)

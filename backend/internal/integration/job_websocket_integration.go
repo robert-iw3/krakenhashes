@@ -1045,19 +1045,51 @@ func (s *JobWebSocketIntegration) RecoverTask(ctx context.Context, taskID string
 		return fmt.Errorf("task not found: %s", taskID)
 	}
 	
-	// Check if task is in reconnect_pending state OR pending state (for backward compatibility)
-	if task.Status != models.JobTaskStatusReconnectPending && task.Status != models.JobTaskStatusPending {
-		// If task is already running or completed, no recovery needed
-		if task.Status == models.JobTaskStatusRunning || task.Status == models.JobTaskStatusCompleted {
-			debug.Log("Task already in expected state, no recovery needed", map[string]interface{}{
-				"task_id": taskID,
-				"status":  task.Status,
+	// Check task status and handle recovery appropriately
+	switch task.Status {
+	case models.JobTaskStatusRunning:
+		// Task is already running, no recovery needed
+		debug.Log("Task already running, no recovery needed", map[string]interface{}{
+			"task_id": taskID,
+			"status":  task.Status,
+		})
+		return nil
+		
+	case models.JobTaskStatusCompleted:
+		// Task is already completed, agent shouldn't be running it
+		debug.Log("Task already completed, agent should stop", map[string]interface{}{
+			"task_id": taskID,
+			"status":  task.Status,
+		})
+		// Return an error to trigger job_stop on the agent
+		return fmt.Errorf("task %s is already completed", taskID)
+		
+	case models.JobTaskStatusReconnectPending, models.JobTaskStatusPending:
+		// These states can be recovered
+		debug.Log("Task can be recovered", map[string]interface{}{
+			"task_id": taskID,
+			"status":  task.Status,
+		})
+		// Continue with recovery below
+		
+	case models.JobTaskStatusFailed:
+		// Check if task can be retried
+		maxRetries := 3 // Get from settings
+		if task.RetryCount < maxRetries {
+			debug.Log("Failed task can be retried", map[string]interface{}{
+				"task_id":     taskID,
+				"status":      task.Status,
+				"retry_count": task.RetryCount,
+				"max_retries": maxRetries,
 			})
-			return nil
+			// Continue with recovery below
+		} else {
+			return fmt.Errorf("task %s has exceeded maximum retries (%d)", taskID, maxRetries)
 		}
 		
-		// If task is in another state, we can't recover it
-		return fmt.Errorf("task %s is not in reconnect_pending or pending state (current: %s)", taskID, task.Status)
+	default:
+		// Other states (cancelled, etc.) cannot be recovered
+		return fmt.Errorf("task %s cannot be recovered from state: %s", taskID, task.Status)
 	}
 	
 	// Update task status back to running and reassign to the agent
@@ -1069,6 +1101,7 @@ func (s *JobWebSocketIntegration) RecoverTask(ctx context.Context, taskID string
 	// Update task assignment to the reconnected agent
 	task.AgentID = &agentID
 	task.Status = models.JobTaskStatusRunning
+	task.DetailedStatus = "running" // Ensure detailed_status matches the status for constraint
 	if keyspaceProcessed > 0 {
 		task.KeyspaceProcessed = keyspaceProcessed
 	}
@@ -1188,6 +1221,157 @@ func (s *JobWebSocketIntegration) HandleAgentDisconnection(ctx context.Context, 
 	}
 	
 	return nil
+}
+
+// HandleAgentReconnectionWithNoTask handles when an agent reconnects but reports no running task
+// It finds all reconnect_pending tasks assigned to this agent and resets them for retry
+func (s *JobWebSocketIntegration) HandleAgentReconnectionWithNoTask(ctx context.Context, agentID int) (int, error) {
+	debug.Log("Handling agent reconnection with no running task", map[string]interface{}{
+		"agent_id": agentID,
+	})
+	
+	// Get all reconnect_pending tasks for this agent
+	reconnectTasks, err := s.jobTaskRepo.GetReconnectPendingTasksByAgent(ctx, agentID)
+	if err != nil {
+		debug.Log("Failed to get reconnect_pending tasks for agent", map[string]interface{}{
+			"agent_id": agentID,
+			"error":    err.Error(),
+		})
+		return 0, fmt.Errorf("failed to get reconnect_pending tasks: %w", err)
+	}
+	
+	if len(reconnectTasks) == 0 {
+		debug.Log("No reconnect_pending tasks found for agent", map[string]interface{}{
+			"agent_id": agentID,
+		})
+		return 0, nil
+	}
+	
+	debug.Log("Found reconnect_pending tasks to reset", map[string]interface{}{
+		"agent_id":   agentID,
+		"task_count": len(reconnectTasks),
+	})
+	
+	// Get max retry attempts from settings
+	maxRetries := 3
+	retrySetting, err := s.systemSettingsRepo.GetSetting(ctx, "max_chunk_retry_attempts")
+	if err == nil && retrySetting.Value != nil {
+		if retries, err := strconv.Atoi(*retrySetting.Value); err == nil {
+			maxRetries = retries
+		}
+	}
+	
+	resetCount := 0
+	failedCount := 0
+	
+	for _, task := range reconnectTasks {
+		// Check if task can be retried
+		if task.RetryCount < maxRetries {
+			// Reset task for retry
+			err := s.jobTaskRepo.ResetTaskForRetry(ctx, task.ID)
+			if err != nil {
+				debug.Log("Failed to reset task for retry", map[string]interface{}{
+					"task_id":  task.ID,
+					"agent_id": agentID,
+					"error":    err.Error(),
+				})
+				continue
+			}
+			
+			debug.Log("Task reset for retry after agent reconnection", map[string]interface{}{
+				"task_id":      task.ID,
+				"agent_id":     agentID,
+				"retry_count":  task.RetryCount + 1,
+				"max_retries":  maxRetries,
+			})
+			resetCount++
+		} else {
+			// Mark as permanently failed after all retries exhausted
+			errorMsg := fmt.Sprintf("Agent %d reconnected without task after %d retry attempts", agentID, task.RetryCount)
+			err := s.jobTaskRepo.UpdateTaskError(ctx, task.ID, errorMsg)
+			if err != nil {
+				debug.Log("Failed to mark task as failed", map[string]interface{}{
+					"task_id":  task.ID,
+					"agent_id": agentID,
+					"error":    err.Error(),
+				})
+				continue
+			}
+			
+			debug.Log("Task permanently failed after max retries", map[string]interface{}{
+				"task_id":     task.ID,
+				"agent_id":    agentID,
+				"retry_count": task.RetryCount,
+			})
+			failedCount++
+		}
+	}
+	
+	debug.Log("Completed processing reconnect_pending tasks for agent", map[string]interface{}{
+		"agent_id":     agentID,
+		"total_tasks":  len(reconnectTasks),
+		"reset_count":  resetCount,
+		"failed_count": failedCount,
+	})
+	
+	// Check if affected jobs need status update
+	jobIDs := make(map[uuid.UUID]bool)
+	for _, task := range reconnectTasks {
+		jobIDs[task.JobExecutionID] = true
+	}
+	
+	for jobID := range jobIDs {
+		// Check if any tasks are still active for this job
+		allTasks, err := s.jobTaskRepo.GetTasksByJobExecution(ctx, jobID)
+		if err != nil {
+			debug.Log("Failed to check job tasks", map[string]interface{}{
+				"job_id": jobID,
+				"error":  err.Error(),
+			})
+			continue
+		}
+		
+		hasActiveTasks := false
+		for _, task := range allTasks {
+			if task.Status == models.JobTaskStatusRunning || 
+			   task.Status == models.JobTaskStatusReconnectPending ||
+			   task.Status == models.JobTaskStatusAssigned {
+				hasActiveTasks = true
+				break
+			}
+		}
+		
+		// If no active tasks remain and we have pending tasks, ensure job is in pending state
+		if !hasActiveTasks {
+			hasPendingTasks := false
+			for _, task := range allTasks {
+				if task.Status == models.JobTaskStatusPending {
+					hasPendingTasks = true
+					break
+				}
+			}
+			
+			if hasPendingTasks {
+				// Ensure job is in pending state for rescheduling
+				// Use jobExecutionRepo from the service
+				database := &db.DB{DB: s.db}
+				jobExecutionRepo := repository.NewJobExecutionRepository(database)
+				err := jobExecutionRepo.UpdateStatus(ctx, jobID, models.JobExecutionStatusPending)
+				if err != nil {
+					debug.Log("Failed to update job status to pending", map[string]interface{}{
+						"job_id": jobID,
+						"error":  err.Error(),
+					})
+				} else {
+					debug.Log("Job marked as pending for rescheduling", map[string]interface{}{
+						"job_id": jobID,
+					})
+				}
+			}
+		}
+	}
+	
+	return resetCount, nil
 }
 
 // handleReconnectGracePeriod waits for the grace period and then marks tasks as failed if not recovered

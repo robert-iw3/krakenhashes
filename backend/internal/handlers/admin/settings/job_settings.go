@@ -36,6 +36,7 @@ type JobExecutionSettings struct {
 	MaxChunkRetryAttempts            int    `json:"max_chunk_retry_attempts"`
 	JobsPerPageDefault               int    `json:"jobs_per_page_default"`
 	SpeedtestTimeoutSeconds          int    `json:"speedtest_timeout_seconds"`
+	ReconnectGracePeriodMinutes      int    `json:"reconnect_grace_period_minutes"`
 	// Rule splitting settings
 	RuleSplitEnabled   bool    `json:"rule_split_enabled"`
 	RuleSplitThreshold float64 `json:"rule_split_threshold"`
@@ -63,6 +64,7 @@ func (h *JobSettingsHandler) GetJobExecutionSettings(w http.ResponseWriter, r *h
 		"max_chunk_retry_attempts",
 		"jobs_per_page_default",
 		"speedtest_timeout_seconds",
+		"reconnect_grace_period_minutes",
 		// Rule splitting settings
 		"rule_split_enabled",
 		"rule_split_threshold",
@@ -85,6 +87,7 @@ func (h *JobSettingsHandler) GetJobExecutionSettings(w http.ResponseWriter, r *h
 		MaxChunkRetryAttempts:            3,
 		JobsPerPageDefault:               25,
 		SpeedtestTimeoutSeconds:          30,
+		ReconnectGracePeriodMinutes:      5, // 5 minutes default
 		// Rule splitting defaults
 		RuleSplitEnabled:   true,
 		RuleSplitThreshold: 2.0,
@@ -151,6 +154,10 @@ func (h *JobSettingsHandler) GetJobExecutionSettings(w http.ResponseWriter, r *h
 				if val, err := strconv.Atoi(*setting.Value); err == nil {
 					settings.SpeedtestTimeoutSeconds = val
 				}
+			case "reconnect_grace_period_minutes":
+				if val, err := strconv.Atoi(*setting.Value); err == nil {
+					settings.ReconnectGracePeriodMinutes = val
+				}
 			case "rule_split_enabled":
 				settings.RuleSplitEnabled = *setting.Value == "true"
 			case "rule_split_threshold":
@@ -199,6 +206,7 @@ func (h *JobSettingsHandler) UpdateJobExecutionSettings(w http.ResponseWriter, r
 		"max_chunk_retry_attempts":            strconv.Itoa(settings.MaxChunkRetryAttempts),
 		"jobs_per_page_default":               strconv.Itoa(settings.JobsPerPageDefault),
 		"speedtest_timeout_seconds":           strconv.Itoa(settings.SpeedtestTimeoutSeconds),
+		"reconnect_grace_period_minutes":      strconv.Itoa(settings.ReconnectGracePeriodMinutes),
 		// Rule splitting settings
 		"rule_split_enabled":    strconv.FormatBool(settings.RuleSplitEnabled),
 		"rule_split_threshold":  strconv.FormatFloat(settings.RuleSplitThreshold, 'f', 1, 64),

@@ -320,6 +320,177 @@ Agents track consecutive task failures:
 - Can trigger automatic disabling
 - Helps identify problematic agents
 
+## Agent Disconnection and Task Recovery
+
+### Understanding Disconnection Scenarios
+
+KrakenHashes handles three distinct agent disconnection scenarios, each with specific recovery mechanisms:
+
+#### 1. Backend Restart (Planned or Unplanned)
+When the backend server restarts while agents have running tasks:
+
+**What Happens:**
+- Tasks transition to `reconnect_pending` state
+- Agents continue processing and cache crack results locally
+- Agent attempts reconnection with exponential backoff
+- Upon reconnection, agent reports current task status
+
+**Recovery Process:**
+1. Agent reconnects and sends `current_task_status` message
+2. Backend validates the task belongs to this agent
+3. Task transitions from `reconnect_pending` back to `running`
+4. Cached crack results are processed
+5. Job continues without losing progress
+
+**Grace Period:** Configured via Admin Panel → Settings → Job Execution → Reconnect Grace Period (default: 5 minutes)
+
+#### 2. Graceful Agent Shutdown
+When an agent is properly stopped (SIGTERM, Ctrl+C, or service stop):
+
+**What Happens:**
+- Agent sends `agent_shutdown` notification to backend
+- Backend immediately marks task as `pending` for reassignment
+- No retry count increment (not a failure)
+- Task becomes available for other agents
+
+**Recovery Process:**
+- Task is immediately available for reassignment
+- No grace period applies
+- Original agent can claim new tasks upon restart
+
+#### 3. Agent Crash or Network Failure
+When an agent disconnects unexpectedly (crash, network loss, power failure):
+
+**What Happens:**
+- Backend detects lost WebSocket connection
+- Task enters `reconnect_pending` state
+- Grace period timer starts
+
+**Recovery Process:**
+
+If agent reconnects within grace period:
+- Agent reports it has no running task
+- Backend marks task as `pending` for reassignment
+- Agent becomes available for new tasks
+
+If grace period expires:
+- Task automatically transitions to `pending`
+- Available for any agent to claim
+- Retry count may increment based on configuration
+
+### Task State Transitions
+
+```
+running → reconnect_pending → running (agent reconnects with task)
+running → reconnect_pending → pending (agent reconnects without task)
+running → reconnect_pending → pending (grace period expires)
+running → pending (graceful shutdown)
+```
+
+### Monitoring Disconnection Events
+
+#### Key Metrics to Watch
+- **Reconnection frequency**: High frequency indicates network issues
+- **Grace period utilization**: Tasks recovering vs. timing out
+- **Task reassignment rate**: How often tasks move between agents
+- **Cached data volume**: Amount of data agents cache during disconnections
+
+#### Log Indicators
+
+Backend logs to monitor:
+```
+INFO: Agent X: Task status - HasTask: true, TaskID: xxx
+INFO: Task can be recovered [task_id=xxx, status=reconnect_pending]
+INFO: Successfully recovered task
+```
+
+Agent logs to monitor:
+```
+INFO: Sending current task status to backend
+INFO: Successfully sent current task status - HasTask: true
+INFO: Connection state: disconnected
+INFO: Reconnection attempt X - Waiting Ys before retry
+```
+
+### Configuring Recovery Behavior
+
+#### Reconnect Grace Period
+Adjust based on your environment:
+- **Stable networks**: 3-5 minutes
+- **Cloud environments**: 5-10 minutes  
+- **Unreliable networks**: 10-15 minutes
+- **Maintenance windows**: 15-30 minutes
+
+#### Best Practices
+1. **Set grace period based on recovery time**: Consider how long it takes to:
+   - Restart backend services
+   - Complete rolling updates
+   - Recover from network outages
+
+2. **Monitor grace period effectiveness**:
+   - Track successful recoveries vs. timeouts
+   - Adjust if seeing excessive reassignments
+   - Consider agent network stability
+
+3. **Plan maintenance windows**:
+   - Increase grace period before maintenance
+   - Notify users of extended recovery time
+   - Monitor agent reconnections post-maintenance
+
+4. **Handle chronic disconnections**:
+   - Identify agents with frequent disconnections
+   - Check network path and stability
+   - Consider dedicated network routes for critical agents
+
+### Troubleshooting Recovery Issues
+
+#### Agent Not Recovering Task After Reconnection
+**Symptoms**: Agent reconnects but task is reassigned
+
+**Common Causes**:
+- Task ID mismatch between agent and backend
+- Database constraint violations (check backend logs)
+- Agent started fresh without cached state
+
+**Solutions**:
+1. Check agent has persistent storage for state
+2. Verify task ID in agent and backend logs match
+3. Review backend logs for "Failed to recover task" errors
+4. Ensure database migrations are up to date
+
+#### Tasks Stuck in Reconnect_Pending
+**Symptoms**: Tasks remain in reconnect_pending after grace period
+
+**Common Causes**:
+- Backend service not running task cleanup
+- Database lock preventing state transition
+- Incorrect grace period configuration
+
+**Solutions**:
+1. Verify job cleanup service is running
+2. Check database for locks on job_tasks table
+3. Manually transition stuck tasks if needed:
+   ```sql
+   UPDATE job_tasks 
+   SET status = 'pending', updated_at = NOW() 
+   WHERE status = 'reconnect_pending' 
+   AND updated_at < NOW() - INTERVAL '10 minutes';
+   ```
+
+#### Excessive Task Reassignments
+**Symptoms**: Tasks frequently moving between agents
+
+**Common Causes**:
+- Grace period too short
+- Network instability
+- Agents crashing frequently
+
+**Solutions**:
+1. Increase reconnect grace period
+2. Investigate network stability
+3. Check agent system resources and logs
+4. Consider agent health checks
+
 ## Troubleshooting Agent Issues
 
 ### Common Connection Issues

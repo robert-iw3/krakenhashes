@@ -332,8 +332,49 @@ func (r *JobTaskRepository) UpdateTaskError(ctx context.Context, taskID uuid.UUI
 
 // UpdateStatus updates the status of a job task
 func (r *JobTaskRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status models.JobTaskStatus) error {
-	query := `UPDATE job_tasks SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`
-	result, err := r.db.ExecContext(ctx, query, status, id)
+	// Map status to appropriate detailed_status to maintain database constraint consistency
+	var detailedStatus string
+	switch status {
+	case models.JobTaskStatusPending:
+		detailedStatus = "pending"
+	case models.JobTaskStatusAssigned:
+		detailedStatus = "dispatched"
+	case models.JobTaskStatusRunning:
+		detailedStatus = "running"
+	case models.JobTaskStatusCompleted:
+		detailedStatus = "completed_no_cracks"
+	case models.JobTaskStatusFailed:
+		detailedStatus = "failed"
+	case models.JobTaskStatusCancelled:
+		detailedStatus = "cancelled"
+	case models.JobTaskStatusReconnectPending:
+		// Keep the existing detailed_status for reconnect_pending
+		// This is a temporary state and detailed_status should remain as it was
+		query := `UPDATE job_tasks SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`
+		result, err := r.db.ExecContext(ctx, query, status, id)
+		if err != nil {
+			return fmt.Errorf("failed to update job task status: %w", err)
+		}
+		rowsAffected, err := result.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("failed to get rows affected: %w", err)
+		}
+		if rowsAffected == 0 {
+			debug.Error("Task not found when updating status: task_id=%s, status=%s", id, status)
+			return ErrNotFound
+		}
+		debug.Log("Updated task status to reconnect_pending", map[string]interface{}{
+			"task_id":       id,
+			"status":        status,
+			"rows_affected": rowsAffected,
+		})
+		return nil
+	default:
+		detailedStatus = "pending" // Safe default
+	}
+
+	query := `UPDATE job_tasks SET status = $1, detailed_status = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3`
+	result, err := r.db.ExecContext(ctx, query, status, detailedStatus, id)
 	if err != nil {
 		return fmt.Errorf("failed to update job task status: %w", err)
 	}
@@ -349,9 +390,10 @@ func (r *JobTaskRepository) UpdateStatus(ctx context.Context, id uuid.UUID, stat
 	}
 
 	debug.Log("Updated task status", map[string]interface{}{
-		"task_id":       id,
-		"status":        status,
-		"rows_affected": rowsAffected,
+		"task_id":         id,
+		"status":          status,
+		"detailed_status": detailedStatus,
+		"rows_affected":   rowsAffected,
 	})
 
 	return nil
@@ -406,8 +448,9 @@ func (r *JobTaskRepository) UpdateProgress(ctx context.Context, id uuid.UUID, ke
 // CompleteTask marks a task as completed
 func (r *JobTaskRepository) CompleteTask(ctx context.Context, id uuid.UUID) error {
 	now := time.Now()
-	query := `UPDATE job_tasks SET status = $1, completed_at = $2, progress_percent = 100 WHERE id = $3`
-	result, err := r.db.ExecContext(ctx, query, models.JobTaskStatusCompleted, now, id)
+	// Update both status and detailed_status to maintain database constraint consistency
+	query := `UPDATE job_tasks SET status = $1, detailed_status = $2, completed_at = $3, progress_percent = 100 WHERE id = $4`
+	result, err := r.db.ExecContext(ctx, query, models.JobTaskStatusCompleted, "completed_no_cracks", now, id)
 	if err != nil {
 		return fmt.Errorf("failed to complete job task: %w", err)
 	}
@@ -427,8 +470,9 @@ func (r *JobTaskRepository) CompleteTask(ctx context.Context, id uuid.UUID) erro
 // FailTask marks a task as failed with an error message
 func (r *JobTaskRepository) FailTask(ctx context.Context, id uuid.UUID, errorMessage string) error {
 	now := time.Now()
-	query := `UPDATE job_tasks SET status = $1, completed_at = $2, error_message = $3 WHERE id = $4`
-	result, err := r.db.ExecContext(ctx, query, models.JobTaskStatusFailed, now, errorMessage, id)
+	// Update both status and detailed_status to maintain database constraint consistency
+	query := `UPDATE job_tasks SET status = $1, detailed_status = $2, completed_at = $3, error_message = $4 WHERE id = $5`
+	result, err := r.db.ExecContext(ctx, query, models.JobTaskStatusFailed, "failed", now, errorMessage, id)
 	if err != nil {
 		return fmt.Errorf("failed to fail job task: %w", err)
 	}
@@ -448,8 +492,9 @@ func (r *JobTaskRepository) FailTask(ctx context.Context, id uuid.UUID, errorMes
 // CancelTask marks a task as cancelled
 func (r *JobTaskRepository) CancelTask(ctx context.Context, id uuid.UUID) error {
 	now := time.Now()
-	query := `UPDATE job_tasks SET status = $1, completed_at = $2 WHERE id = $3 AND status IN ('pending', 'assigned', 'running')`
-	result, err := r.db.ExecContext(ctx, query, models.JobTaskStatusCancelled, now, id)
+	// Update both status and detailed_status to maintain database constraint consistency
+	query := `UPDATE job_tasks SET status = $1, detailed_status = $2, completed_at = $3 WHERE id = $4 AND status IN ('pending', 'assigned', 'running')`
+	result, err := r.db.ExecContext(ctx, query, models.JobTaskStatusCancelled, "cancelled", now, id)
 	if err != nil {
 		return fmt.Errorf("failed to cancel job task: %w", err)
 	}
@@ -968,6 +1013,50 @@ func (r *JobTaskRepository) GetNextChunkNumber(ctx context.Context, jobExecution
 	}
 
 	return nextNumber, nil
+}
+
+// GetReconnectPendingTasksByAgent retrieves all reconnect_pending tasks for a specific agent
+func (r *JobTaskRepository) GetReconnectPendingTasksByAgent(ctx context.Context, agentID int) ([]models.JobTask, error) {
+	query := `
+		SELECT 
+			id, job_execution_id, agent_id, status, priority,
+			attack_cmd, keyspace_start, keyspace_end, keyspace_processed,
+			progress_percent, benchmark_speed, chunk_duration,
+			created_at, assigned_at, started_at, completed_at, updated_at,
+			last_checkpoint, error_message, crack_count, detailed_status,
+			retry_count, rule_start_index, rule_end_index, rule_chunk_path,
+			is_rule_split_task, chunk_number,
+			effective_keyspace_start, effective_keyspace_end, effective_keyspace_processed
+		FROM job_tasks
+		WHERE agent_id = $1 AND status = $2
+		ORDER BY created_at ASC`
+
+	rows, err := r.db.QueryContext(ctx, query, agentID, models.JobTaskStatusReconnectPending)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get reconnect_pending tasks for agent: %w", err)
+	}
+	defer rows.Close()
+
+	var tasks []models.JobTask
+	for rows.Next() {
+		var task models.JobTask
+		err := rows.Scan(
+			&task.ID, &task.JobExecutionID, &task.AgentID, &task.Status, &task.Priority,
+			&task.AttackCmd, &task.KeyspaceStart, &task.KeyspaceEnd, &task.KeyspaceProcessed,
+			&task.ProgressPercent, &task.BenchmarkSpeed, &task.ChunkDuration,
+			&task.CreatedAt, &task.AssignedAt, &task.StartedAt, &task.CompletedAt, &task.UpdatedAt,
+			&task.LastCheckpoint, &task.ErrorMessage, &task.CrackCount, &task.DetailedStatus,
+			&task.RetryCount, &task.RuleStartIndex, &task.RuleEndIndex, &task.RuleChunkPath,
+			&task.IsRuleSplitTask, &task.ChunkNumber,
+			&task.EffectiveKeyspaceStart, &task.EffectiveKeyspaceEnd, &task.EffectiveKeyspaceProcessed,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan job task: %w", err)
+		}
+		tasks = append(tasks, task)
+	}
+
+	return tasks, nil
 }
 
 // GetTasksByChunkNumber retrieves tasks by job execution ID and chunk number

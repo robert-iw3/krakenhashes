@@ -34,6 +34,50 @@ The system follows this precedence order (highest to lowest):
 3. `.env` file values
 4. Default values in code
 
+## Configuration Types
+
+KrakenHashes uses two types of configuration:
+
+### 1. Environment Variables (System Configuration)
+These settings control core system behavior and are set at deployment time. They configure infrastructure elements like database connections, ports, and file paths.
+
+### 2. Admin Panel Settings (Runtime Configuration)
+These settings can be changed through the web interface without restarting services. They control operational behavior like job execution, chunking, and agent coordination.
+
+!!! tip "Configuration Best Practice"
+    Use environment variables for infrastructure settings that rarely change.
+    Use admin panel settings for operational parameters that need frequent adjustment.
+
+## Admin Panel Settings
+
+Several configuration options are available through the Admin Panel UI rather than environment variables. These settings can be changed at runtime without restarting services.
+
+### Available Admin Panel Settings
+
+- **[Job Execution Settings](../operations/job-settings.md)**: Control job chunking, agent behavior, and task distribution
+  - Default chunk duration
+  - Reconnect grace period
+  - Progress reporting intervals
+  - Rule splitting configuration
+  
+- **[Data Retention Settings](../operations/data-retention.md)**: Configure automatic data cleanup
+  - Hashlist retention periods
+  - Job history retention
+  - Metrics retention
+
+- **[Agent Scheduling](../operations/scheduling.md)**: Define when agents are available
+  - Daily schedules per agent
+  - Global scheduling enable/disable
+
+### Accessing Admin Panel Settings
+
+1. Log in as an administrator
+2. Navigate to the **Admin Panel**
+3. Click **Settings** in the navigation menu
+4. Select the appropriate settings category
+
+Changes to admin panel settings take effect immediately without requiring service restarts.
+
 ## Environment Variables
 
 ### Core System Settings

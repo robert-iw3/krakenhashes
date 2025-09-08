@@ -43,6 +43,7 @@ Comprehensive guide for KrakenHashes system administrators.
 ### :material-account-cog: **Daily Operations**
 - [User Management](operations/users.md)
 - [Agent Management](operations/agents.md)
+- [Job Execution Settings](operations/job-settings.md)
 - [System Monitoring](operations/monitoring.md)
 - [Potfile Management](operations/potfile.md)
 - [Backup Procedures](operations/backup.md)
