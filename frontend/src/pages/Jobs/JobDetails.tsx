@@ -11,6 +11,7 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  TablePagination,
   Chip,
   CircularProgress,
   Alert,
@@ -45,6 +46,10 @@ const JobDetails: React.FC = () => {
   const [tempPriority, setTempPriority] = useState<number>(0);
   const [tempMaxAgents, setTempMaxAgents] = useState<number>(1);
   const [saving, setSaving] = useState(false);
+  
+  // Completed tasks pagination state
+  const [completedTasksPage, setCompletedTasksPage] = useState(0);
+  const [completedTasksPageSize, setCompletedTasksPageSize] = useState(25);
   
   // Refs to track current state for polling
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -268,6 +273,20 @@ const JobDetails: React.FC = () => {
   // Get active tasks for agent table
   const activeTasks = jobData.tasks.filter(task => 
     ['running', 'pending', 'reconnect_pending'].includes(task.status)
+  );
+
+  // Get completed tasks and sort by completion time (most recent first)
+  const completedTasks = jobData.tasks
+    .filter(task => task.status === 'completed')
+    .sort((a, b) => {
+      if (!a.completed_at || !b.completed_at) return 0;
+      return new Date(b.completed_at).getTime() - new Date(a.completed_at).getTime();
+    });
+
+  // Paginate completed tasks
+  const paginatedCompletedTasks = completedTasks.slice(
+    completedTasksPage * completedTasksPageSize,
+    (completedTasksPage + 1) * completedTasksPageSize
   );
 
   const totalKeyspace = jobData.effective_keyspace || jobData.total_keyspace || 0;
@@ -562,6 +581,86 @@ const JobDetails: React.FC = () => {
           </Table>
         </TableContainer>
       </Paper>
+
+      {/* Completed Tasks Table */}
+      {completedTasks.length > 0 && (
+        <Paper sx={{ mt: 3 }}>
+          <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
+            <Typography variant="h6">
+              Completed Tasks ({completedTasks.length} total)
+            </Typography>
+          </Box>
+          <TableContainer>
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableCell>Agent ID</TableCell>
+                  <TableCell>Task ID</TableCell>
+                  <TableCell>Completed At</TableCell>
+                  <TableCell>Keyspace Range</TableCell>
+                  <TableCell>Final Progress</TableCell>
+                  <TableCell>Average Speed</TableCell>
+                  <TableCell>Cracks Found</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {paginatedCompletedTasks.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={7} align="center">
+                      <Typography color="text.secondary" sx={{ py: 2 }}>
+                        No completed tasks
+                      </Typography>
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  paginatedCompletedTasks.map((task) => (
+                    <TableRow key={task.id}>
+                      <TableCell>{task.agent_id || 'Unassigned'}</TableCell>
+                      <TableCell>{task.id.slice(0, 8)}...</TableCell>
+                      <TableCell>{formatDate(task.completed_at)}</TableCell>
+                      <TableCell>
+                        {formatKeyspace(task.effective_keyspace_start || task.keyspace_start)} - {formatKeyspace(task.effective_keyspace_end || task.keyspace_end)}
+                      </TableCell>
+                      <TableCell>{task.progress_percent?.toFixed(2) || 100}%</TableCell>
+                      <TableCell>{formatSpeed(task.benchmark_speed)}</TableCell>
+                      <TableCell>
+                        {task.crack_count > 0 ? (
+                          <Link
+                            component="button"
+                            variant="body2"
+                            onClick={() => navigate(`/pot/hashlist/${jobData.hashlist_id}`)}
+                            sx={{ fontWeight: 'medium' }}
+                          >
+                            {task.crack_count}
+                          </Link>
+                        ) : (
+                          task.crack_count
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </TableContainer>
+          {completedTasks.length > completedTasksPageSize && (
+            <TablePagination
+              rowsPerPageOptions={[25, 50, 100, 200]}
+              component="div"
+              count={completedTasks.length}
+              rowsPerPage={completedTasksPageSize}
+              page={completedTasksPage}
+              onPageChange={(event, newPage) => setCompletedTasksPage(newPage)}
+              onRowsPerPageChange={(event) => {
+                setCompletedTasksPageSize(parseInt(event.target.value, 10));
+                setCompletedTasksPage(0);
+              }}
+              showFirstButton
+              showLastButton
+            />
+          )}
+        </Paper>
+      )}
     </Box>
   );
 };

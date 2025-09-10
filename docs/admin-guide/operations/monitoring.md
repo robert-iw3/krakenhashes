@@ -104,6 +104,33 @@ Monitor job progress through these metrics:
 - **Cracked Count**: Number of successfully cracked hashes
 - **Total Speed**: Combined hash rate across all agents
 
+### Enhanced Job Details View
+
+The Job Details page now includes a comprehensive completed tasks history that provides administrators with:
+
+#### Completed Tasks Monitoring
+- **Historical Performance Data**: View hash rates achieved by each agent for completed tasks
+- **Task Completion Patterns**: Analyze when and how tasks were completed across the job lifecycle
+- **Keyspace Analysis**: Identify which keyspace ranges were most productive for password cracking
+- **Audit Trail**: Maintain a complete record of job execution across distributed agents
+
+#### Available Metrics
+For each completed task, administrators can review:
+- Agent assignment and performance metrics
+- Exact keyspace ranges processed
+- Completion timestamps for timeline analysis
+- Number of cracks found per task
+- Average hash rate achieved during execution
+
+#### Use Cases for Administrators
+- **Performance Optimization**: Compare agent efficiency across tasks to identify hardware or configuration issues
+- **Resource Planning**: Analyze task distribution patterns to optimize future job configurations
+- **Troubleshooting**: Identify if specific agents or keyspace ranges consistently underperform
+- **Compliance Reporting**: Maintain detailed execution records for security audits
+
+!!! note "Data Retention"
+    Completed tasks are retained even after job completion, providing long-term visibility into job execution history. This data persists according to your configured retention policies.
+
 ### Database Queries for Job Monitoring
 
 ```sql

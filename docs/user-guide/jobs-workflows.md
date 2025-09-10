@@ -183,6 +183,38 @@ The new progress bar provides at-a-glance job status:
 - **Plain Text**: Recovered passwords (if permissions allow)
 - **Export Options**: Download results in various formats
 
+#### Completed Tasks History
+
+The Job Details page maintains a comprehensive history of all completed tasks, providing valuable insights into job execution:
+
+##### Information Displayed
+For each completed task, you can view:
+- **Agent ID**: The specific agent that processed the task
+- **Task ID**: Unique identifier for reference and troubleshooting  
+- **Completion Time**: When the task finished processing
+- **Keyspace Range**: The exact portion of keyspace that was processed
+- **Final Progress**: The percentage of the task that was completed
+- **Average Speed**: Hash rate achieved during task execution
+- **Cracks Found**: Number of passwords cracked (click to view details in the POT)
+
+##### Organization and Navigation
+- **Automatic Sorting**: Tasks are sorted by completion time, with most recent first
+- **Pagination Controls**: Navigate through large task lists with configurable page sizes:
+  - 25 items per page (default)
+  - 50, 100, or 200 items for larger views
+- **Persistent History**: Completed tasks remain visible even after job completion
+
+##### Use Cases
+The completed tasks history helps with:
+- **Performance Analysis**: Compare hash rates across different agents to identify performance variations
+- **Crack Distribution**: See which keyspace ranges yielded the most cracks
+- **Troubleshooting**: Identify if specific agents or keyspace ranges had issues
+- **Audit Trail**: Maintain a complete record of job execution for compliance or review
+- **Resource Planning**: Analyze task completion patterns to optimize future job configurations
+
+!!! tip "Performance Insights"
+    Use the completed tasks table to identify your most efficient agents and optimize task distribution in future jobs.
+
 ### Interactive Controls
 
 While monitoring your job, you can:
