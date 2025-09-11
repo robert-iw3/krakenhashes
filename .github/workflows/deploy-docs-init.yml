@@ -47,6 +47,16 @@ jobs:
           if git ls-remote --heads origin gh-pages | grep -q gh-pages; then
             echo "gh-pages branch exists, fetching..."
             git fetch origin gh-pages:gh-pages
+            
+            # Clean the branch for fresh Mike setup
+            echo "Cleaning gh-pages branch for fresh Mike setup"
+            git checkout gh-pages
+            # Remove everything except .git
+            find . -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
+            git add -A
+            git diff --cached --quiet || git commit -m "Clean gh-pages for Mike initialization"
+            git push origin gh-pages
+            git checkout -
           else
             echo "Creating new gh-pages branch"
             git checkout --orphan gh-pages
@@ -60,13 +70,29 @@ jobs:
           echo "Deploying version ${VERSION} as latest"
           mike deploy --push --update-aliases "${VERSION}" latest
           
-          # Set latest as the default version
-          echo "Setting latest as default version"
-          mike set-default --push latest
+          # Set the actual version as default (not the alias)
+          echo "Setting version ${VERSION} as default"
+          mike set-default --push "${VERSION}"
           
           # Deploy current main branch as dev
           echo "Deploying current branch as dev"
           mike deploy --push --update-aliases dev
+          
+          # Replace latest symlink with actual directory copy for GitHub Pages
+          echo "Fixing latest symlink for GitHub Pages compatibility"
+          git fetch origin gh-pages:gh-pages
+          git checkout gh-pages
+          
+          # Remove symlink and copy actual version directory
+          if [ -L "latest" ]; then
+            rm -f latest
+            cp -r "${VERSION}" latest
+            git add -A
+            git commit -m "Replace latest symlink with actual directory for GitHub Pages"
+            git push origin gh-pages
+          fi
+          
+          git checkout -
           
           # List all versions
           echo "Deployed versions:"

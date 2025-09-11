@@ -73,6 +73,27 @@ jobs:
             echo "No 'latest' version found, setting dev as default"
             mike set-default --push dev
           fi
+          
+          # Ensure no symlinks remain in gh-pages
+          echo "Checking for symlinks in gh-pages"
+          git fetch origin gh-pages:gh-pages
+          git checkout gh-pages
+          
+          # Check and fix latest if it's a symlink
+          if [ -L "latest" ]; then
+            echo "Found latest as symlink, need to fix"
+            # Find what latest points to
+            TARGET=$(readlink latest)
+            if [ -d "$TARGET" ]; then
+              rm -f latest
+              cp -r "$TARGET" latest
+              git add -A
+              git commit -m "Replace latest symlink with directory copy"
+              git push origin gh-pages
+            fi
+          fi
+          
+          git checkout -
 
   preview:
     runs-on: ubuntu-latest

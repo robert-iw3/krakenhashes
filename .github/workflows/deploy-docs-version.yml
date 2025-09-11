@@ -82,7 +82,23 @@ jobs:
           if [ "${SET_LATEST}" = "true" ]; then
             echo "Deploying version ${VERSION} and updating latest alias"
             mike deploy --push --update-aliases "${VERSION}" latest
-            mike set-default --push latest
+            mike set-default --push "${VERSION}"
+            
+            # Fix latest symlink for GitHub Pages
+            echo "Fixing latest symlink for GitHub Pages compatibility"
+            git fetch origin gh-pages:gh-pages
+            git checkout gh-pages
+            
+            # Remove symlink and copy actual version directory
+            if [ -L "latest" ]; then
+              rm -f latest
+              cp -r "${VERSION}" latest
+              git add -A
+              git commit -m "Replace latest symlink with directory copy for version ${VERSION}"
+              git push origin gh-pages
+            fi
+            
+            git checkout -
           else
             echo "Deploying version ${VERSION} without updating latest"
             mike deploy --push --update-aliases "${VERSION}"
