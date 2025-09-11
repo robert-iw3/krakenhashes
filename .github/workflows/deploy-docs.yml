@@ -76,6 +76,10 @@ jobs:
           
           # Ensure no symlinks remain in gh-pages
           echo "Checking for symlinks in gh-pages"
+          
+          # Clean up the site directory that Mike created to avoid conflicts
+          rm -rf site
+          
           git fetch origin gh-pages:gh-pages
           git checkout gh-pages
           

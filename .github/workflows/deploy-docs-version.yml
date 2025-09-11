@@ -86,6 +86,10 @@ jobs:
             
             # Fix latest symlink for GitHub Pages
             echo "Fixing latest symlink for GitHub Pages compatibility"
+            
+            # Clean up the site directory that Mike created to avoid conflicts
+            rm -rf site
+            
             git fetch origin gh-pages:gh-pages
             git checkout gh-pages
             
