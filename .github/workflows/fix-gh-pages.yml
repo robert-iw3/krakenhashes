@@ -97,21 +97,21 @@ jobs:
           if [ ! -f "index.html" ] || ! grep -q "window.location.replace" index.html; then
             echo "Creating proper index.html redirect"
             cat > index.html << 'EOF'
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Redirecting...</title>
-    <meta charset="utf-8">
-    <meta http-equiv="refresh" content="1; url=latest/">
-    <script>
-        window.location.replace("latest/" + window.location.search + window.location.hash);
-    </script>
-</head>
-<body>
-    <p>Redirecting to latest documentation...</p>
-</body>
-</html>
-EOF
+          <!DOCTYPE html>
+          <html>
+          <head>
+              <title>Redirecting...</title>
+              <meta charset="utf-8">
+              <meta http-equiv="refresh" content="1; url=latest/">
+              <script>
+                  window.location.replace("latest/" + window.location.search + window.location.hash);
+              </script>
+          </head>
+          <body>
+              <p>Redirecting to latest documentation...</p>
+          </body>
+          </html>
+          EOF
           fi
           
           # Commit changes if any
