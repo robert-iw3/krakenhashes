@@ -65,6 +65,9 @@ jobs:
           VERSION="${{ steps.version.outputs.VERSION }}"
           SET_LATEST="${{ steps.version.outputs.SET_LATEST }}"
           
+          # Fetch gh-pages branch if it exists
+          git fetch origin gh-pages:gh-pages || echo "No gh-pages branch yet"
+          
           # Deploy the specific version
           if [ "${SET_LATEST}" = "true" ]; then
             echo "Deploying version ${VERSION} and updating latest alias"

@@ -131,19 +131,27 @@ nav:
       - Client Management: admin-guide/operations/clients.md
       - Agent Management: admin-guide/operations/agents.md
       - Agent Scheduling: admin-guide/operations/scheduling.md
+      - Job Settings: admin-guide/operations/job-settings.md
+      - Potfile Management: admin-guide/operations/potfile.md
       - System Monitoring: admin-guide/operations/monitoring.md
       - Backup Procedures: admin-guide/operations/backup.md
       - Data Retention: admin-guide/operations/data-retention.md
     - Advanced:
       - Preset Jobs & Workflows: admin-guide/advanced/presets.md
+      - Job Priority: admin-guide/advanced/job-priority.md
       - Job Chunking System: admin-guide/advanced/chunking.md
       - Performance Tuning: admin-guide/advanced/performance.md
   - Agent Guide:
     - agent-guide/index.md
     - Installation: agent-guide/installation.md
     - Configuration: agent-guide/configuration.md
+    - Systemd Setup: agent-guide/systemd-setup.md
+    - Device Management: agent-guide/device-management.md
+    - Monitoring: agent-guide/monitoring.md
     - Scheduling: agent-guide/scheduling.md
     - File Synchronization: agent-guide/file-sync.md
+    - Debugging: agent-guide/debugging.md
+    - Troubleshooting: agent-guide/troubleshooting.md
   - Deployment:
     - deployment/index.md
     - Docker Deployment: deployment/docker.md
@@ -164,8 +172,11 @@ nav:
       - Benchmark Workflow: reference/architecture/benchmark-workflow.md
     - Environment Variables: reference/environment.md
     - Database Schema: reference/database.md
+    - Hash Types: reference/hash-types.md
     - Error Codes: reference/errors.md
     - Glossary: reference/glossary.md
+  - Troubleshooting:
+    - Potfile Issues: troubleshooting/potfile-issues.md
 
 extra:
   social:

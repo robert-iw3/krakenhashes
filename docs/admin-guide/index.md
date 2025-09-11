@@ -32,6 +32,26 @@ Comprehensive guide for KrakenHashes system administrators.
 
 </div>
 
+## First-Time Setup Sequence
+
+When setting up KrakenHashes for the first time, follow this sequence:
+
+1. **Upload Hashcat Binary** (Required First)
+   - Navigate to Admin → Binary Management
+   - Upload a compressed hashcat binary (.7z, .zip, .tar.gz)
+   - Wait for verification to complete
+   - This triggers creation of system preset jobs including the potfile job
+
+2. **Verify Potfile Initialization**
+   - Check Resources → Wordlists for "Pot-file" entry
+   - Check Admin → Preset Jobs for "Potfile Run" job
+   - Both should exist after binary upload
+
+3. **Continue with Standard Setup**
+   - Upload wordlists
+   - Configure agents
+   - Create hashlists
+
 ## Quick Links
 
 ### :material-wrench: **Initial Setup**

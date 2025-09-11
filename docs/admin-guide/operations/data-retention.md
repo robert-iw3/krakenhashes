@@ -44,4 +44,4 @@ Administrators can view and update the default retention policy using the follow
 
 -   The retention job deletes the hashlist metadata, its association with hashes (`hashlist_hashes` entries), and the original uploaded file from storage.
 -   It does **not** delete individual hashes from the central `hashes` table, as they might belong to other, non-expired hashlists.
--   Client-specific retention settings take precedence over these default settings. See [Client Management](./client-management.md) for details. 
+-   Client-specific retention settings take precedence over these default settings. 

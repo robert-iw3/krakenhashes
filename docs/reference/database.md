@@ -1190,6 +1190,34 @@ Logs security-related events (added in migration 8).
 
 ---
 
+## Potfile Initialization Sequence
+
+The potfile system initializes in stages during server startup:
+
+### 1. On Server Startup
+- Creates `/data/krakenhashes/wordlists/custom/potfile.txt` if missing
+- Creates potfile wordlist entry in database with `is_potfile = true`
+- Attempts to create "Potfile Run" preset job
+
+### 2. Binary Dependency
+- Preset jobs require a `binary_version_id` (NOT NULL constraint in database)
+- If no binaries exist, preset job creation is deferred
+- A background monitor runs every 5 seconds checking for binary availability
+- Monitor stops once preset job is successfully created
+
+### 3. Completion
+- Once a binary is uploaded and verified, the preset job is created
+- System settings are updated with both `potfile_wordlist_id` and `potfile_preset_job_id`
+- The potfile system is fully operational
+
+### Related Tables
+- **wordlists**: Contains potfile entry with `is_potfile = true`
+- **preset_jobs**: Contains "Potfile Run" job (once binary available)
+- **potfile_staging**: Temporary storage for passwords before batch processing
+- **system_settings**: Stores `potfile_wordlist_id` and `potfile_preset_job_id`
+
+---
+
 ## Migration History
 
 The database schema has evolved through 47 migrations:

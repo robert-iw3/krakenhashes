@@ -130,6 +130,12 @@ CompanyName123
 - Registered as a wordlist in the database
 - Associated with a preset job for easy use
 
+> **Important**: The potfile preset job requires at least one hashcat binary version to be uploaded to the system. On fresh installations:
+> - The potfile wordlist is created immediately
+> - The preset job creation is deferred until a binary is available
+> - A background monitor checks every 5 seconds for binary availability
+> - Once a binary is uploaded, the preset job is automatically created
+
 ## Staging and Processing Mechanism
 
 ### Staging Table Structure
@@ -172,10 +178,12 @@ graph TD
 ### Automatic Preset Job
 
 The system automatically creates a preset job for the potfile:
-- **Name**: "Potfile Dictionary Attack"
+- **Name**: "Potfile Run"
 - **Type**: Dictionary attack using the potfile as the wordlist
 - **Priority**: Can be configured for high-priority execution
 - **Agents**: Available to all agents
+
+> **Note**: If you don't see the "Potfile Run" preset job after installation, ensure you have uploaded at least one hashcat binary through Admin → Binary Management. The preset job will be created automatically once a binary is available.
 
 ### Using the Potfile in Jobs
 
@@ -244,6 +252,7 @@ docker logs krakenhashes 2>&1 | grep "Processing.*staged pot-file entries"
 | Duplicate passwords appearing | File manually edited | Let system manage the file |
 | Potfile not updating | Batch interval too long | Reduce `potfile_batch_interval` |
 | High memory usage | Large potfile | Consider archiving old entries |
+| Potfile preset job missing | No binaries uploaded | Upload a hashcat binary via Binary Management |
 
 ## Best Practices
 

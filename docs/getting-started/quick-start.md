@@ -116,6 +116,12 @@ Open your browser and navigate to:
     - Upload your hashcat binary archive (download from https://hashcat.net/hashcat/)
     - The archive contains binaries for all platforms (Linux, Windows, macOS)
 
+    !!! note "System Initialization"
+        After uploading your first binary, the system automatically:
+        - Verifies the binary integrity
+        - Creates the potfile preset job (if not already exists)
+        - Makes the binary available to agents
+
 2. **Upload a wordlist**:
 
     - Navigate to Admin → Wordlists
@@ -201,12 +207,12 @@ This is normal with self-signed certificates. For production, see the [Installat
 
 ## Next Steps
 
--   **For Users**: Read [Understanding Jobs and Workflows](user/understanding_jobs_and_workflows.md)
+-   **For Users**: Read [Understanding Jobs and Workflows](../user-guide/jobs-workflows.md)
 -   **For Admins**: Review the full [Installation Guide](installation.md) for production setup
 -   **For Developers**: See [Development Setup](installation.md#development-installation)
 
 ## Getting Help
 
--   Check the [full documentation](README.md)
+-   Check the [full documentation](../index.md)
 -   Report issues on [GitHub](https://github.com/ZerkerEOD/krakenhashes/issues)
 -   Join our community chat (Discord): [KrakenHashes](https://discord.gg/taafA9cSFV)

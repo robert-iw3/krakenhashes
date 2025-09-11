@@ -39,6 +39,12 @@ First, we need to upload the hashcat binary that agents will use to perform the 
    - Status should show as **verified** ✓
    - Note the Binary ID for later reference
 
+!!! info "Why Binary Upload is First"
+    Uploading a hashcat binary is required before most system features become available. Specifically:
+    - The potfile preset job is created only after a binary exists
+    - Agents need binaries to perform any cracking operations
+    - Job creation requires selecting a binary version
+
 ## Step 2: Upload a Simple Wordlist
 
 Next, let's create a basic wordlist for our first crack attempt.
@@ -401,4 +407,4 @@ You now understand the fundamental workflow of KrakenHashes. From here, you can 
 - [Understanding Hash Types](../reference/hash-types.md)
 - [Building Better Wordlists](../user-guide/wordlists-rules.md)
 - [Advanced Attack Strategies](../admin-guide/advanced/presets.md)
-- [Agent Deployment Guide](../agents/README.md)
+- [Agent Deployment Guide](../agent-guide/index.md)

@@ -532,4 +532,4 @@ UPDATE system_settings SET value = '14' WHERE key = 'metrics_retention_days';
 4. Monitor impact and adjust
 5. Document environment-specific settings
 
-For additional support, consult the [System Architecture](../architecture/overview.md) documentation or contact the development team.
+For additional support, consult the [System Overview](../../getting-started/overview.md) documentation or contact the development team.

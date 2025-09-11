@@ -52,6 +52,9 @@ jobs:
 
       - name: Deploy dev documentation with mike
         run: |
+          # Fetch gh-pages branch if it exists
+          git fetch origin gh-pages:gh-pages || echo "No gh-pages branch yet"
+          
           # Deploy as 'dev' version
           mike deploy --push --update-aliases dev
           
