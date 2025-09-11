@@ -136,8 +136,8 @@ To ensure optimal performance:
 
 Once you've submitted a job, you can monitor its progress in real-time through the Job Details page. Access it by clicking on any job in the Jobs list or navigating to `/jobs/{job-id}`.
 
-![Job Details Page](../assets/images/screenshots/job_details.png)
-*The Job Details page showing real-time progress, assigned agents, and crack results*
+<!-- Job Details Page screenshot placeholder -->
+*The Job Details page shows real-time progress, assigned agents, and crack results*
 
 ### Real-Time Updates
 
@@ -316,4 +316,4 @@ Your administrators have configured these workflows based on:
 - Consider implementing stronger password policies
 - Schedule regular password audits using these workflows
 
-For more detailed information about creating and managing workflows, see the [administrator documentation](../admin/preset_jobs_and_workflows.md).
+For more detailed information about creating and managing workflows, see the [administrator documentation](../admin-guide/advanced/presets.md).

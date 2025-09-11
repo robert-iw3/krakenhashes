@@ -52,8 +52,18 @@ jobs:
 
       - name: Deploy dev documentation with mike
         run: |
-          # Fetch gh-pages branch if it exists
-          git fetch origin gh-pages:gh-pages || echo "No gh-pages branch yet"
+          # Fetch all branches including gh-pages
+          git fetch origin
+          
+          # Check if gh-pages exists remotely and sync it
+          if git ls-remote --heads origin gh-pages | grep -q gh-pages; then
+            echo "gh-pages branch exists, checking out and pulling latest"
+            git checkout gh-pages
+            git pull origin gh-pages
+            git checkout -
+          else
+            echo "No gh-pages branch exists yet"
+          fi
           
           # Deploy as 'dev' version
           mike deploy --push --update-aliases dev

@@ -545,7 +545,7 @@ npm install
 
 ## Next Steps
 
--   Review the [Configuration Guide](configuration.md) for detailed settings
--   Check the [Admin Documentation](admin/) for system administration
--   See [User Documentation](user/) for using KrakenHashes
+-   Review the configuration settings in your .env file
+-   Check the [Admin Documentation](../admin-guide/index.md) for system administration
+-   See [User Documentation](../user-guide/index.md) for using KrakenHashes
 -   Join our community for support and updates

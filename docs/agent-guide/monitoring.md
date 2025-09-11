@@ -216,7 +216,7 @@ https://your-server:31337/admin/monitoring
 
 The Agent Details page provides comprehensive device monitoring with live charts:
 
-![Device Monitoring Dashboard](../../assets/images/screenshots/device_monitoring_2.png)
+<!-- Device Monitoring Dashboard image placeholder -->
 
 ### Available Device Charts
 

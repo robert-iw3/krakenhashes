@@ -58,7 +58,7 @@ When using "Test and Save":
    - Troubleshooting information provided
 
 ## Email Templates
-Email templates are managed separately from provider configuration. For detailed information about email templates and available variables, see [Email Templates Documentation](./email_settings.md).
+Email templates are managed separately from provider configuration.
 
 ## Best Practices
 

@@ -317,7 +317,7 @@ Now that you understand what KrakenHashes offers, choose your next step:
     
     Configure TLS and authentication for production
 
--   :material-server: **[Agent Deployment](../agents/README.md)**
+-   :material-server: **[Agent Deployment](../agent-guide/index.md)**
     
     Learn how to deploy and manage agents
 

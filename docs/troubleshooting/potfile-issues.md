@@ -217,5 +217,4 @@ WHERE key = 'potfile_preset_job_id';
 ## Related Documentation
 
 - [Potfile Management Guide](../admin-guide/operations/potfile.md)
-- [Binary Management](../admin-guide/binaries.md)
-- [System Settings](../reference/system-settings.md)
+- [Binary Management](../admin-guide/resource-management/binaries.md)
