@@ -66,6 +66,12 @@ Comprehensive documentation is available in the [docs/](docs/) directory:
 -   **[Admin Guide](https://zerkereod.github.io/krakenhashes/admin-guide/)** - Creating and managing attack strategies
 -   **[Docker Setup](https://zerkereod.github.io/krakenhashes/deployment/docker/)** - Getting started with Docker
 
+## Community
+
+Join our Discord community for support, discussions, and updates:
+
+-   **[Discord Server](https://discord.com/invite/taafA9cSFV)** - Connect with other KrakenHashes users
+
 ## Development
 
 Instructions for setting up and running each component can be found in their respective directories.

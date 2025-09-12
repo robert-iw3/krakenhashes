@@ -75,6 +75,7 @@ import { logout } from '../services/auth';
 import { useAuth } from '../contexts/AuthContext';
 import AdminMenu from './AdminMenu';
 import UserMenu from './common/UserMenu';
+import Footer from './Footer';
 
 interface MenuItem {
   text: string;
@@ -276,6 +277,7 @@ const Layout: React.FC<LayoutProps> = () => {
         sx={{
           flexGrow: 1,
           p: 3,
+          pb: 8, // Add padding bottom to account for fixed footer
           ml: (theme: Theme) => `${open ? drawerWidth + theme.spacing(1) : theme.spacing(8)}px`,
           transition: (theme: Theme) => theme.transitions.create(['margin', 'width'], {
             easing: theme.transitions.easing.sharp,
@@ -286,6 +288,7 @@ const Layout: React.FC<LayoutProps> = () => {
         <Toolbar /> {/* Spacer for AppBar */}
         <Outlet />
       </Box>
+      <Footer drawerOpen={open} />
     </Box>
   );
 };
