@@ -288,61 +288,35 @@ func (h *Handler) HandleAddRule(w http.ResponseWriter, r *http.Request) {
 		fileName = header.FileName()
 		debug.Info("HandleAddRule: Processing file: %s", fileName)
 
-		// Check rule type
-		if ruleType == "" {
-			return fmt.Errorf("rule type is required")
-		}
-
-		// If name is not provided, use the base filename without extension
-		if ruleName == "" {
-			// Convert to lowercase to match what the monitor does
-			ruleName = strings.ToLower(fsutil.ExtractBaseNameWithoutExt(fileName))
-		}
-
-		// Use the original filename but sanitize it
-		baseFileName := fsutil.SanitizeFilename(fileName)
-
-		// Create the relative path with subdirectory (matching what the monitor would create)
-		fileNamePath = filepath.Join(ruleType, baseFileName)
-		debug.Info("HandleAddRule: Using sanitized filename with subdirectory: %s", fileNamePath)
-
-		// Get the destination path for the rule file
-		destPath = h.manager.GetRulePath(fileNamePath, ruleType)
-
-		// Create the destination directory if it doesn't exist
-		destDir := filepath.Dir(destPath)
-		if err := os.MkdirAll(destDir, 0755); err != nil {
-			debug.Error("HandleAddRule: Failed to create destination directory: %v", err)
-			return fmt.Errorf("failed to create directory: %w", err)
-		}
-
-		// Create destination file
-		destFile, err := os.Create(destPath)
+		// Create a temporary file to store the content
+		// We'll move it to the correct location after we have the rule_type
+		tempFile, err := os.CreateTemp("", "rule_upload_*.tmp")
 		if err != nil {
-			debug.Error("HandleAddRule: Failed to create destination file: %v", err)
-			return fmt.Errorf("failed to create file: %w", err)
+			debug.Error("HandleAddRule: Failed to create temp file: %v", err)
+			return fmt.Errorf("failed to create temp file: %w", err)
 		}
-		defer destFile.Close()
+		tempPath := tempFile.Name()
+		defer tempFile.Close()
 
 		// Create a tee reader to count rules while streaming
 		hasher := md5.New()
 		lineCounter := &ruleCounter{}
-		writer := io.MultiWriter(destFile, hasher, lineCounter)
+		writer := io.MultiWriter(tempFile, hasher, lineCounter)
 
-		// Stream file and calculate MD5 simultaneously
+		// Stream file to temp location and calculate MD5 simultaneously
 		bytesWritten, err := io.CopyBuffer(writer, r, make([]byte, 32*1024))
 		if err != nil {
-			destFile.Close()
-			os.Remove(destPath)
+			os.Remove(tempPath)
 			debug.Error("HandleAddRule: Failed to stream file: %v", err)
 			return fmt.Errorf("failed to save file: %w", err)
 		}
 
-		// Calculate final MD5 and file stats
+		// Store results for later use
 		md5Hash = fmt.Sprintf("%x", hasher.Sum(nil))
 		fileSize = bytesWritten
 		ruleCount = lineCounter.count
-		debug.Info("HandleAddRule: File streamed successfully: %d bytes, MD5: %s, Rules: %d", bytesWritten, md5Hash, ruleCount)
+		destPath = tempPath // Store temp path for now
+		debug.Info("HandleAddRule: File streamed to temp location: %d bytes, MD5: %s, Rules: %d", bytesWritten, md5Hash, ruleCount)
 
 		return nil
 	})
@@ -364,6 +338,81 @@ func (h *Handler) HandleAddRule(w http.ResponseWriter, r *http.Request) {
 		httputil.RespondWithError(w, http.StatusBadRequest, "No file provided")
 		return
 	}
+
+	// Check if rule_type was provided
+	if ruleType == "" {
+		// Clean up temp file
+		if destPath != "" {
+			os.Remove(destPath)
+		}
+		debug.Error("HandleAddRule: Rule type is required")
+		httputil.RespondWithError(w, http.StatusBadRequest, "Rule type is required")
+		return
+	}
+
+	// Now that we have the rule_type, determine the final path
+	// If name is not provided, use the base filename without extension
+	if ruleName == "" {
+		// Convert to lowercase to match what the monitor does
+		ruleName = strings.ToLower(fsutil.ExtractBaseNameWithoutExt(fileName))
+	}
+
+	// Use the original filename but sanitize it
+	baseFileName := fsutil.SanitizeFilename(fileName)
+
+	// Create the relative path with subdirectory (matching what the monitor would create)
+	fileNamePath = filepath.Join(ruleType, baseFileName)
+	debug.Info("HandleAddRule: Using sanitized filename with subdirectory: %s", fileNamePath)
+
+	// Get the final destination path for the rule file
+	finalPath := h.manager.GetRulePath(fileNamePath, ruleType)
+
+	// Create the destination directory if it doesn't exist
+	destDir := filepath.Dir(finalPath)
+	if err := os.MkdirAll(destDir, 0755); err != nil {
+		// Clean up temp file
+		os.Remove(destPath)
+		debug.Error("HandleAddRule: Failed to create destination directory: %v", err)
+		httputil.RespondWithError(w, http.StatusInternalServerError, "Failed to create directory")
+		return
+	}
+
+	// Move temp file to final destination
+	if err := os.Rename(destPath, finalPath); err != nil {
+		// If rename fails (e.g., across filesystems), copy and delete
+		srcFile, err := os.Open(destPath)
+		if err != nil {
+			os.Remove(destPath)
+			debug.Error("HandleAddRule: Failed to open temp file: %v", err)
+			httputil.RespondWithError(w, http.StatusInternalServerError, "Failed to move file")
+			return
+		}
+		defer srcFile.Close()
+
+		dstFile, err := os.Create(finalPath)
+		if err != nil {
+			os.Remove(destPath)
+			debug.Error("HandleAddRule: Failed to create destination file: %v", err)
+			httputil.RespondWithError(w, http.StatusInternalServerError, "Failed to create file")
+			return
+		}
+		defer dstFile.Close()
+
+		if _, err := io.Copy(dstFile, srcFile); err != nil {
+			os.Remove(destPath)
+			os.Remove(finalPath)
+			debug.Error("HandleAddRule: Failed to copy file: %v", err)
+			httputil.RespondWithError(w, http.StatusInternalServerError, "Failed to save file")
+			return
+		}
+
+		// Remove temp file after successful copy
+		os.Remove(destPath)
+	}
+
+	// Update destPath to the final location
+	destPath = finalPath
+	debug.Info("HandleAddRule: File moved to final location: %s", destPath)
 
 	// Parse tags
 	var tags []string
