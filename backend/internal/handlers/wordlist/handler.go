@@ -27,6 +27,25 @@ type Handler struct {
 	manager wordlist.Manager
 }
 
+// progressWriter wraps an io.Writer to track bytes written
+type progressWriter struct {
+	writer       io.Writer
+	bytesWritten int64
+	onWrite      func(int64)
+}
+
+// Write implements io.Writer interface
+func (pw *progressWriter) Write(p []byte) (n int, err error) {
+	n, err = pw.writer.Write(p)
+	if err == nil {
+		pw.bytesWritten += int64(n)
+		if pw.onWrite != nil {
+			pw.onWrite(pw.bytesWritten)
+		}
+	}
+	return n, err
+}
+
 // NewHandler creates a new wordlist handler
 func NewHandler(manager wordlist.Manager) *Handler {
 	return &Handler{
@@ -258,7 +277,28 @@ func (h *Handler) HandleAddWordlist(w http.ResponseWriter, r *http.Request) {
 
 	// Stream file and calculate MD5 simultaneously
 	hasher := md5.New()
-	writer := io.MultiWriter(destFile, hasher)
+	
+	// Create a syncing writer wrapper
+	totalBytesWritten := int64(0)
+	lastSyncBytes := int64(0)
+	syncInterval := int64(100 * 1024 * 1024) // Sync every 100MB
+	
+	// Wrap the file with a custom writer that tracks progress and syncs periodically
+	fileWriter := &progressWriter{
+		writer: destFile,
+		onWrite: func(bytesWritten int64) {
+			totalBytesWritten = bytesWritten
+			// Sync every 100MB so file size is visible during upload
+			if totalBytesWritten-lastSyncBytes >= syncInterval {
+				destFile.Sync()
+				lastSyncBytes = totalBytesWritten
+				debug.Info("HandleAddWordlist: Synced file at %d MB", totalBytesWritten/(1024*1024))
+			}
+		},
+	}
+	
+	// Create writer that writes to both file (with sync) and hasher
+	writer := io.MultiWriter(fileWriter, hasher)
 	
 	// Use 32KB buffer for streaming to minimize memory usage
 	bytesWritten, err := io.CopyBuffer(writer, filePart, make([]byte, 32*1024))
@@ -267,6 +307,9 @@ func (h *Handler) HandleAddWordlist(w http.ResponseWriter, r *http.Request) {
 		httputil.RespondWithError(w, http.StatusInternalServerError, "Failed to save file")
 		return
 	}
+	
+	// Final sync to ensure all data is written
+	destFile.Sync()
 
 	// Calculate final MD5
 	md5Hash := fmt.Sprintf("%x", hasher.Sum(nil))
