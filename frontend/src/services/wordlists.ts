@@ -13,21 +13,46 @@ export const getWordlist = (id: string) =>
   api.get<Wordlist>(`/api/wordlists/${id}`);
 
 // Upload a new wordlist
-export const uploadWordlist = (formData: FormData, onProgress?: (progress: number) => void) => 
-  api.post<WordlistUploadResponse>('/api/wordlists/upload', formData, {
+export const uploadWordlist = (formData: FormData, onProgress?: (progress: number, eta?: number, speed?: number) => void) => {
+  let startTime = Date.now();
+  let lastTime = startTime;
+  let lastLoaded = 0;
+  
+  return api.post<WordlistUploadResponse>('/api/wordlists/upload', formData, {
     headers: {
       'Content-Type': 'multipart/form-data'
     },
     withCredentials: true, // Ensure cookies are sent with the request
     onUploadProgress: (progressEvent) => {
-      const percentCompleted = Math.round((progressEvent.loaded * 100) / (progressEvent.total || 1));
-      console.debug(`[Wordlist Upload] ${percentCompleted}% completed`);
-      if (onProgress) {
-        onProgress(percentCompleted);
+      const now = Date.now();
+      const loaded = progressEvent.loaded;
+      const total = progressEvent.total || 1;
+      const percentCompleted = Math.round((loaded * 100) / total);
+      
+      // Calculate upload speed and ETA
+      let etaSeconds = 0;
+      let avgSpeed = 0;
+      if (lastLoaded > 0) {
+        // Use overall average speed for more stable ETA
+        const totalTime = (now - startTime) / 1000; // seconds
+        avgSpeed = loaded / totalTime; // bytes per second
+        
+        const remaining = total - loaded;
+        etaSeconds = avgSpeed > 0 ? remaining / avgSpeed : 0;
       }
+      
+      console.debug(`[Wordlist Upload] ${percentCompleted}% completed${etaSeconds > 0 ? `, ETA: ${Math.round(etaSeconds)}s` : ''}${avgSpeed > 0 ? `, Speed: ${(avgSpeed / 1024 / 1024).toFixed(2)}MB/s` : ''}`);
+      
+      if (onProgress) {
+        onProgress(percentCompleted, etaSeconds, avgSpeed);
+      }
+      
+      lastTime = now;
+      lastLoaded = loaded;
     },
     timeout: 86400000 // 24 hours timeout for extremely large files
   });
+};
 
 // Update wordlist metadata
 export const updateWordlist = (id: string, data: Partial<Wordlist>) => 

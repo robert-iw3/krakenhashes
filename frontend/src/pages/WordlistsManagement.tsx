@@ -55,7 +55,6 @@ import {
   Add as AddIcon,
   Check as CheckIcon,
   Clear as ClearIcon,
-  Error as ErrorIcon,
   Verified as VerifiedIcon
 } from '@mui/icons-material';
 import FileUpload from '../components/common/FileUpload';
@@ -147,9 +146,9 @@ export default function WordlistsManagement() {
       console.debug('[Wordlist Upload] Upload URL:', '/api/wordlists/upload');
       
       try {
-        const response = await wordlistService.uploadWordlist(formData, (progress) => {
+        const response = await wordlistService.uploadWordlist(formData, (progress, eta, speed) => {
           // Update progress in the FileUpload component
-          const progressEvent = new CustomEvent('upload-progress', { detail: { progress } });
+          const progressEvent = new CustomEvent('upload-progress', { detail: { progress, eta, speed } });
           document.dispatchEvent(progressEvent);
         });
         console.debug('[Wordlist Upload] Upload successful:', response);

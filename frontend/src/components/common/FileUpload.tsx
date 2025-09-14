@@ -58,14 +58,18 @@ export default function FileUpload({
   const [fileDescription, setFileDescription] = useState('');
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadETA, setUploadETA] = useState<number | null>(null);
+  const [uploadSpeed, setUploadSpeed] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Listen for upload progress events
   useEffect(() => {
     const handleProgressEvent = (event: Event) => {
-      const customEvent = event as CustomEvent<{progress: number}>;
+      const customEvent = event as CustomEvent<{progress: number, eta?: number, speed?: number}>;
       setUploadProgress(customEvent.detail.progress);
+      setUploadETA(customEvent.detail.eta || null);
+      setUploadSpeed(customEvent.detail.speed || null);
     };
     
     document.addEventListener('upload-progress', handleProgressEvent);
@@ -154,6 +158,8 @@ export default function FileUpload({
         setFile(null);
         setFileDescription('');
         setUploadProgress(0);
+        setUploadETA(null);
+        setUploadSpeed(null);
         if (fileInputRef.current) {
           fileInputRef.current.value = '';
         }
@@ -169,7 +175,32 @@ export default function FileUpload({
   const formatFileSize = (bytes: number): string => {
     if (bytes < 1024) return bytes + ' B';
     else if (bytes < 1048576) return (bytes / 1024).toFixed(2) + ' KB';
-    else return (bytes / 1048576).toFixed(2) + ' MB';
+    else if (bytes < 1073741824) return (bytes / 1048576).toFixed(2) + ' MB';
+    else return (bytes / 1073741824).toFixed(2) + ' GB';
+  };
+
+  const formatETA = (seconds: number): string => {
+    if (seconds < 60) return `${Math.round(seconds)}s`;
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+    if (hours > 0) {
+      const remainingMinutes = minutes % 60;
+      return `${hours}h ${remainingMinutes}m`;
+    }
+    return `${minutes} min`;
+  };
+
+  const formatSpeed = (bytesPerSec: number): string => {
+    // Convert to bits per second for network speed display
+    const bitsPerSec = bytesPerSec * 8;
+    
+    if (bitsPerSec < 1000) return `${bitsPerSec.toFixed(0)}bps`;
+    if (bitsPerSec < 1000 * 1000) return `${(bitsPerSec / 1000).toFixed(1)}Kbps`;
+    if (bitsPerSec < 1000 * 1000 * 1000) return `${(bitsPerSec / (1000 * 1000)).toFixed(1)}Mbps`;
+    
+    // Gigabits per second
+    const gigabitsPerSec = bitsPerSec / (1000 * 1000 * 1000);
+    return `${gigabitsPerSec.toFixed(1)}Gbps`;
   };
 
   return (
@@ -263,7 +294,9 @@ export default function FileUpload({
               sx={{ mt: 1, height: 8, borderRadius: 4 }}
             />
             <Typography variant="caption" align="center" display="block" sx={{ mt: 0.5 }}>
-              {uploadProgress}% Uploaded
+              {uploadProgress}%
+              {uploadSpeed && uploadSpeed > 0 && ` (${formatSpeed(uploadSpeed)})`}
+              {uploadETA && uploadETA > 0 && ` • ${formatETA(uploadETA)}`}
             </Typography>
           </Grid>
         )}
