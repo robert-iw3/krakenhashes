@@ -130,7 +130,7 @@ func (h *Handler) HandleAddWordlist(w http.ResponseWriter, r *http.Request) {
 		fileName string
 	)
 
-	// Process parts until we find the file
+	// Process ALL parts - collect form fields and identify the file part
 	for {
 		part, err := reader.NextPart()
 		if err == io.EOF {
@@ -166,16 +166,15 @@ func (h *Handler) HandleAddWordlist(w http.ResponseWriter, r *http.Request) {
 			}
 			part.Close()
 		} else {
-			// This is the file part - save it and break to process it immediately
+			// This is the file part - save reference but continue reading other fields
 			if filePart != nil {
 				filePart.Close() // Close any previous file part
 			}
 			filePart = part
 			fileName = part.FileName()
 			debug.Info("HandleAddWordlist: Found file part: %s", fileName)
-			// IMPORTANT: Break here to avoid consuming the file data
-			// The file part stays open for streaming
-			break
+			// IMPORTANT: Do NOT break here - continue reading remaining form fields
+			// The file part stays open for streaming later
 		}
 	}
 
@@ -185,6 +184,12 @@ func (h *Handler) HandleAddWordlist(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer filePart.Close()
+
+	// Default wordlist_type to "general" if not provided or empty
+	if wordlistType == "" {
+		wordlistType = "general"
+		debug.Info("HandleAddWordlist: No wordlist_type provided, defaulting to 'general'")
+	}
 
 	debug.Info("HandleAddWordlist: Received form values - name: %s, type: %s, format: %s", name, wordlistType, format)
 	debug.Info("HandleAddWordlist: Processing file: %s", fileName)
