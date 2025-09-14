@@ -11,15 +11,16 @@ This project is currently in **beta development**. Key considerations:
 
 > **Use at your own risk** - This software may eat your data, catch fire, or summon a digital Kraken. You've been warned.
 
+With the release of version 1.0.0, it should be a working for it's intended uses. While it may have bugs, I request that you open an issue (bottom of the frontend has a link). This tool is for legitimate professionals with permission from clients to run hashes for their testing. I am not responsible for how you use the tool or anything you do with it.
+
 ## Component Details
 
 ### Backend Service (Go)
 
 -   Job scheduler with adaptive load balancing
--   REST/gRPC API endpoints with JWT authentication
+-   REST API endpoints with JWT authentication
 -   PostgreSQL interface for job storage/results
 -   Redis-based task queue with priority levels
--   Prometheus metrics exporter
 
 ### Agent System (Go)
 

@@ -10,7 +10,7 @@ Agents are the computational workhorses of KrakenHashes, responsible for executi
 2. **Generate a claim code** in the Admin UI
 3. **Register the agent**:
    ```bash
-   ./krakenhashes-agent register --code YOUR_CLAIM_CODE --server https://your-server:31337
+   ./krakenhashes-agent -claim YOUR_CLAIM_CODE -host IP:31337
    ```
 4. **Start the agent**:
    ```bash

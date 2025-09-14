@@ -81,9 +81,7 @@ The agent automatically creates a `.env` configuration file on first run. From t
 cd ~/krakenhashes-agent
 
 # Run with your server details and claim code
-./krakenhashes-agent \
-  -host your-server:31337 \
-  -claim YOUR_CLAIM_CODE
+./krakenhashes-agent -host your-server:31337 -claim YOUR_CLAIM_CODE
 
 # The agent will create:
 # - .env configuration file
@@ -176,15 +174,10 @@ From your agent directory, run the agent with your claim code:
 cd ~/krakenhashes-agent
 
 # Register and run the agent
-./krakenhashes-agent \
-  -host your-server:31337 \
-  -claim YOUR_CLAIM_CODE
+./krakenhashes-agent -host your-server:31337 -claim YOUR_CLAIM_CODE
 
 # With debug output (helpful for troubleshooting)
-./krakenhashes-agent \
-  -host your-server:31337 \
-  -claim YOUR_CLAIM_CODE \
-  -debug
+./krakenhashes-agent -host your-server:31337 -claim YOUR_CLAIM_CODE -debug
 ```
 
 The agent will:
@@ -208,6 +201,7 @@ The agent will use the `.env` file created during registration. You don't need t
 For automatic startup, see the [Systemd Service Setup](systemd-setup.md) guide.
 
 ## GPU Driver Installation
+The following is only to help but not a full list or updated each time. Please review what drivers you need for your distribution.
 
 ### NVIDIA GPUs
 
