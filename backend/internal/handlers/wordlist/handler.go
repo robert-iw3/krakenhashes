@@ -130,7 +130,7 @@ func (h *Handler) HandleAddWordlist(w http.ResponseWriter, r *http.Request) {
 		fileName string
 	)
 
-	// Process parts one by one
+	// Process ALL parts - don't break early when finding the file
 	for {
 		part, err := reader.NextPart()
 		if err == io.EOF {
@@ -144,8 +144,8 @@ func (h *Handler) HandleAddWordlist(w http.ResponseWriter, r *http.Request) {
 
 		formName := part.FormName()
 		
-		// Handle form fields
 		if formName != "file" {
+			// Handle form fields
 			value, err := io.ReadAll(part)
 			if err != nil {
 				debug.Error("HandleAddWordlist: Failed to read form field %s: %v", formName, err)
@@ -166,41 +166,16 @@ func (h *Handler) HandleAddWordlist(w http.ResponseWriter, r *http.Request) {
 			}
 			part.Close()
 		} else {
-			// This is the file part - keep it open for streaming
+			// This is the file part - save it but DON'T break
+			if filePart != nil {
+				filePart.Close() // Close any previous file part
+			}
 			filePart = part
 			fileName = part.FileName()
 			debug.Info("HandleAddWordlist: Found file part: %s", fileName)
-			break // Process file after collecting all other form fields
+			// DON'T break here - the file part stays open for streaming later
+			// Continue to read any remaining form fields that might come after the file
 		}
-	}
-
-	// Continue reading remaining form fields if any
-	for filePart != nil {
-		part, err := reader.NextPart()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			break
-		}
-		
-		formName := part.FormName()
-		if formName != "file" {
-			value, _ := io.ReadAll(part)
-			switch formName {
-			case "name":
-				name = string(value)
-			case "description":
-				description = string(value)
-			case "wordlist_type":
-				wordlistType = string(value)
-			case "format":
-				format = string(value)
-			case "tags":
-				tagsStr = string(value)
-			}
-		}
-		part.Close()
 	}
 
 	if filePart == nil {

@@ -54,7 +54,6 @@ import {
   Add as AddIcon,
   Check as CheckIcon,
   Clear as ClearIcon,
-  Error as ErrorIcon,
   Verified as VerifiedIcon
 } from '@mui/icons-material';
 import FileUpload from '../components/common/FileUpload';
@@ -137,7 +136,11 @@ export default function RulesManagement() {
         }, {} as Record<string, any>)
       );
       
-      const response = await ruleService.uploadRule(formData);
+      const response = await ruleService.uploadRule(formData, (progress, eta, speed) => {
+        // Update progress in the FileUpload component
+        const progressEvent = new CustomEvent('upload-progress', { detail: { progress, eta, speed } });
+        document.dispatchEvent(progressEvent);
+      });
       console.debug('[Rule Upload] Upload successful:', response);
       
       // Check if the response indicates a duplicate rule

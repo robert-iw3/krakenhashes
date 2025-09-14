@@ -13,18 +13,46 @@ export const getRule = (id: string) =>
   api.get<Rule>(`/api/rules/${id}`);
 
 // Upload a new rule
-export const uploadRule = (formData: FormData) => 
-  api.post<RuleUploadResponse>('/api/rules/upload', formData, {
+export const uploadRule = (formData: FormData, onProgress?: (progress: number, eta?: number, speed?: number) => void) => {
+  let startTime = Date.now();
+  let lastTime = startTime;
+  let lastLoaded = 0;
+  
+  return api.post<RuleUploadResponse>('/api/rules/upload', formData, {
     headers: {
       'Content-Type': 'multipart/form-data'
     },
     withCredentials: true, // Ensure cookies are sent with the request
     onUploadProgress: (progressEvent) => {
-      const percentCompleted = Math.round((progressEvent.loaded * 100) / (progressEvent.total || 1));
-      console.debug(`[Rule Upload] ${percentCompleted}% completed`);
+      const now = Date.now();
+      const loaded = progressEvent.loaded;
+      const total = progressEvent.total || 1;
+      const percentCompleted = Math.round((loaded * 100) / total);
+      
+      // Calculate upload speed and ETA
+      let etaSeconds = 0;
+      let avgSpeed = 0;
+      if (lastLoaded > 0) {
+        // Use overall average speed for more stable ETA
+        const totalTime = (now - startTime) / 1000; // seconds
+        avgSpeed = loaded / totalTime; // bytes per second
+        
+        const remaining = total - loaded;
+        etaSeconds = avgSpeed > 0 ? remaining / avgSpeed : 0;
+      }
+      
+      console.debug(`[Rule Upload] ${percentCompleted}% completed${etaSeconds > 0 ? `, ETA: ${Math.round(etaSeconds)}s` : ''}${avgSpeed > 0 ? `, Speed: ${(avgSpeed / 1024 / 1024).toFixed(2)}MB/s` : ''}`);
+      
+      if (onProgress) {
+        onProgress(percentCompleted, etaSeconds, avgSpeed);
+      }
+      
+      lastTime = now;
+      lastLoaded = loaded;
     },
     timeout: 86400000 // 24 hours timeout for extremely large files
   });
+};
 
 // Update rule metadata
 export const updateRule = (id: string, data: Partial<Rule>) => 
