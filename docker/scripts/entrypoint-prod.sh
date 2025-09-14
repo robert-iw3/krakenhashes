@@ -126,11 +126,16 @@ mkdir -p /etc/nginx/conf.d
 # Remove any existing configs
 rm -f /etc/nginx/conf.d/default*.conf
 
+# Set default nginx error log level if not provided
+NGINX_ERROR_LOG_LEVEL=${NGINX_ERROR_LOG_LEVEL:-warn}
+echo "Setting nginx error log level to: ${NGINX_ERROR_LOG_LEVEL}"
+
 case "${KH_TLS_MODE}" in
     "certbot")
         if [ -n "${KH_CERTBOT_DOMAIN}" ]; then
             echo "Configuring nginx for certbot mode with domain: ${KH_CERTBOT_DOMAIN}"
-            sed "s/CERTBOT_DOMAIN/${KH_CERTBOT_DOMAIN}/g" \
+            sed -e "s/CERTBOT_DOMAIN/${KH_CERTBOT_DOMAIN}/g" \
+                -e "s/\${NGINX_ERROR_LOG_LEVEL}/${NGINX_ERROR_LOG_LEVEL}/g" \
                 /etc/nginx/templates/certbot.conf > /etc/nginx/conf.d/default.conf
         else
             echo "ERROR: KH_CERTBOT_DOMAIN not set for certbot mode"
@@ -139,12 +144,14 @@ case "${KH_TLS_MODE}" in
         ;;
     "provided")
         echo "Configuring nginx for user-provided certificates"
-        cp /etc/nginx/templates/provided.conf /etc/nginx/conf.d/default.conf
+        sed "s/\${NGINX_ERROR_LOG_LEVEL}/${NGINX_ERROR_LOG_LEVEL}/g" \
+            /etc/nginx/templates/provided.conf > /etc/nginx/conf.d/default.conf
         ;;
     *)
         # Default to self-signed
         echo "Configuring nginx for self-signed certificates"
-        cp /etc/nginx/templates/self-signed.conf /etc/nginx/conf.d/default.conf
+        sed "s/\${NGINX_ERROR_LOG_LEVEL}/${NGINX_ERROR_LOG_LEVEL}/g" \
+            /etc/nginx/templates/self-signed.conf > /etc/nginx/conf.d/default.conf
         ;;
 esac
 

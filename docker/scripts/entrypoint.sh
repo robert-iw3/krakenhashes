@@ -148,6 +148,16 @@ until nc -z ${DB_HOST} ${DB_PORT} 2>/dev/null; do
 done
 echo "PostgreSQL is up - continuing with startup"
 
+# Process nginx configuration to substitute environment variables
+NGINX_ERROR_LOG_LEVEL=${NGINX_ERROR_LOG_LEVEL:-warn}
+echo "Setting nginx error log level to: ${NGINX_ERROR_LOG_LEVEL}"
+
+# Substitute the log level in the nginx config
+if [ -f /etc/nginx/conf.d/default.conf ]; then
+    sed -i "s/\${NGINX_ERROR_LOG_LEVEL}/${NGINX_ERROR_LOG_LEVEL}/g" /etc/nginx/conf.d/default.conf
+    echo "Updated nginx config with log level: ${NGINX_ERROR_LOG_LEVEL}"
+fi
+
 # Print environment variables for debugging
 echo "Environment variables:"
 echo "KH_IN_DOCKER=${KH_IN_DOCKER}"
