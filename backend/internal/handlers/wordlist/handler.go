@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"mime/multipart"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -20,6 +20,7 @@ import (
 	"github.com/ZerkerEOD/krakenhashes/backend/pkg/httputil"
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
+	"github.com/mazrean/formstream"
 )
 
 // Handler handles wordlist HTTP requests
@@ -115,96 +116,190 @@ func (h *Handler) HandleAddWordlist(w http.ResponseWriter, r *http.Request) {
 
 	debug.Info("HandleAddWordlist: Authenticated as user: %s", userID.String())
 
-	// Use multipart reader for streaming (NOT ParseMultipartForm to avoid loading entire file into memory)
-	reader, err := r.MultipartReader()
+	// Get boundary from Content-Type header
+	_, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if err != nil {
-		debug.Error("HandleAddWordlist: Failed to create multipart reader: %v", err)
-		httputil.RespondWithError(w, http.StatusBadRequest, "Failed to parse multipart request")
+		debug.Error("HandleAddWordlist: Failed to parse Content-Type: %v", err)
+		httputil.RespondWithError(w, http.StatusBadRequest, "Invalid Content-Type")
+		return
+	}
+	boundary := params["boundary"]
+	if boundary == "" {
+		debug.Error("HandleAddWordlist: No boundary in Content-Type")
+		httputil.RespondWithError(w, http.StatusBadRequest, "No boundary in Content-Type")
 		return
 	}
 
-	// Variables to collect form fields and file
+	// Create FormStream parser for efficient streaming
+	parser := formstream.NewParser(boundary)
+
+	// Variables to collect form fields
 	var (
 		name, description, wordlistType, format, tagsStr string
-		filePart *multipart.Part
 		fileName string
+		destFile *os.File
+		destPath string
+		fileNamePath string
+		md5Hash string
+		fileSize int64
 	)
 
-	// Process ALL parts - collect form fields and identify the file part
-	for {
-		part, err := reader.NextPart()
-		if err == io.EOF {
-			break
-		}
+	// Register handlers for form fields
+	parser.Register("name", func(r io.Reader, header formstream.Header) error {
+		data, err := io.ReadAll(r)
 		if err != nil {
-			debug.Error("HandleAddWordlist: Failed to read multipart part: %v", err)
-			httputil.RespondWithError(w, http.StatusBadRequest, "Failed to read multipart data")
-			return
+			return err
+		}
+		name = string(data)
+		debug.Info("HandleAddWordlist: Received name: %s", name)
+		return nil
+	})
+
+	parser.Register("description", func(r io.Reader, header formstream.Header) error {
+		data, err := io.ReadAll(r)
+		if err != nil {
+			return err
+		}
+		description = string(data)
+		debug.Info("HandleAddWordlist: Received description: %s", description)
+		return nil
+	})
+
+	parser.Register("wordlist_type", func(r io.Reader, header formstream.Header) error {
+		data, err := io.ReadAll(r)
+		if err != nil {
+			return err
+		}
+		wordlistType = string(data)
+		debug.Info("HandleAddWordlist: Received wordlist_type: %s", wordlistType)
+		return nil
+	})
+
+	parser.Register("format", func(r io.Reader, header formstream.Header) error {
+		data, err := io.ReadAll(r)
+		if err != nil {
+			return err
+		}
+		format = string(data)
+		debug.Info("HandleAddWordlist: Received format: %s", format)
+		return nil
+	})
+
+	parser.Register("tags", func(r io.Reader, header formstream.Header) error {
+		data, err := io.ReadAll(r)
+		if err != nil {
+			return err
+		}
+		tagsStr = string(data)
+		debug.Info("HandleAddWordlist: Received tags: %s", tagsStr)
+		return nil
+	})
+
+	// Register handler for file streaming
+	parser.Register("file", func(r io.Reader, header formstream.Header) error {
+		fileName = header.FileName()
+		debug.Info("HandleAddWordlist: Processing file: %s", fileName)
+
+		// Default wordlist_type to "general" if not provided or empty
+		if wordlistType == "" {
+			wordlistType = "general"
+			debug.Info("HandleAddWordlist: No wordlist_type provided, defaulting to 'general'")
 		}
 
-		formName := part.FormName()
-		
-		if formName != "file" {
-			// Handle form fields
-			value, err := io.ReadAll(part)
-			if err != nil {
-				debug.Error("HandleAddWordlist: Failed to read form field %s: %v", formName, err)
-				part.Close()
-				continue
-			}
-			switch formName {
-			case "name":
-				name = string(value)
-			case "description":
-				description = string(value)
-			case "wordlist_type":
-				wordlistType = string(value)
-			case "format":
-				format = string(value)
-			case "tags":
-				tagsStr = string(value)
-			}
-			part.Close()
-		} else {
-			// This is the file part - save reference but continue reading other fields
-			if filePart != nil {
-				filePart.Close() // Close any previous file part
-			}
-			filePart = part
-			fileName = part.FileName()
-			debug.Info("HandleAddWordlist: Found file part: %s", fileName)
-			// IMPORTANT: Do NOT break here - continue reading remaining form fields
-			// The file part stays open for streaming later
+		// Map file extension to database format enum
+		dbFormat := "plaintext" // Default to plaintext
+		ext := strings.ToLower(filepath.Ext(fileName))
+		switch ext {
+		case ".gz", ".zip":
+			dbFormat = "compressed"
+		case ".txt", ".lst", ".dict", "":
+			dbFormat = "plaintext"
 		}
+		format = dbFormat // Set format based on file extension
+		debug.Info("HandleAddWordlist: Determined format from extension %s: %s", ext, dbFormat)
+
+		// Use the original filename but sanitize it
+		baseFileName := fsutil.SanitizeFilename(fileName)
+
+		// If name is not provided, use the base filename without extension
+		if name == "" {
+			// Convert to lowercase to match what the monitor does
+			name = strings.ToLower(fsutil.ExtractBaseNameWithoutExt(fileName))
+		}
+
+		// Create the relative path with subdirectory (matching what the monitor would create)
+		fileNamePath = filepath.Join(wordlistType, baseFileName)
+		debug.Info("HandleAddWordlist: Using sanitized filename with subdirectory: %s", fileNamePath)
+
+		// Get the destination path for the wordlist file
+		destPath = h.manager.GetWordlistPath(fileNamePath, wordlistType)
+
+		// Create the destination directory if it doesn't exist
+		destDir := filepath.Dir(destPath)
+		if err := os.MkdirAll(destDir, 0755); err != nil {
+			debug.Error("HandleAddWordlist: Failed to create destination directory: %v", err)
+			return fmt.Errorf("failed to create directory: %w", err)
+		}
+
+		// Create destination file
+		var err error
+		destFile, err = os.Create(destPath)
+		if err != nil {
+			debug.Error("HandleAddWordlist: Failed to create destination file: %v", err)
+			return fmt.Errorf("failed to create file: %w", err)
+		}
+
+		// Stream file and calculate MD5 simultaneously
+		hasher := md5.New()
+		writer := io.MultiWriter(destFile, hasher)
+		
+		// Use 32KB buffer for streaming to minimize memory usage
+		bytesWritten, err := io.CopyBuffer(writer, r, make([]byte, 32*1024))
+		if err != nil {
+			destFile.Close()
+			os.Remove(destPath)
+			debug.Error("HandleAddWordlist: Failed to stream file: %v", err)
+			return fmt.Errorf("failed to save file: %w", err)
+		}
+
+		// Calculate final MD5
+		md5Hash = fmt.Sprintf("%x", hasher.Sum(nil))
+		fileSize = bytesWritten
+		debug.Info("HandleAddWordlist: File streamed successfully: %d bytes, MD5: %s", bytesWritten, md5Hash)
+
+		// Close the file
+		if err := destFile.Close(); err != nil {
+			debug.Error("HandleAddWordlist: Failed to close destination file: %v", err)
+			return fmt.Errorf("failed to close file: %w", err)
+		}
+
+		return nil
+	})
+
+	// Parse the multipart form
+	if err := parser.Parse(r.Body); err != nil {
+		debug.Error("HandleAddWordlist: Failed to parse multipart form: %v", err)
+		// Clean up partial file if it was created
+		if destFile != nil {
+			destFile.Close()
+		}
+		if destPath != "" {
+			os.Remove(destPath)
+		}
+		httputil.RespondWithError(w, http.StatusBadRequest, fmt.Sprintf("Failed to process upload: %v", err))
+		return
 	}
 
-	if filePart == nil {
+	// Check if file was actually uploaded
+	if fileName == "" {
 		debug.Error("HandleAddWordlist: No file provided in multipart form")
 		httputil.RespondWithError(w, http.StatusBadRequest, "No file provided")
 		return
 	}
-	defer filePart.Close()
-
-	// Default wordlist_type to "general" if not provided or empty
-	if wordlistType == "" {
-		wordlistType = "general"
-		debug.Info("HandleAddWordlist: No wordlist_type provided, defaulting to 'general'")
-	}
 
 	debug.Info("HandleAddWordlist: Received form values - name: %s, type: %s, format: %s", name, wordlistType, format)
-	debug.Info("HandleAddWordlist: Processing file: %s", fileName)
 
-	// Map file extension to database format enum
-	dbFormat := "plaintext" // Default to plaintext
-	ext := strings.ToLower(filepath.Ext(fileName))
-	switch ext {
-	case ".gz", ".zip":
-		dbFormat = "compressed"
-	case ".txt", ".lst", ".dict", "":
-		dbFormat = "plaintext"
-	}
-	debug.Info("HandleAddWordlist: Determined format from extension %s: %s", ext, dbFormat)
-
+	// Parse tags
 	var tags []string
 	if tagsStr != "" {
 		tags = strings.Split(tagsStr, ",")
@@ -212,72 +307,6 @@ func (h *Handler) HandleAddWordlist(w http.ResponseWriter, r *http.Request) {
 			tags[i] = strings.TrimSpace(tags[i])
 		}
 	}
-
-	// Use the original filename but sanitize it
-	baseFileName := fsutil.SanitizeFilename(fileName)
-
-	// If name is not provided, use the base filename without extension
-	if name == "" {
-		// Convert to lowercase to match what the monitor does
-		name = strings.ToLower(fsutil.ExtractBaseNameWithoutExt(fileName))
-	}
-
-	// Create the relative path with subdirectory (matching what the monitor would create)
-	fileNamePath := filepath.Join(wordlistType, baseFileName)
-	debug.Info("HandleAddWordlist: Using sanitized filename with subdirectory: %s", fileNamePath)
-
-	// Get the destination path for the wordlist file
-	destPath := h.manager.GetWordlistPath(fileNamePath, wordlistType)
-
-	// Create the destination directory if it doesn't exist
-	destDir := filepath.Dir(destPath)
-	if err := os.MkdirAll(destDir, 0755); err != nil {
-		debug.Error("HandleAddWordlist: Failed to create destination directory: %v", err)
-		httputil.RespondWithError(w, http.StatusInternalServerError, "Failed to create directory")
-		return
-	}
-
-	// Track upload success for cleanup
-	var uploadSuccess bool
-	var destFile *os.File
-	
-	// Cleanup function - will remove partial file if upload fails
-	defer func() {
-		if !uploadSuccess && destFile != nil {
-			destFile.Close()
-			if err := os.Remove(destPath); err != nil {
-				debug.Warning("HandleAddWordlist: Failed to remove partial file %s: %v", destPath, err)
-			} else {
-				debug.Info("HandleAddWordlist: Cleaned up partial file: %s", destPath)
-			}
-		}
-	}()
-
-	// Create destination file
-	destFile, err = os.Create(destPath)
-	if err != nil {
-		debug.Error("HandleAddWordlist: Failed to create destination file: %v", err)
-		httputil.RespondWithError(w, http.StatusInternalServerError, "Failed to create file")
-		return
-	}
-	defer destFile.Close()
-
-	// Stream file and calculate MD5 simultaneously
-	hasher := md5.New()
-	writer := io.MultiWriter(destFile, hasher)
-	
-	// Use 32KB buffer for streaming to minimize memory usage
-	bytesWritten, err := io.CopyBuffer(writer, filePart, make([]byte, 32*1024))
-	if err != nil {
-		debug.Error("HandleAddWordlist: Failed to stream file: %v", err)
-		httputil.RespondWithError(w, http.StatusInternalServerError, "Failed to save file")
-		return
-	}
-
-	// Calculate final MD5
-	md5Hash := fmt.Sprintf("%x", hasher.Sum(nil))
-	fileSize := bytesWritten
-	debug.Info("HandleAddWordlist: File streamed successfully: %d bytes, MD5: %s", bytesWritten, md5Hash)
 
 	// Check if a wordlist with the same MD5 hash already exists
 	existingWordlist, err := h.manager.GetWordlistByMD5Hash(ctx, md5Hash)
@@ -298,7 +327,6 @@ func (h *Handler) HandleAddWordlist(w http.ResponseWriter, r *http.Request) {
 			"duplicate": true,
 			"success":   true,
 		})
-		uploadSuccess = true // Don't trigger cleanup defer since we handled it
 		return
 	}
 
@@ -330,8 +358,7 @@ func (h *Handler) HandleAddWordlist(w http.ResponseWriter, r *http.Request) {
 				"duplicate": true,
 				"success":   true,
 			})
-			uploadSuccess = true // Don't trigger cleanup defer since we handled it
-			return
+				return
 		}
 
 		// If the MD5 hash is different, update the existing wordlist
@@ -342,7 +369,7 @@ func (h *Handler) HandleAddWordlist(w http.ResponseWriter, r *http.Request) {
 			Name:         name,
 			Description:  description,
 			WordlistType: wordlistType,
-			Format:       dbFormat,
+			Format:       format,
 			Tags:         append(tags, "updated"),
 		}
 
@@ -360,7 +387,7 @@ func (h *Handler) HandleAddWordlist(w http.ResponseWriter, r *http.Request) {
 			Name:         name,
 			Description:  description,
 			WordlistType: wordlistType,
-			Format:       dbFormat,
+			Format:       format,
 			FileName:     fileNamePath,
 			MD5Hash:      md5Hash,
 			FileSize:     fileSize,
@@ -379,7 +406,6 @@ func (h *Handler) HandleAddWordlist(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Mark upload as successful to prevent cleanup
-	uploadSuccess = true
 
 	// Automatically trigger verification process
 	debug.Info("HandleAddWordlist: Automatically triggering verification for wordlist ID %d", wordlistObj.ID)
