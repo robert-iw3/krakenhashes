@@ -61,11 +61,11 @@ With the release of version 1.0.0, it should be a working for it's intended uses
 
 Comprehensive documentation is available in the [docs/](docs/) directory:
 
--   **[Quick Start](https://zerkereod.github.io/krakenhashes/getting-started/quick-start/)** - Quick start guide for installation
--   **[Documentation Index](https://zerkereod.github.io/krakenhashes/)** - Complete documentation overview
--   **[User Guide](https://zerkereod.github.io/krakenhashes/user-guide/)** - Understanding jobs and workflows
--   **[Admin Guide](https://zerkereod.github.io/krakenhashes/admin-guide/)** - Creating and managing attack strategies
--   **[Docker Setup](https://zerkereod.github.io/krakenhashes/deployment/docker/)** - Getting started with Docker
+-   **[Quick Start](https://zerkereod.github.io/krakenhashes/latest/getting-started/quick-start/)** - Quick start guide for installation
+-   **[Documentation Index](https://zerkereod.github.io/krakenhashes/latest/)** - Complete documentation overview
+-   **[User Guide](https://zerkereod.github.io/krakenhashes/latest/user-guide/)** - Understanding jobs and workflows
+-   **[Admin Guide](https://zerkereod.github.io/krakenhashes/latest/admin-guide/)** - Creating and managing attack strategies
+-   **[Docker Setup](https://zerkereod.github.io/krakenhashes/latest/deployment/docker/)** - Getting started with Docker
 
 ## Community
 
