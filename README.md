@@ -11,7 +11,7 @@ This project is currently in **beta development**. Key considerations:
 
 > **Use at your own risk** - This software may eat your data, catch fire, or summon a digital Kraken. You've been warned.
 
-With the release of version 1.0.0, it should be a working for it's intended uses. While it may have bugs, I request that you open an issue (bottom of the frontend has a link). This tool is for legitimate professionals with permission from clients to run hashes for their testing. I am not responsible for how you use the tool or anything you do with it.
+With the release of version 1.0.0, it should be a working for it's intended uses. While it may have bugs, I request that you open an issue (bottom of the frontend has a link). This tool is for legitimate professionals with permission from clients to run hashes for their testing. I am not responsible for how you use the tool or anything you do with it. In addition while the docs should be helpful, please let me know if you identify any issues. I have tested them to get a server running with agents a few times.
 
 ## Component Details
 
