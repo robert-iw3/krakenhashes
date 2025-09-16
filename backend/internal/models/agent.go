@@ -19,6 +19,14 @@ const (
 	AgentStatusDisabled = "disabled"
 )
 
+// Agent sync status constants
+const (
+	AgentSyncStatusPending    = "pending"
+	AgentSyncStatusInProgress = "in_progress"
+	AgentSyncStatusCompleted  = "completed"
+	AgentSyncStatusFailed     = "failed"
+)
+
 // AgentWithTask represents an agent with its current task information
 type AgentWithTask struct {
 	Agent
@@ -52,6 +60,12 @@ type Agent struct {
 	ConsecutiveFailures int               `json:"consecutiveFailures"` // Track consecutive task failures
 	SchedulingEnabled   bool              `json:"schedulingEnabled"`
 	ScheduleTimezone    string            `json:"scheduleTimezone"`
+	SyncStatus          string            `json:"syncStatus"`
+	SyncCompletedAt     sql.NullTime      `json:"syncCompletedAt"`
+	SyncStartedAt       sql.NullTime      `json:"syncStartedAt"`
+	SyncError           sql.NullString    `json:"syncError"`
+	FilesToSync         int               `json:"filesToSync"`
+	FilesSynced         int               `json:"filesSynced"`
 }
 
 // Hardware represents the hardware configuration of an agent

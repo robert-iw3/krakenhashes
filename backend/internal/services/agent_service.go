@@ -463,6 +463,34 @@ func (s *AgentService) UpdateAgentVersion(ctx context.Context, id int, version s
 	return s.agentRepo.UpdateVersion(ctx, id, version)
 }
 
+// UpdateAgentSyncStatus updates the sync status for an agent
+func (s *AgentService) UpdateAgentSyncStatus(ctx context.Context, id int, status string, errorMsg string) error {
+	debug.Debug("Updating agent %d sync status to %s", id, status)
+
+	agent, err := s.agentRepo.GetByID(ctx, id)
+	if err != nil {
+		return fmt.Errorf("failed to get agent: %w", err)
+	}
+
+	agent.SyncStatus = status
+	if errorMsg != "" {
+		agent.SyncError = sql.NullString{String: errorMsg, Valid: true}
+	} else {
+		agent.SyncError = sql.NullString{Valid: false}
+	}
+
+	// Update timestamps based on status
+	now := time.Now()
+	if status == models.AgentSyncStatusInProgress {
+		agent.SyncStartedAt = sql.NullTime{Time: now, Valid: true}
+		agent.SyncCompletedAt = sql.NullTime{Valid: false}
+	} else if status == models.AgentSyncStatusCompleted {
+		agent.SyncCompletedAt = sql.NullTime{Time: now, Valid: true}
+	}
+
+	return s.agentRepo.Update(ctx, agent)
+}
+
 // UpdateLastSeen updates the last seen timestamp for an agent
 func (s *AgentService) UpdateLastSeen(agentID int) error {
 	now := time.Now()

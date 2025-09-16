@@ -2,6 +2,7 @@ package websocket
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"sync"
@@ -56,6 +57,12 @@ const (
 	TypeDownloadProgress MessageType = "download_progress"
 	TypeDownloadComplete MessageType = "download_complete"
 	TypeDownloadFailed   MessageType = "download_failed"
+
+	// Sync status messages
+	TypeSyncStarted   MessageType = "sync_started"
+	TypeSyncCompleted MessageType = "sync_completed"
+	TypeSyncFailed    MessageType = "sync_failed"
+	TypeSyncProgress  MessageType = "sync_progress"
 )
 
 // Client represents a connected agent
@@ -157,6 +164,32 @@ type FileSyncResult struct {
 	Success bool   `json:"success"`
 	Error   string `json:"error,omitempty"`
 	MD5Hash string `json:"md5_hash,omitempty"`
+}
+
+// SyncStartedPayload represents sync start notification from agent
+type SyncStartedPayload struct {
+	AgentID     int `json:"agent_id"`
+	FilesToSync int `json:"files_to_sync"`
+}
+
+// SyncCompletedPayload represents sync completion notification from agent
+type SyncCompletedPayload struct {
+	AgentID     int `json:"agent_id"`
+	FilesSynced int `json:"files_synced"`
+}
+
+// SyncFailedPayload represents sync failure notification from agent
+type SyncFailedPayload struct {
+	AgentID int    `json:"agent_id"`
+	Error   string `json:"error"`
+}
+
+// SyncProgressPayload represents sync progress update from agent
+type SyncProgressPayload struct {
+	AgentID     int `json:"agent_id"`
+	FilesToSync int `json:"files_to_sync"`
+	FilesSynced int `json:"files_synced"`
+	Percentage  int `json:"percentage"`
 }
 
 // TaskAssignmentPayload represents a job task assignment sent to an agent
@@ -287,6 +320,14 @@ func (s *Service) HandleMessage(ctx context.Context, agent *models.Agent, msg *M
 		// Agent shutdown is handled in the handler layer
 		// Just update heartbeat here
 		return nil
+	case TypeSyncStarted:
+		return s.handleSyncStarted(ctx, agent, msg)
+	case TypeSyncCompleted:
+		return s.handleSyncCompleted(ctx, agent, msg)
+	case TypeSyncFailed:
+		return s.handleSyncFailed(ctx, agent, msg)
+	case TypeSyncProgress:
+		return s.handleSyncProgress(ctx, agent, msg)
 	default:
 		return fmt.Errorf("unknown message type: %s", msg.Type)
 	}
@@ -546,5 +587,87 @@ func (s *Service) HandleAgentDisconnection(ctx context.Context, agentID int) err
 	}
 	
 	debug.Warning("Job handler does not support disconnection handling")
+	return nil
+}
+
+// handleSyncStarted processes sync started messages from agents
+func (s *Service) handleSyncStarted(ctx context.Context, agent *models.Agent, msg *Message) error {
+	var payload SyncStartedPayload
+	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+		return fmt.Errorf("failed to unmarshal sync started: %w", err)
+	}
+
+	// Update agent sync status
+	agent.SyncStatus = models.AgentSyncStatusInProgress
+	agent.SyncStartedAt = sql.NullTime{Time: time.Now(), Valid: true}
+	agent.FilesToSync = payload.FilesToSync
+	agent.FilesSynced = 0
+	agent.SyncError = sql.NullString{Valid: false}
+
+	if err := s.agentService.Update(ctx, agent); err != nil {
+		return fmt.Errorf("failed to update agent sync status: %w", err)
+	}
+
+	debug.Info("Agent %d started file sync with %d files", agent.ID, payload.FilesToSync)
+	return nil
+}
+
+// handleSyncCompleted processes sync completed messages from agents
+func (s *Service) handleSyncCompleted(ctx context.Context, agent *models.Agent, msg *Message) error {
+	var payload SyncCompletedPayload
+	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+		return fmt.Errorf("failed to unmarshal sync completed: %w", err)
+	}
+
+	// Update agent sync status
+	agent.SyncStatus = models.AgentSyncStatusCompleted
+	agent.SyncCompletedAt = sql.NullTime{Time: time.Now(), Valid: true}
+	agent.FilesSynced = payload.FilesSynced
+	agent.SyncError = sql.NullString{Valid: false}
+
+	if err := s.agentService.Update(ctx, agent); err != nil {
+		return fmt.Errorf("failed to update agent sync status: %w", err)
+	}
+
+	debug.Info("Agent %d completed file sync with %d files", agent.ID, payload.FilesSynced)
+	return nil
+}
+
+// handleSyncFailed processes sync failed messages from agents
+func (s *Service) handleSyncFailed(ctx context.Context, agent *models.Agent, msg *Message) error {
+	var payload SyncFailedPayload
+	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+		return fmt.Errorf("failed to unmarshal sync failed: %w", err)
+	}
+
+	// Update agent sync status
+	agent.SyncStatus = models.AgentSyncStatusFailed
+	agent.SyncError = sql.NullString{String: payload.Error, Valid: true}
+
+	if err := s.agentService.Update(ctx, agent); err != nil {
+		return fmt.Errorf("failed to update agent sync status: %w", err)
+	}
+
+	debug.Error("Agent %d failed file sync: %s", agent.ID, payload.Error)
+	return nil
+}
+
+// handleSyncProgress processes sync progress messages from agents
+func (s *Service) handleSyncProgress(ctx context.Context, agent *models.Agent, msg *Message) error {
+	var payload SyncProgressPayload
+	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+		return fmt.Errorf("failed to unmarshal sync progress: %w", err)
+	}
+
+	// Update agent sync progress
+	agent.FilesToSync = payload.FilesToSync
+	agent.FilesSynced = payload.FilesSynced
+
+	if err := s.agentService.Update(ctx, agent); err != nil {
+		return fmt.Errorf("failed to update agent sync progress: %w", err)
+	}
+
+	debug.Info("Agent %d sync progress: %d/%d files (%d%%)",
+		agent.ID, payload.FilesSynced, payload.FilesToSync, payload.Percentage)
 	return nil
 }

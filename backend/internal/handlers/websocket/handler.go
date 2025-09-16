@@ -3,6 +3,7 @@ package websocket
 import (
 	"context"
 	"crypto/tls"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -76,12 +77,13 @@ var upgrader = websocket.Upgrader{
 
 // Handler manages WebSocket connections for agents
 type Handler struct {
-	wsService         *wsservice.Service
-	agentService      *services.AgentService
+	wsService          *wsservice.Service
+	agentService       *services.AgentService
 	systemSettingsRepo *repository.SystemSettingsRepository
-	tlsConfig         *tls.Config
-	clients           map[int]*Client
-	mu                sync.RWMutex
+	jobTaskRepo        *repository.JobTaskRepository
+	tlsConfig          *tls.Config
+	clients            map[int]*Client
+	mu                 sync.RWMutex
 }
 
 // Client represents a connected agent
@@ -95,16 +97,17 @@ type Client struct {
 }
 
 // NewHandler creates a new WebSocket handler
-func NewHandler(wsService *wsservice.Service, agentService *services.AgentService, systemSettingsRepo *repository.SystemSettingsRepository, tlsConfig *tls.Config) *Handler {
+func NewHandler(wsService *wsservice.Service, agentService *services.AgentService, systemSettingsRepo *repository.SystemSettingsRepository, jobTaskRepo *repository.JobTaskRepository, tlsConfig *tls.Config) *Handler {
 	// Initialize timing configuration
 	initTimingConfig()
 
 	return &Handler{
-		wsService:         wsService,
-		agentService:      agentService,
+		wsService:          wsService,
+		agentService:       agentService,
 		systemSettingsRepo: systemSettingsRepo,
-		tlsConfig:         tlsConfig,
-		clients:           make(map[int]*Client),
+		jobTaskRepo:        jobTaskRepo,
+		tlsConfig:          tlsConfig,
+		clients:            make(map[int]*Client),
 	}
 }
 
@@ -206,6 +209,31 @@ func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) {
 
 	debug.Info("Agent %d fully registered and ready", agent.ID)
 
+	// Reset sync status when agent connects (only if not currently executing a task)
+	// This ensures the agent will sync files on each connection
+	// We check for active tasks to preserve task reconnection behavior
+	activeTasks, err := h.jobTaskRepo.GetActiveTasksByAgent(ctx, agent.ID)
+	if err != nil {
+		debug.Error("Failed to check active tasks for agent %d: %v", agent.ID, err)
+	} else if len(activeTasks) == 0 {
+		// No active tasks, safe to reset sync status
+		debug.Info("Agent %d has no active tasks, resetting sync status to pending", agent.ID)
+		agent.SyncStatus = models.AgentSyncStatusPending
+		agent.SyncStartedAt = sql.NullTime{Valid: false}
+		agent.SyncCompletedAt = sql.NullTime{Valid: false}
+		agent.SyncError = sql.NullString{Valid: false}
+		agent.FilesToSync = 0
+		agent.FilesSynced = 0
+
+		if err := h.agentService.Update(ctx, agent); err != nil {
+			debug.Error("Failed to reset sync status for agent %d: %v", agent.ID, err)
+		} else {
+			debug.Info("Successfully reset sync status to pending for agent %d", agent.ID)
+		}
+	} else {
+		debug.Info("Agent %d has %d active task(s), preserving sync status", agent.ID, len(activeTasks))
+	}
+
 	// NOTE: We no longer immediately mark agent as active here
 	// The agent will be marked active after we receive its current task status
 	debug.Info("Agent %d connected - waiting for task status report before marking as active", agent.ID)
@@ -245,6 +273,17 @@ func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) {
 func (c *Client) readPump() {
 	defer func() {
 		debug.Info("Agent %d: ReadPump closing", c.agent.ID)
+
+		// Check if sync was in progress and mark as failed
+		if c.agent.SyncStatus == models.AgentSyncStatusInProgress {
+			debug.Warning("Agent %d disconnected during file sync, marking sync as failed", c.agent.ID)
+			c.agent.SyncStatus = models.AgentSyncStatusFailed
+			c.agent.SyncError = sql.NullString{String: "Agent disconnected during sync", Valid: true}
+			if err := c.handler.agentService.UpdateAgentSyncStatus(c.ctx, c.agent.ID, c.agent.SyncStatus, c.agent.SyncError.String); err != nil {
+				debug.Error("Failed to update sync status to failed: %v", err)
+			}
+		}
+
 		// Update agent status to inactive when connection is closed
 		if err := c.handler.agentService.UpdateAgentStatus(c.ctx, c.agent.ID, models.AgentStatusInactive, nil); err != nil {
 			debug.Error("Failed to update agent status to inactive: %v", err)

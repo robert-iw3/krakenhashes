@@ -352,6 +352,15 @@ type Connection struct {
 	// File synchronization
 	fileSync *filesync.FileSync
 
+	// Download manager for file downloads
+	downloadManager *filesync.DownloadManager
+
+	// Sync status tracking
+	syncStatus      string
+	syncMutex       sync.RWMutex
+	filesToDownload []filesync.FileInfo
+	filesDownloaded int
+
 	// Job manager - initialized externally and set via SetJobManager
 	jobManager JobManager
 
@@ -621,13 +630,17 @@ func NewConnection(urlConfig *config.URLConfig) (*Connection, error) {
 		},
 	}
 
-	return &Connection{
-		urlConfig: urlConfig,
-		hwMonitor: hwMonitor,
-		outbound:  make(chan *WSMessage, 256),
-		done:      make(chan struct{}),
-		tlsConfig: tlsConfig,
-	}, nil
+	conn := &Connection{
+		urlConfig:  urlConfig,
+		hwMonitor:  hwMonitor,
+		outbound:   make(chan *WSMessage, 256),
+		done:       make(chan struct{}),
+		tlsConfig:  tlsConfig,
+		syncStatus: "pending",
+	}
+
+	// Download manager will be initialized when file sync is set up
+	return conn, nil
 }
 
 // connect establishes a WebSocket connection to the server
@@ -977,12 +990,6 @@ func (c *Connection) readPump() {
 
 			// Initialize file sync if not already done
 			if c.fileSync == nil {
-				dataDirs, err := config.GetDataDirs()
-				if err != nil {
-					debug.Error("Failed to get data directories: %v", err)
-					continue
-				}
-
 				// Get credentials from the same place we use for WebSocket connection
 				apiKey, agentID, err := auth.LoadAgentKey(config.GetConfigDir())
 				if err != nil {
@@ -990,8 +997,11 @@ func (c *Connection) readPump() {
 					continue
 				}
 
-				c.fileSync, err = filesync.NewFileSync(c.urlConfig, dataDirs, apiKey, agentID)
-				if err != nil {
+				// Store agent ID for later use
+				c.agentID = auth.ParseAgentID(agentID)
+
+				// Initialize file sync and download manager
+				if err := c.initializeFileSync(apiKey, agentID); err != nil {
 					debug.Error("Failed to initialize file sync: %v", err)
 					continue
 				}
@@ -1013,30 +1023,38 @@ func (c *Connection) readPump() {
 				}
 			}
 			
-			// Process each file in the command
-			var wg sync.WaitGroup
-			for _, file := range commandPayload.Files {
-				wg.Add(1)
-				go func(file filesync.FileInfo) {
-					defer wg.Done()
-					ctx, cancel := context.WithTimeout(context.Background(), 1*time.Hour)
-					defer cancel()
+			// Send sync started message
+			c.sendSyncStarted(len(commandPayload.Files))
 
-					debug.Info("Downloading file: %s (%s)", file.Name, file.FileType)
-					if err := c.fileSync.DownloadFileFromInfo(ctx, &file); err != nil {
-						debug.Error("Failed to download file %s: %v", file.Name, err)
-					} else {
-						debug.Info("Successfully downloaded file: %s", file.Name)
-					}
-				}(file)
+			// Track files to download
+			c.syncMutex.Lock()
+			for _, file := range commandPayload.Files {
+				c.filesToDownload = append(c.filesToDownload, file)
+			}
+			c.syncMutex.Unlock()
+
+			// Queue downloads using the download manager
+			ctx := context.Background()
+			for _, file := range commandPayload.Files {
+				// Check if already downloading to prevent duplicates
+				if c.downloadManager.IsDownloading(file) {
+					debug.Info("File %s is already downloading, skipping duplicate", file.Name)
+					continue
+				}
+
+				debug.Info("Queueing download for file: %s (%s)", file.Name, file.FileType)
+				if err := c.downloadManager.QueueDownload(ctx, file); err != nil {
+					debug.Error("Failed to queue download for %s: %v", file.Name, err)
+				}
 			}
 
-			debug.Info("Started downloading %d files", len(commandPayload.Files))
+			debug.Info("Queued %d files for download", len(commandPayload.Files))
 			
 			// If binaries were downloaded, trigger device detection after downloads complete
 			if hasBinaries {
 				go func() {
-					wg.Wait() // Wait for all downloads to complete
+					// Wait for download manager to complete all downloads
+					c.downloadManager.Wait()
 					debug.Info("Binary downloads complete, triggering device detection")
 					if err := c.DetectAndSendDevices(); err != nil {
 						debug.Error("Failed to detect devices after binary download: %v", err)
@@ -1055,12 +1073,6 @@ func (c *Connection) readPump() {
 
 			// Ensure file sync is initialized before processing job
 			if c.fileSync == nil {
-				dataDirs, err := config.GetDataDirs()
-				if err != nil {
-					debug.Error("Failed to get data directories: %v", err)
-					continue
-				}
-
 				// Get credentials from the same place we use for WebSocket connection
 				apiKey, agentID, err := auth.LoadAgentKey(config.GetConfigDir())
 				if err != nil {
@@ -1068,8 +1080,11 @@ func (c *Connection) readPump() {
 					continue
 				}
 
-				c.fileSync, err = filesync.NewFileSync(c.urlConfig, dataDirs, apiKey, agentID)
-				if err != nil {
+				// Store agent ID for later use
+				c.agentID = auth.ParseAgentID(agentID)
+
+				// Initialize file sync and download manager
+				if err := c.initializeFileSync(apiKey, agentID); err != nil {
 					debug.Error("Failed to initialize file sync: %v", err)
 					continue
 				}
@@ -2151,6 +2166,131 @@ func (c *Connection) GetHardwareMonitor() *hardware.Monitor {
 }
 
 // checkAndExtractBinaryArchives checks all binary directories for .7z files without extracted executables
+// initializeFileSync initializes the file sync and download manager
+func (c *Connection) initializeFileSync(apiKey, agentID string) error {
+	// Get data directory paths
+	dataDirs, err := config.GetDataDirs()
+	if err != nil {
+		return fmt.Errorf("failed to get data directories: %w", err)
+	}
+
+	// Initialize file sync
+	c.fileSync, err = filesync.NewFileSync(c.urlConfig, dataDirs, apiKey, agentID)
+	if err != nil {
+		return fmt.Errorf("failed to initialize file sync: %w", err)
+	}
+
+	// Initialize download manager with file sync
+	c.downloadManager = filesync.NewDownloadManager(c.fileSync, 3)
+
+	// Start monitoring download progress
+	go c.monitorDownloadProgress()
+
+	return nil
+}
+
+// monitorDownloadProgress monitors download progress and sends updates
+func (c *Connection) monitorDownloadProgress() {
+	if c.downloadManager == nil {
+		return
+	}
+
+	progressChan := c.downloadManager.GetProgressChannel()
+	for progress := range progressChan {
+		// Send progress updates via WebSocket
+		if progress.Status == filesync.DownloadStatusCompleted {
+			c.filesDownloaded++
+		}
+
+		// Check if all downloads are complete
+		if c.filesDownloaded >= len(c.filesToDownload) && len(c.filesToDownload) > 0 {
+			c.sendSyncCompleted()
+		}
+	}
+}
+
+// sendSyncStarted sends sync started message to backend
+func (c *Connection) sendSyncStarted(filesToSync int) {
+	c.syncMutex.Lock()
+	c.syncStatus = "in_progress"
+	c.filesToDownload = make([]filesync.FileInfo, 0, filesToSync)
+	c.filesDownloaded = 0
+	c.syncMutex.Unlock()
+
+	payload, _ := json.Marshal(map[string]interface{}{
+		"agent_id":      c.agentID,
+		"files_to_sync": filesToSync,
+	})
+
+	message := WSMessage{
+		Type:      "sync_started",
+		Payload:   payload,
+		Timestamp: time.Now(),
+	}
+
+	select {
+	case c.outbound <- &message:
+		debug.Info("Sent sync started message with %d files", filesToSync)
+	default:
+		debug.Warning("Failed to send sync started message: outbound channel full")
+	}
+}
+
+// sendSyncCompleted sends sync completed message to backend
+func (c *Connection) sendSyncCompleted() {
+	c.syncMutex.Lock()
+	if c.syncStatus == "completed" {
+		c.syncMutex.Unlock()
+		return // Already sent
+	}
+	c.syncStatus = "completed"
+	filesDownloaded := c.filesDownloaded
+	c.syncMutex.Unlock()
+
+	payload, _ := json.Marshal(map[string]interface{}{
+		"agent_id":     c.agentID,
+		"files_synced": filesDownloaded,
+	})
+
+	message := WSMessage{
+		Type:      "sync_completed",
+		Payload:   payload,
+		Timestamp: time.Now(),
+	}
+
+	select {
+	case c.outbound <- &message:
+		debug.Info("Sent sync completed message with %d files synced", filesDownloaded)
+	default:
+		debug.Warning("Failed to send sync completed message: outbound channel full")
+	}
+}
+
+// sendSyncFailed sends sync failed message to backend
+func (c *Connection) sendSyncFailed(err error) {
+	c.syncMutex.Lock()
+	c.syncStatus = "failed"
+	c.syncMutex.Unlock()
+
+	payload, _ := json.Marshal(map[string]interface{}{
+		"agent_id": c.agentID,
+		"error":    err.Error(),
+	})
+
+	message := WSMessage{
+		Type:      "sync_failed",
+		Payload:   payload,
+		Timestamp: time.Now(),
+	}
+
+	select {
+	case c.outbound <- &message:
+		debug.Error("Sent sync failed message: %v", err)
+	default:
+		debug.Warning("Failed to send sync failed message: outbound channel full")
+	}
+}
+
 func (c *Connection) checkAndExtractBinaryArchives() error {
 	if c.fileSync == nil {
 		return fmt.Errorf("file sync not initialized")

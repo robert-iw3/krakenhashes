@@ -28,6 +28,7 @@ func SetupWebSocketRoutes(r *mux.Router, database *db.DB, agentService *services
 
 	// Create system settings repository
 	systemSettingsRepo := repository.NewSystemSettingsRepository(database)
+	jobTaskRepo := repository.NewJobTaskRepository(database)
 
 	wsRouter := r.PathPrefix("/ws").Subrouter()
 	wsRouter.Use(api.APIKeyMiddleware(agentService))
@@ -42,7 +43,7 @@ func SetupWebSocketRoutes(r *mux.Router, database *db.DB, agentService *services
 		CipherSuites:             tlsConfig.CipherSuites,
 		PreferServerCipherSuites: true,
 	}
-	wsHandler := wshandler.NewHandler(wsService, agentService, systemSettingsRepo, agentTLSConfig)
+	wsHandler := wshandler.NewHandler(wsService, agentService, systemSettingsRepo, jobTaskRepo, agentTLSConfig)
 	wsRouter.HandleFunc("/agent", wsHandler.ServeWS)
 	debug.Info("Configured WebSocket endpoint: /ws/agent with TLS: %v", tlsConfig != nil)
 

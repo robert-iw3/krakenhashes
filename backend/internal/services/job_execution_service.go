@@ -967,6 +967,15 @@ func (s *JobExecutionService) GetAvailableAgents(ctx context.Context) ([]models.
 			continue
 		}
 
+		// Skip agents that haven't completed file sync
+		if agent.SyncStatus != models.AgentSyncStatusCompleted {
+			debug.Log("Agent has not completed file sync, skipping", map[string]interface{}{
+				"agent_id":    agent.ID,
+				"sync_status": agent.SyncStatus,
+			})
+			continue
+		}
+
 		// Count active tasks for this agent
 		activeTasks, err := s.jobTaskRepo.GetActiveTasksByAgent(ctx, agent.ID)
 		if err != nil {
