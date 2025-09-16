@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/models"
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/repository"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/services"
 	wsservice "github.com/ZerkerEOD/krakenhashes/backend/internal/services/websocket"
 	"github.com/ZerkerEOD/krakenhashes/backend/pkg/debug"
@@ -75,11 +76,12 @@ var upgrader = websocket.Upgrader{
 
 // Handler manages WebSocket connections for agents
 type Handler struct {
-	wsService    *wsservice.Service
-	agentService *services.AgentService
-	tlsConfig    *tls.Config
-	clients      map[int]*Client
-	mu           sync.RWMutex
+	wsService         *wsservice.Service
+	agentService      *services.AgentService
+	systemSettingsRepo *repository.SystemSettingsRepository
+	tlsConfig         *tls.Config
+	clients           map[int]*Client
+	mu                sync.RWMutex
 }
 
 // Client represents a connected agent
@@ -93,15 +95,16 @@ type Client struct {
 }
 
 // NewHandler creates a new WebSocket handler
-func NewHandler(wsService *wsservice.Service, agentService *services.AgentService, tlsConfig *tls.Config) *Handler {
+func NewHandler(wsService *wsservice.Service, agentService *services.AgentService, systemSettingsRepo *repository.SystemSettingsRepository, tlsConfig *tls.Config) *Handler {
 	// Initialize timing configuration
 	initTimingConfig()
 
 	return &Handler{
-		wsService:    wsService,
-		agentService: agentService,
-		tlsConfig:    tlsConfig,
-		clients:      make(map[int]*Client),
+		wsService:         wsService,
+		agentService:      agentService,
+		systemSettingsRepo: systemSettingsRepo,
+		tlsConfig:         tlsConfig,
+		clients:           make(map[int]*Client),
 	}
 }
 
@@ -231,6 +234,9 @@ func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) {
 	go client.writePump()
 	go client.readPump()
 
+	// Send initial configuration including download settings
+	go h.sendInitialConfiguration(client)
+
 	// Initiate file sync with agent
 	go h.initiateFileSync(client)
 }
@@ -348,6 +354,15 @@ func (c *Client) readPump() {
 		
 		case wsservice.TypeAgentShutdown:
 			c.handler.handleAgentShutdown(c, &msg)
+
+		case wsservice.TypeDownloadProgress:
+			c.handler.handleDownloadProgress(c, &msg)
+
+		case wsservice.TypeDownloadComplete:
+			c.handler.handleDownloadComplete(c, &msg)
+
+		case wsservice.TypeDownloadFailed:
+			c.handler.handleDownloadFailed(c, &msg)
 
 		default:
 			// Handle other message types
@@ -483,6 +498,53 @@ func (h *Handler) GetConnectedAgents() []int {
 		agents = append(agents, agentID)
 	}
 	return agents
+}
+
+// sendInitialConfiguration sends initial configuration to the agent including download settings
+func (h *Handler) sendInitialConfiguration(client *Client) {
+	debug.Info("Sending initial configuration to agent %d", client.agent.ID)
+
+	// Get agent download settings from repository
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	settings, err := h.systemSettingsRepo.GetAgentDownloadSettings(ctx)
+	if err != nil {
+		debug.Error("Failed to get agent download settings: %v", err)
+		// Use defaults if we can't fetch settings
+		settings = &models.AgentDownloadSettings{
+			MaxConcurrentDownloads:      3,
+			DownloadTimeoutMinutes:      60,
+			DownloadRetryAttempts:       3,
+			ProgressIntervalSeconds:     10,
+			ChunkSizeMB:                 10,
+		}
+	}
+
+	// Create configuration payload
+	configPayload := map[string]interface{}{
+		"download_settings": settings,
+	}
+
+	payloadBytes, err := json.Marshal(configPayload)
+	if err != nil {
+		debug.Error("Failed to marshal configuration payload: %v", err)
+		return
+	}
+
+	// Create configuration message
+	msg := &wsservice.Message{
+		Type:    wsservice.TypeConfigUpdate,
+		Payload: payloadBytes,
+	}
+
+	// Send configuration to agent
+	select {
+	case client.send <- msg:
+		debug.Info("Sent initial configuration to agent %d with download settings", client.agent.ID)
+	case <-client.ctx.Done():
+		debug.Warning("Failed to send configuration: agent %d disconnected", client.agent.ID)
+	}
 }
 
 // initiateFileSync starts the file synchronization process with an agent
@@ -1055,5 +1117,53 @@ func (h *Handler) handleAgentShutdown(client *Client, msg *wsservice.Message) {
 	
 	if err := h.agentService.Update(client.ctx, client.agent); err != nil {
 		debug.Error("Agent %d: Failed to clear metadata on shutdown: %v", client.agent.ID, err)
+	}
+}
+
+// handleDownloadProgress processes download progress updates from agents
+func (h *Handler) handleDownloadProgress(client *Client, msg *wsservice.Message) {
+	var payload models.DownloadProgressPayload
+	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+		debug.Error("Agent %d: Failed to unmarshal download progress: %v", client.agent.ID, err)
+		return
+	}
+
+	debug.Info("Agent %d: Download progress for %s: %.1f%% (%d/%d bytes)",
+		client.agent.ID, payload.FileName, payload.PercentComplete,
+		payload.BytesDownloaded, payload.TotalBytes)
+
+	// TODO: Forward progress to UI via WebSocket or store in database for UI polling
+}
+
+// handleDownloadComplete processes download completion notifications from agents
+func (h *Handler) handleDownloadComplete(client *Client, msg *wsservice.Message) {
+	var payload models.DownloadCompletePayload
+	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+		debug.Error("Agent %d: Failed to unmarshal download complete: %v", client.agent.ID, err)
+		return
+	}
+
+	debug.Info("Agent %d: Successfully downloaded %s (%d bytes, MD5: %s) in %d seconds",
+		client.agent.ID, payload.FileName, payload.TotalBytes,
+		payload.MD5Hash, payload.DownloadTime)
+
+	// TODO: Update file sync status in database if needed
+}
+
+// handleDownloadFailed processes download failure notifications from agents
+func (h *Handler) handleDownloadFailed(client *Client, msg *wsservice.Message) {
+	var payload models.DownloadFailedPayload
+	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+		debug.Error("Agent %d: Failed to unmarshal download failed: %v", client.agent.ID, err)
+		return
+	}
+
+	if payload.WillRetry {
+		debug.Warning("Agent %d: Download failed for %s (attempt %d): %s - will retry",
+			client.agent.ID, payload.FileName, payload.RetryAttempt, payload.Error)
+	} else {
+		debug.Error("Agent %d: Download permanently failed for %s: %s",
+			client.agent.ID, payload.FileName, payload.Error)
+		// TODO: Notify administrators or take corrective action
 	}
 }

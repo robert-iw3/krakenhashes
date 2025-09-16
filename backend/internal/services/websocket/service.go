@@ -51,6 +51,11 @@ const (
 	TypeSyncCommand      MessageType = "file_sync_command"
 	TypeForceCleanup     MessageType = "force_cleanup"
 	TypeBufferAck        MessageType = "buffer_ack"
+
+	// Download progress messages
+	TypeDownloadProgress MessageType = "download_progress"
+	TypeDownloadComplete MessageType = "download_complete"
+	TypeDownloadFailed   MessageType = "download_failed"
 )
 
 // Client represents a connected agent

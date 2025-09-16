@@ -9,6 +9,7 @@ import SystemSettings from '../../components/admin/SystemSettings';
 import { HashTypeManager } from '../../components/admin/HashTypeManager';
 import JobExecutionSettings from '../../components/admin/JobExecutionSettings';
 import MonitoringSettings from '../../components/admin/MonitoringSettings';
+import AgentDownloadSettings from '../../components/admin/AgentDownloadSettings';
 import { useSnackbar } from 'notistack';
 import { updateAuthSettings } from '../../services/auth';
 import { getDefaultClientRetentionSetting, updateDefaultClientRetentionSetting } from '../../services/api';
@@ -157,7 +158,7 @@ export const AdminSettings = () => {
   const [currentTab, setCurrentTab] = useState(() => {
     const savedTab = localStorage.getItem('adminSettingsTab');
     const initialTab = savedTab ? parseInt(savedTab, 10) : 0;
-    return initialTab >= 0 && initialTab < 7 ? initialTab : 0;
+    return initialTab >= 0 && initialTab < 9 ? initialTab : 0;
   });
   
   const [loading, setLoading] = useState(false);
@@ -195,6 +196,7 @@ export const AdminSettings = () => {
             <Tab label="Hash Types" />
             <Tab label="Job Execution" />
             <Tab label="Monitoring" />
+            <Tab label="Agent Downloads" />
           </Tabs>
         </Box>
 
@@ -236,6 +238,9 @@ export const AdminSettings = () => {
         </TabPanel>
         <TabPanel value={currentTab} index={7}>
           <MonitoringSettings />
+        </TabPanel>
+        <TabPanel value={currentTab} index={8}>
+          <AgentDownloadSettings />
         </TabPanel>
       </Paper>
     </Box>

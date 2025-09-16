@@ -80,7 +80,12 @@ func SetupAdminRoutes(router *mux.Router, database *db.DB, emailService *email.S
 	// Monitoring settings routes - Must be before generic {key} route
 	adminRouter.HandleFunc("/settings/monitoring", monitoringSettingsHandler.GetMonitoringSettings).Methods(http.MethodGet, http.MethodOptions)
 	adminRouter.HandleFunc("/settings/monitoring", monitoringSettingsHandler.UpdateMonitoringSettings).Methods(http.MethodPut, http.MethodOptions)
-	
+
+	// Agent download settings routes - Must be before generic {key} route
+	agentSettingsHandler := adminsettings.NewAgentSettingsHandler(systemSettingsRepo)
+	adminRouter.HandleFunc("/settings/agent-download", agentSettingsHandler.GetAgentDownloadSettings).Methods(http.MethodGet, http.MethodOptions)
+	adminRouter.HandleFunc("/settings/agent-download", agentSettingsHandler.UpdateAgentDownloadSettings).Methods(http.MethodPut, http.MethodOptions)
+
 	// General system settings routes for listing and updating individual settings - Must be after specific routes
 	adminRouter.HandleFunc("/settings", systemSettingsHandler.ListSettings).Methods(http.MethodGet, http.MethodOptions)
 	adminRouter.HandleFunc("/settings/{key}", systemSettingsHandler.GetSetting).Methods(http.MethodGet, http.MethodOptions)

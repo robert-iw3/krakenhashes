@@ -118,7 +118,7 @@ func SetupWebSocketWithJobRoutes(
 	}
 
 	// Create WebSocket handler
-	wsHandler := wshandler.NewHandler(wsService, agentService, agentTLSConfig)
+	wsHandler := wshandler.NewHandler(wsService, agentService, systemSettingsRepo, agentTLSConfig)
 
 	// Create job integration manager
 	jobIntegration := integration.NewJobIntegrationManager(

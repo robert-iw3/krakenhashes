@@ -3,8 +3,10 @@ package routes
 import (
 	cryptotls "crypto/tls"
 
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/db"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/auth/api"
 	wshandler "github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/websocket"
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/repository"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/services"
 	wsservice "github.com/ZerkerEOD/krakenhashes/backend/internal/services/websocket"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/tls"
@@ -13,7 +15,7 @@ import (
 )
 
 // SetupWebSocketRoutes configures WebSocket-related routes
-func SetupWebSocketRoutes(r *mux.Router, agentService *services.AgentService, tlsProvider tls.Provider) {
+func SetupWebSocketRoutes(r *mux.Router, database *db.DB, agentService *services.AgentService, tlsProvider tls.Provider) {
 	debug.Debug("Setting up API key protected routes")
 	wsService := wsservice.NewService(agentService)
 
@@ -23,6 +25,9 @@ func SetupWebSocketRoutes(r *mux.Router, agentService *services.AgentService, tl
 		debug.Error("Failed to get TLS configuration: %v", err)
 		return
 	}
+
+	// Create system settings repository
+	systemSettingsRepo := repository.NewSystemSettingsRepository(database)
 
 	wsRouter := r.PathPrefix("/ws").Subrouter()
 	wsRouter.Use(api.APIKeyMiddleware(agentService))
@@ -37,7 +42,7 @@ func SetupWebSocketRoutes(r *mux.Router, agentService *services.AgentService, tl
 		CipherSuites:             tlsConfig.CipherSuites,
 		PreferServerCipherSuites: true,
 	}
-	wsHandler := wshandler.NewHandler(wsService, agentService, agentTLSConfig)
+	wsHandler := wshandler.NewHandler(wsService, agentService, systemSettingsRepo, agentTLSConfig)
 	wsRouter.HandleFunc("/agent", wsHandler.ServeWS)
 	debug.Info("Configured WebSocket endpoint: /ws/agent with TLS: %v", tlsConfig != nil)
 

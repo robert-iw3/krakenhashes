@@ -138,3 +138,95 @@ func (r *SystemSettingsRepository) SetMaxJobPriority(ctx context.Context, maxPri
 func (r *SystemSettingsRepository) UpdateSetting(ctx context.Context, key string, value string) error {
 	return r.SetSetting(ctx, key, &value)
 }
+
+// GetAgentDownloadSettings retrieves all agent download settings
+func (r *SystemSettingsRepository) GetAgentDownloadSettings(ctx context.Context) (*models.AgentDownloadSettings, error) {
+	query := `
+		SELECT key, value
+		FROM system_settings
+		WHERE key LIKE 'agent_%'`
+
+	rows, err := r.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get agent download settings: %w", err)
+	}
+	defer rows.Close()
+
+	settings := models.GetDefaultAgentDownloadSettings()
+	for rows.Next() {
+		var key string
+		var value *string
+		if err := rows.Scan(&key, &value); err != nil {
+			return nil, fmt.Errorf("failed to scan agent setting row: %w", err)
+		}
+
+		if value == nil {
+			continue
+		}
+
+		switch key {
+		case "agent_max_concurrent_downloads":
+			if val, err := strconv.Atoi(*value); err == nil {
+				settings.MaxConcurrentDownloads = val
+			}
+		case "agent_download_timeout_minutes":
+			if val, err := strconv.Atoi(*value); err == nil {
+				settings.DownloadTimeoutMinutes = val
+			}
+		case "agent_download_retry_attempts":
+			if val, err := strconv.Atoi(*value); err == nil {
+				settings.DownloadRetryAttempts = val
+			}
+		case "agent_download_progress_interval_seconds":
+			if val, err := strconv.Atoi(*value); err == nil {
+				settings.ProgressIntervalSeconds = val
+			}
+		case "agent_download_chunk_size_mb":
+			if val, err := strconv.Atoi(*value); err == nil {
+				settings.ChunkSizeMB = val
+			}
+		}
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating agent setting rows: %w", err)
+	}
+
+	return &settings, nil
+}
+
+// UpdateAgentDownloadSettings updates all agent download settings
+func (r *SystemSettingsRepository) UpdateAgentDownloadSettings(ctx context.Context, settings *models.AgentDownloadSettings) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Update each setting
+	settingMap := map[string]string{
+		"agent_max_concurrent_downloads":      strconv.Itoa(settings.MaxConcurrentDownloads),
+		"agent_download_timeout_minutes":      strconv.Itoa(settings.DownloadTimeoutMinutes),
+		"agent_download_retry_attempts":       strconv.Itoa(settings.DownloadRetryAttempts),
+		"agent_download_progress_interval_seconds": strconv.Itoa(settings.ProgressIntervalSeconds),
+		"agent_download_chunk_size_mb":        strconv.Itoa(settings.ChunkSizeMB),
+	}
+
+	now := time.Now()
+	query := `
+		UPDATE system_settings
+		SET value = $1, updated_at = $2
+		WHERE key = $3`
+
+	for key, value := range settingMap {
+		if _, err := tx.ExecContext(ctx, query, value, now, key); err != nil {
+			return fmt.Errorf("failed to update setting %s: %w", key, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}

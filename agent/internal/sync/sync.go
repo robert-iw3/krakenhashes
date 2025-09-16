@@ -78,12 +78,29 @@ func NewFileSync(urlConfig *config.URLConfig, dataDirs *config.DataDirs, apiKey,
 		MinVersion: tls.VersionTLS12,
 	}
 
-	// Create HTTP client with TLS config
+	// Create HTTP client with properly configured transport
+	// This configuration ensures large file downloads don't timeout prematurely
+	transport := &http.Transport{
+		TLSClientConfig: tlsConfig,
+		// Connection pool settings
+		MaxIdleConns:        10,
+		MaxIdleConnsPerHost: 2,
+		MaxConnsPerHost:     5,
+		// Timeout settings - these are for connection establishment, not transfer
+		IdleConnTimeout:       90 * time.Second,  // How long idle connections are kept
+		TLSHandshakeTimeout:   10 * time.Second,  // TLS handshake timeout
+		ExpectContinueTimeout: 1 * time.Second,   // Timeout for 100-continue response
+		// Disable HTTP/2 to avoid potential protocol issues with large downloads
+		ForceAttemptHTTP2: false,
+		// Keep-alive settings
+		DisableKeepAlives: false,
+		// Don't set ResponseHeaderTimeout as it would timeout slow downloads
+		// The client-level timeout handles the overall request timeout
+	}
+
 	client := &http.Client{
-		Timeout: timeout,
-		Transport: &http.Transport{
-			TLSClientConfig: tlsConfig,
-		},
+		Timeout:   timeout, // This is the overall timeout for the entire request/response
+		Transport: transport,
 	}
 
 	return &FileSync{
