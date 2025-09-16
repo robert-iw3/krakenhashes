@@ -1007,6 +1007,13 @@ func (c *Connection) readPump() {
 				}
 			}
 
+			// Ensure download manager is initialized even if fileSync already exists
+			if c.downloadManager == nil && c.fileSync != nil {
+				debug.Info("Initializing download manager with existing file sync")
+				c.downloadManager = filesync.NewDownloadManager(c.fileSync, 3)
+				go c.monitorDownloadProgress()
+			}
+
 			// Pre-check: Look for binary archives that need extraction
 			// This ensures we extract any archives that were downloaded but not extracted
 			if err := c.checkAndExtractBinaryArchives(); err != nil {
@@ -1035,23 +1042,27 @@ func (c *Connection) readPump() {
 
 			// Queue downloads using the download manager
 			ctx := context.Background()
-			for _, file := range commandPayload.Files {
-				// Check if already downloading to prevent duplicates
-				if c.downloadManager.IsDownloading(file) {
-					debug.Info("File %s is already downloading, skipping duplicate", file.Name)
-					continue
-				}
+			if c.downloadManager != nil {
+				for _, file := range commandPayload.Files {
+					// Check if already downloading to prevent duplicates
+					if c.downloadManager.IsDownloading(file) {
+						debug.Info("File %s is already downloading, skipping duplicate", file.Name)
+						continue
+					}
 
-				debug.Info("Queueing download for file: %s (%s)", file.Name, file.FileType)
-				if err := c.downloadManager.QueueDownload(ctx, file); err != nil {
-					debug.Error("Failed to queue download for %s: %v", file.Name, err)
+					debug.Info("Queueing download for file: %s (%s)", file.Name, file.FileType)
+					if err := c.downloadManager.QueueDownload(ctx, file); err != nil {
+						debug.Error("Failed to queue download for %s: %v", file.Name, err)
+					}
 				}
+			} else {
+				debug.Error("Download manager is not initialized, cannot queue downloads")
 			}
 
 			debug.Info("Queued %d files for download", len(commandPayload.Files))
 			
 			// If binaries were downloaded, trigger device detection after downloads complete
-			if hasBinaries {
+			if hasBinaries && c.downloadManager != nil {
 				go func() {
 					// Wait for download manager to complete all downloads
 					c.downloadManager.Wait()
@@ -1088,6 +1099,13 @@ func (c *Connection) readPump() {
 					debug.Error("Failed to initialize file sync: %v", err)
 					continue
 				}
+			}
+
+			// Ensure download manager is initialized even if fileSync already exists
+			if c.downloadManager == nil && c.fileSync != nil {
+				debug.Info("Initializing download manager with existing file sync")
+				c.downloadManager = filesync.NewDownloadManager(c.fileSync, 3)
+				go c.monitorDownloadProgress()
 			}
 
 			// Set the file sync in job manager
