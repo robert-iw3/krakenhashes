@@ -6,12 +6,12 @@ This guide covers security considerations and best practices for KrakenHashes de
 
 1. [Data Security](#data-security)
 2. [Data Retention Security](#data-retention-security)
-3. [Authentication & Access Control](#authentication--access-control)
+3. [Authentication & Access Control](#authentication-access-control)
 4. [Network Security](#network-security)
 5. [Agent Security](#agent-security)
 6. [Database Security](#database-security)
 7. [File System Security](#file-system-security)
-8. [Audit & Compliance](#audit--compliance)
+8. [Audit & Compliance](#audit-compliance)
 
 ## Data Security
 

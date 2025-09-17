@@ -136,6 +136,7 @@ nav:
       - System Monitoring: admin-guide/operations/monitoring.md
       - Backup Procedures: admin-guide/operations/backup.md
       - Data Retention: admin-guide/operations/data-retention.md
+    - Security Guide: admin-guide/security.md
     - Advanced:
       - Preset Jobs & Workflows: admin-guide/advanced/presets.md
       - Job Priority: admin-guide/advanced/job-priority.md
