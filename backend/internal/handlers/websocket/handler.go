@@ -216,19 +216,24 @@ func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		debug.Error("Failed to check active tasks for agent %d: %v", agent.ID, err)
 	} else if len(activeTasks) == 0 {
-		// No active tasks, safe to reset sync status
-		debug.Info("Agent %d has no active tasks, resetting sync status to pending", agent.ID)
-		agent.SyncStatus = models.AgentSyncStatusPending
-		agent.SyncStartedAt = sql.NullTime{Valid: false}
-		agent.SyncCompletedAt = sql.NullTime{Valid: false}
-		agent.SyncError = sql.NullString{Valid: false}
-		agent.FilesToSync = 0
-		agent.FilesSynced = 0
+		// No active tasks, check if we need to reset sync status
+		// Only reset if sync is not already completed (to avoid breaking job scheduling)
+		if agent.SyncStatus != models.AgentSyncStatusCompleted {
+			debug.Info("Agent %d has no active tasks and sync status is %s, resetting to pending", agent.ID, agent.SyncStatus)
+			agent.SyncStatus = models.AgentSyncStatusPending
+			agent.SyncStartedAt = sql.NullTime{Valid: false}
+			agent.SyncCompletedAt = sql.NullTime{Valid: false}
+			agent.SyncError = sql.NullString{Valid: false}
+			agent.FilesToSync = 0
+			agent.FilesSynced = 0
 
-		if err := h.agentService.Update(ctx, agent); err != nil {
-			debug.Error("Failed to reset sync status for agent %d: %v", agent.ID, err)
+			if err := h.agentService.Update(ctx, agent); err != nil {
+				debug.Error("Failed to reset sync status for agent %d: %v", agent.ID, err)
+			} else {
+				debug.Info("Successfully reset sync status to pending for agent %d", agent.ID)
+			}
 		} else {
-			debug.Info("Successfully reset sync status to pending for agent %d", agent.ID)
+			debug.Info("Agent %d has completed sync status, preserving it for job scheduling", agent.ID)
 		}
 	} else {
 		debug.Info("Agent %d has %d active task(s), preserving sync status", agent.ID, len(activeTasks))
