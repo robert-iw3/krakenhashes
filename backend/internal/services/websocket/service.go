@@ -306,6 +306,10 @@ func (s *Service) HandleMessage(ctx context.Context, agent *models.Agent, msg *M
 		return s.handleErrorReport(ctx, agent, msg)
 	case TypeHardwareInfo:
 		return s.handleHardwareInfo(ctx, agent, msg)
+	case TypeSyncResponse:
+		// File sync response is handled in the handler layer
+		// Just update heartbeat here
+		return nil
 	case TypeSyncRequest:
 		return s.handleSyncRequest(ctx, agent, msg)
 	case TypeSyncCommand:
