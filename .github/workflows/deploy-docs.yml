@@ -21,7 +21,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: "pages"
+  group: "pages-deploy"
   cancel-in-progress: false
 
 jobs:
@@ -93,7 +93,7 @@ jobs:
               cp -r "$TARGET" latest
               git add -A
               git commit -m "Replace latest symlink with directory copy"
-              git push origin gh-pages
+              git push --force-with-lease origin gh-pages
             fi
           fi
           

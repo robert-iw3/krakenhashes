@@ -19,6 +19,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: "pages-deploy"
+  cancel-in-progress: false
+
 jobs:
   deploy-version:
     runs-on: ubuntu-latest
@@ -99,7 +103,7 @@ jobs:
               cp -r "${VERSION}" latest
               git add -A
               git commit -m "Replace latest symlink with directory copy for version ${VERSION}"
-              git push origin gh-pages
+              git push --force-with-lease origin gh-pages
             fi
             
             git checkout -
