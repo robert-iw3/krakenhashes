@@ -51,7 +51,13 @@ const (
 			api_key = $10,
 			api_key_created_at = $11,
 			api_key_last_used = $12,
-			metadata = $13
+			metadata = $13,
+			sync_status = $14,
+			sync_completed_at = $15,
+			sync_started_at = $16,
+			sync_error = $17,
+			files_to_sync = $18,
+			files_synced = $19
 		WHERE id = $1`
 
 	UpdateAgentStatus = `

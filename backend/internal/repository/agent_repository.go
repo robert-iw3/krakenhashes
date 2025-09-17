@@ -191,6 +191,12 @@ func (r *AgentRepository) Update(ctx context.Context, agent *models.Agent) error
 		agent.APIKeyCreatedAt,
 		agent.APIKeyLastUsed,
 		metadataJSON,
+		agent.SyncStatus,
+		agent.SyncCompletedAt,
+		agent.SyncStartedAt,
+		agent.SyncError,
+		agent.FilesToSync,
+		agent.FilesSynced,
 	)
 
 	if err != nil {
