@@ -87,8 +87,10 @@ The backend follows a clean layered architecture with clear separation of concer
 - `JobExecutionService` - Job orchestration
 - `JobSchedulingService` - Task distribution
 - `ClientService` - Customer management
-- `RetentionService` - Data retention policies
+- `RetentionService` - Automated data purging with secure deletion
 - `WebSocketService` - Real-time communication hub
+- `HashlistSyncService` - File synchronization to agents
+- `MetricsCleanupService` - Agent metrics pruning
 
 #### 3. **Repository Layer** (`internal/repository/`)
 - Database access abstraction
@@ -464,6 +466,52 @@ AuthMiddleware → RoleMiddleware → ResourceMiddleware → Handler
 ```
 
 ### Storage Management
+
+- **Upload Processing**: Files are uploaded to temporary storage, processed, then moved to permanent locations
+- **Deduplication**: Files are tracked by MD5 hash to prevent duplicates
+- **Synchronization**: Agent sync service ensures agents have required files
+- **Cleanup**: Automated retention policies remove expired data
+
+## Data Lifecycle Management
+
+### Retention System
+
+The system implements comprehensive data lifecycle management with automated retention policies:
+
+#### Backend Retention Service
+- **Automatic Purging**: Runs daily at midnight and on startup
+- **Client-Specific Policies**: Each client can have custom retention periods
+- **Secure Deletion Process**:
+  1. Transaction-based database cleanup
+  2. Secure file overwriting with random data
+  3. PostgreSQL VACUUM to prevent recovery
+  4. Comprehensive audit logging
+
+#### Agent Cleanup Service
+- **3-Day Retention**: Temporary files removed after 3 days
+- **Automatic Cleanup**: Runs every 6 hours
+- **File Types Managed**:
+  - Hashlist files (after inactivity)
+  - Rule chunks (temporary segments)
+  - Chunk ID tracking files
+- **Preserved Files**: Base rules, wordlists, and binaries
+
+#### Potfile Exclusion
+!!! warning "Important"
+    The potfile (`/var/lib/krakenhashes/wordlists/custom/potfile.txt`) containing plaintext passwords is **NOT** managed by the retention system. It requires separate manual management for compliance with data protection regulations.
+
+### Data Security
+
+#### Secure Deletion
+- Files overwritten with random data before removal
+- VACUUM ANALYZE on PostgreSQL tables
+- Prevention of WAL (Write-Ahead Log) recovery
+- Transaction safety for atomic operations
+
+#### Audit Trail
+- All deletion operations logged
+- Retention compliance tracking
+- Last purge timestamp recording
 
 1. **File Organization**
    - Client-based isolation

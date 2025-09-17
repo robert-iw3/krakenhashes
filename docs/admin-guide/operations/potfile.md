@@ -296,6 +296,36 @@ docker logs krakenhashes 2>&1 | grep "Processing.*staged pot-file entries"
 - Consider compliance requirements for password storage
 - Implement audit logging for potfile access
 
+!!! danger "Data Retention Exclusion"
+    The potfile is **NOT** managed by the data retention system. This has critical security and compliance implications:
+
+    **What This Means:**
+    - Passwords from deleted hashlists remain in the potfile permanently
+    - The potfile grows indefinitely unless manually managed
+    - Deleting a client or hashlist does NOT remove their passwords from the potfile
+    - This may violate data protection regulations (GDPR, CCPA, etc.) that require complete data deletion
+
+    **Required Manual Management:**
+    1. **Implement a cleanup procedure** to remove passwords associated with deleted hashlists
+    2. **Document your potfile retention policy** separately from the main data retention policy
+    3. **Consider periodic rotation** - archive old potfiles and start fresh
+    4. **Audit compliance** - ensure your potfile management meets regulatory requirements
+    5. **Track deletions** - maintain logs of when and why potfile entries were removed
+
+    **Example Cleanup Approach:**
+    ```bash
+    # Backup current potfile
+    cp /data/krakenhashes/wordlists/custom/potfile.txt potfile.backup
+
+    # Remove specific patterns (requires careful scripting)
+    grep -v "pattern_to_remove" potfile.txt > potfile.tmp
+    mv potfile.tmp potfile.txt
+
+    # Or rotate periodically
+    mv potfile.txt potfile.$(date +%Y%m%d).archive
+    echo "" > potfile.txt  # Start with blank line
+    ```
+
 ### Backup and Recovery
 
 1. **Include in backups**: The potfile should be part of regular system backups

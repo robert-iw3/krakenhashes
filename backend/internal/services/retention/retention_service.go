@@ -2,7 +2,10 @@ package retention
 
 import (
 	"context"
+	"crypto/rand"
+	"database/sql"
 	"fmt"
+	"os"
 	"strconv"
 	"time"
 
@@ -125,7 +128,16 @@ func (s *RetentionService) PurgeOldHashlists(ctx context.Context) error {
 		}
 	}
 
-	// 4. Update last purge run timestamp
+	// 4. Run VACUUM on affected tables if any hashlists were deleted
+	if deletedCount > 0 {
+		debug.Info("Running VACUUM after deleting %d hashlists...", deletedCount)
+		if err := s.VacuumTables(ctx); err != nil {
+			debug.Error("Purge: Failed to run VACUUM after deletion: %v", err)
+			// Continue - VACUUM failure shouldn't fail the whole operation
+		}
+	}
+
+	// 5. Update last purge run timestamp
 	nowStr := time.Now().Format(time.RFC3339Nano)
 	err = s.clientSettingsRepo.SetSetting(ctx, "last_purge_run", &nowStr)
 	if err != nil {
@@ -138,8 +150,22 @@ func (s *RetentionService) PurgeOldHashlists(ctx context.Context) error {
 }
 
 // DeleteHashlistAndOrphanedHashes deletes a hashlist and any hashes that become orphaned as a result.
-// This should be run within a transaction.
+// It also securely deletes the associated file from disk.
 func (s *RetentionService) DeleteHashlistAndOrphanedHashes(ctx context.Context, hashlistID int64) error {
+	// First, get the hashlist details including file path BEFORE starting transaction
+	hashlist, err := s.hashlistRepo.GetByID(ctx, hashlistID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			debug.Warning("Purge: Hashlist %d not found, may have been already deleted", hashlistID)
+			return nil
+		}
+		return fmt.Errorf("failed to get hashlist %d details: %w", hashlistID, err)
+	}
+
+	// Store the file path for later deletion
+	filePath := hashlist.FilePath
+	debug.Info("Purge: Will delete hashlist %d and its file at: %s", hashlistID, filePath)
+
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction for deleting hashlist %d: %w", hashlistID, err)
@@ -191,5 +217,104 @@ func (s *RetentionService) DeleteHashlistAndOrphanedHashes(ctx context.Context, 
 		return fmt.Errorf("failed to commit transaction for deleting hashlist %d: %w", hashlistID, err)
 	}
 
+	// 6. After successful database deletion, securely delete the file from disk
+	if filePath != "" {
+		if err := s.secureDeleteFile(filePath); err != nil {
+			// Log the error but don't fail the whole operation since DB deletion succeeded
+			debug.Error("Purge: Failed to delete file %s for hashlist %d: %v", filePath, hashlistID, err)
+			// Continue anyway - the DB records are gone which is the critical part
+		} else {
+			debug.Info("Purge: Successfully deleted file %s for hashlist %d", filePath, hashlistID)
+		}
+	} else {
+		debug.Warning("Purge: Hashlist %d had no file path recorded", hashlistID)
+	}
+
+	return nil
+}
+
+// secureDeleteFile overwrites a file with random data before deleting it
+func (s *RetentionService) secureDeleteFile(filePath string) error {
+	// Check if file exists
+	fileInfo, err := os.Stat(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			debug.Warning("File %s does not exist, skipping deletion", filePath)
+			return nil
+		}
+		return fmt.Errorf("failed to stat file %s: %w", filePath, err)
+	}
+
+	// Open file for writing
+	file, err := os.OpenFile(filePath, os.O_WRONLY, 0)
+	if err != nil {
+		return fmt.Errorf("failed to open file %s for secure deletion: %w", filePath, err)
+	}
+	defer file.Close()
+
+	// Overwrite file with random data
+	fileSize := fileInfo.Size()
+	randomData := make([]byte, 4096) // Use 4KB buffer for efficiency
+
+	for written := int64(0); written < fileSize; {
+		// Generate random data for this chunk
+		if _, err := rand.Read(randomData); err != nil {
+			return fmt.Errorf("failed to generate random data: %w", err)
+		}
+
+		// Calculate how much to write
+		toWrite := fileSize - written
+		if toWrite > int64(len(randomData)) {
+			toWrite = int64(len(randomData))
+		}
+
+		// Write the random data
+		n, err := file.Write(randomData[:toWrite])
+		if err != nil {
+			return fmt.Errorf("failed to overwrite file %s: %w", filePath, err)
+		}
+		written += int64(n)
+	}
+
+	// Sync to ensure data is written to disk
+	if err := file.Sync(); err != nil {
+		debug.Warning("Failed to sync file %s after overwrite: %v", filePath, err)
+	}
+
+	// Close file before deletion
+	file.Close()
+
+	// Now delete the file
+	if err := os.Remove(filePath); err != nil {
+		return fmt.Errorf("failed to delete file %s after overwrite: %w", filePath, err)
+	}
+
+	debug.Info("Securely deleted file: %s (overwritten %d bytes)", filePath, fileSize)
+	return nil
+}
+
+// VacuumTables runs VACUUM on the affected tables to reclaim space and remove dead tuples
+func (s *RetentionService) VacuumTables(ctx context.Context) error {
+	debug.Info("Running VACUUM on retention-affected tables...")
+
+	// List of tables to vacuum
+	tables := []string{"hashlists", "hashlist_hashes", "hashes", "agent_hashlists", "job_executions"}
+
+	for _, table := range tables {
+		// VACUUM cannot run inside a transaction, so we execute directly
+		query := fmt.Sprintf("VACUUM ANALYZE %s", table)
+
+		// Execute VACUUM
+		_, err := s.db.ExecContext(ctx, query)
+		if err != nil {
+			debug.Error("Failed to VACUUM table %s: %v", table, err)
+			// Continue with other tables even if one fails
+			continue
+		}
+
+		debug.Debug("Successfully ran VACUUM on table: %s", table)
+	}
+
+	debug.Info("Completed VACUUM operation on retention-affected tables")
 	return nil
 }

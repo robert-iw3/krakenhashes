@@ -520,14 +520,13 @@ func (h *hashlistHandler) handleListUserHashlists(w http.ResponseWriter, r *http
 
 func (h *hashlistHandler) handleGetHashlist(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	userID, err := getUserIDFromContext(ctx)
+	_, err := getUserIDFromContext(ctx)
 	if err != nil {
 		jsonError(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
-	// Check if user is admin
-	role, _ := getUserRoleFromContext(ctx) // Ignore error, default to non-admin if role is missing
-	isAdmin := role == "admin"
+	// Note: Ownership check removed - all authenticated users can access all hashlists
+	// This will change when teams are implemented
 
 	id, err := getInt64FromPath(r, "id")
 	if err != nil {
@@ -546,12 +545,6 @@ func (h *hashlistHandler) handleGetHashlist(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Check ownership or admin status
-	if hashlist.UserID != userID && !isAdmin {
-		jsonError(w, "Forbidden", http.StatusForbidden)
-		return
-	}
-
 	// Don't expose file path
 	hashlist.FilePath = ""
 
@@ -560,14 +553,17 @@ func (h *hashlistHandler) handleGetHashlist(w http.ResponseWriter, r *http.Reque
 
 func (h *hashlistHandler) handleDeleteHashlist(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	userID, err := getUserIDFromContext(ctx)
+	_, err := getUserIDFromContext(ctx)
 	if err != nil {
 		jsonError(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
+	// Note: Ownership check removed - all authenticated users can delete all hashlists
+	// This will change when teams are implemented
 	// Check if user is admin
-	role, _ := getUserRoleFromContext(ctx) // Ignore error, default to non-admin if role is missing
+	role, _ := getUserRoleFromContext(ctx) // Keeping for potential future use
 	isAdmin := role == "admin"
+	_ = isAdmin // Suppress unused variable warning
 
 	id, err := getInt64FromPath(r, "id")
 	if err != nil {
@@ -583,12 +579,6 @@ func (h *hashlistHandler) handleDeleteHashlist(w http.ResponseWriter, r *http.Re
 			debug.Error("Error checking hashlist %d before delete: %v", id, err)
 			jsonError(w, "Failed to retrieve hashlist before deletion", http.StatusInternalServerError)
 		}
-		return
-	}
-
-	// Check ownership or admin status
-	if hashlist.UserID != userID && !isAdmin {
-		jsonError(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 
@@ -622,18 +612,15 @@ func (h *hashlistHandler) handleDownloadHashlist(w http.ResponseWriter, r *http.
 
 	// Check if request is from an agent or user
 	isAgentRequest := strings.HasPrefix(r.URL.Path, "/agent/")
-	var userID uuid.UUID
-	var isAdmin bool
 
 	if !isAgentRequest {
-		userID, err = getUserIDFromContext(ctx)
+		_, err = getUserIDFromContext(ctx)
 		if err != nil {
 			jsonError(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
-		// Check if user is admin
-		role, _ := getUserRoleFromContext(ctx) // Ignore error, default to non-admin if role is missing
-		isAdmin = role == "admin"
+		// Note: Ownership check removed - all authenticated users can download all hashlists
+		// This will change when teams are implemented
 	} // Agent requests are authenticated by AgentAPIKeyMiddleware
 
 	hashlist, err := h.hashlistRepo.GetByID(ctx, id)
@@ -644,12 +631,6 @@ func (h *hashlistHandler) handleDownloadHashlist(w http.ResponseWriter, r *http.
 			debug.Error("Error getting hashlist %d for download: %v", id, err)
 			jsonError(w, "Failed to retrieve hashlist", http.StatusInternalServerError)
 		}
-		return
-	}
-
-	// Permission check for users
-	if !isAgentRequest && hashlist.UserID != userID && !isAdmin {
-		jsonError(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 
@@ -713,8 +694,8 @@ func (h *hashlistHandler) handleGetHashlistHashes(w http.ResponseWriter, r *http
 		return
 	}
 
-	// Check if the user owns the hashlist
-	hashlist, err := h.hashlistRepo.GetByID(ctx, id)
+	// Check if the hashlist exists
+	_, err = h.hashlistRepo.GetByID(ctx, id)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			jsonError(w, "Hashlist not found", http.StatusNotFound)
@@ -725,10 +706,8 @@ func (h *hashlistHandler) handleGetHashlistHashes(w http.ResponseWriter, r *http
 		return
 	}
 
-	if hashlist.UserID != userID {
-		jsonError(w, "Hashlist not found", http.StatusNotFound)
-		return
-	}
+	// Note: Ownership check removed - all authenticated users can access all hashlists
+	// This will change when teams are implemented
 
 	// Parse pagination parameters
 	limit := 10

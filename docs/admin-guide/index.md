@@ -30,6 +30,12 @@ Comprehensive guide for KrakenHashes system administrators.
 
     Presets, chunking, and performance optimization
 
+-   :material-security:{ .lg .middle } **[Security Guide](security.md)**
+
+    ---
+
+    Security considerations, data retention, and best practices
+
 </div>
 
 ## First-Time Setup Sequence
@@ -66,6 +72,7 @@ When setting up KrakenHashes for the first time, follow this sequence:
 - [Job Execution Settings](operations/job-settings.md)
 - [System Monitoring](operations/monitoring.md)
 - [Potfile Management](operations/potfile.md)
+- [Data Retention](operations/data-retention.md)
 - [Backup Procedures](operations/backup.md)
 
 ### :material-tune: **Optimization**
@@ -86,6 +93,8 @@ When setting up KrakenHashes for the first time, follow this sequence:
 - :material-shield-check: Security policy enforcement
 - :material-certificate: Certificate management and renewal
 - :material-lock-reset: Incident response procedures
+- :material-delete-forever: Secure data deletion and retention
+- :material-file-lock: [Security Best Practices](security.md)
 
 ### Resource Management
 - :material-gpu: Agent capacity planning

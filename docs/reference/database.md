@@ -317,6 +317,13 @@ Stores information about clients for whom hashlists are processed.
 | updated_at | TIMESTAMPTZ | NOT NULL | NOW() | Last update time |
 | data_retention_months | INT | | NULL | Data retention policy (NULL = system default, 0 = keep forever) |
 
+**Data Retention Notes:**
+- `data_retention_months` overrides system default retention policy
+- NULL means use system default (`client_settings.default_data_retention_months`)
+- 0 means keep data forever (no automatic deletion)
+- Positive integers specify months to retain data after creation
+- When retention period expires, hashlists and associated data are securely deleted
+
 **Indexes:**
 - idx_clients_name (name)
 
@@ -356,6 +363,15 @@ Stores metadata about uploaded hash lists.
 | updated_at | TIMESTAMPTZ | NOT NULL | NOW() | Last update time |
 | status | TEXT | NOT NULL, CHECK | | Status: uploading, processing, ready, error |
 | error_message | TEXT | | | Error details |
+
+**Retention & Deletion Behavior:**
+- Deletion is CASCADE - removing a hashlist deletes:
+  - All associations in `hashlist_hashes`
+  - Related `agent_hashlists` entries
+  - Related `job_executions` and their `job_tasks`
+- File at `file_path` is securely overwritten with random data before deletion
+- Orphaned hashes (not linked to any other hashlist) are automatically deleted
+- VACUUM ANALYZE runs after deletion to prevent WAL recovery
 
 **Indexes:**
 - idx_hashlists_user_id (user_id)
@@ -771,7 +787,7 @@ Stores compatibility information between rules and wordlists.
 
 ### client_settings
 
-Stores client-specific settings (added in migration 17).
+Stores client-specific settings (added in migration 17). Also used for system-wide settings without a client_id.
 
 | Column | Type | Constraints | Default | Description |
 |--------|------|-------------|---------|-------------|
@@ -782,6 +798,10 @@ Stores client-specific settings (added in migration 17).
 | data_type | VARCHAR(50) | NOT NULL | 'string' | Data type |
 | created_at | TIMESTAMP WITH TIME ZONE | | CURRENT_TIMESTAMP | Creation time |
 | updated_at | TIMESTAMP WITH TIME ZONE | | CURRENT_TIMESTAMP | Last update time |
+
+**Important System-Wide Settings:**
+- `default_data_retention_months` - Default retention period for all hashlists (when client_id is NULL)
+- `last_purge_run` - Timestamp of last retention purge execution
 
 **Unique Constraint:** (client_id, key)
 
@@ -1323,6 +1343,59 @@ The database schema has evolved through 47 migrations:
 
 ---
 
+## Data Lifecycle & Security
+
+### Data Retention System
+
+The database implements a comprehensive data retention system with automatic purging:
+
+1. **Retention Policy Hierarchy**
+   - System default: `client_settings.default_data_retention_months` (when client_id is NULL)
+   - Client-specific: `clients.data_retention_months` overrides system default
+   - Special values: NULL = use system default, 0 = keep forever
+
+2. **Automatic Purge Process**
+   - Runs daily at midnight and on backend startup
+   - Processes hashlists older than retention period based on `created_at`
+   - Executes within database transactions for atomicity
+   - Logs all deletions for audit compliance
+
+3. **Secure Deletion Process**
+   - **Database:** Transactional deletion with CASCADE to dependent tables
+   - **Filesystem:** Files overwritten with random data before removal
+   - **PostgreSQL:** VACUUM ANALYZE on affected tables to prevent WAL recovery
+   - **Orphan Cleanup:** Automatic removal of hashes not linked to any hashlist
+
+4. **Affected Tables During Purge**
+   - `hashlists` - Primary deletion target
+   - `hashlist_hashes` - Junction table entries removed
+   - `hashes` - Orphaned entries deleted
+   - `agent_hashlists` - CASCADE deletion
+   - `job_executions` - CASCADE deletion
+   - `job_tasks` - CASCADE deletion via job_executions
+
+### Security Features
+
+1. **Deletion Security**
+   - Files are securely overwritten with random data to prevent recovery
+   - VACUUM ANALYZE prevents recovery from PostgreSQL dead tuples
+   - Audit trail maintained for compliance verification
+
+2. **CASCADE Deletion Paths**
+   ```
+   hashlists deletion triggers:
+   ├── hashlist_hashes (explicit deletion)
+   ├── hashes (orphan cleanup)
+   ├── agent_hashlists (CASCADE)
+   └── job_executions (CASCADE)
+       └── job_tasks (CASCADE)
+   ```
+
+3. **Agent-Side Cleanup**
+   - Agents automatically clean files older than 3 days
+   - Prevents storage accumulation on compute nodes
+   - Preserves base resources (binaries, wordlists, rules)
+
 ## Important Notes
 
 1. **UUID Usage**: Most primary keys use UUID except for legacy/performance-critical tables (agents, hashlists use SERIAL/BIGSERIAL)
@@ -1331,6 +1404,7 @@ The database schema has evolved through 47 migrations:
 4. **Time Zones**: All timestamps stored as TIMESTAMP WITH TIME ZONE
 5. **JSON Storage**: Heavy use of JSONB for flexible metadata storage
 6. **System User**: Special user with UUID 00000000-0000-0000-0000-000000000000 for system operations
+7. **Data Retention**: Automatic purging with secure deletion and WAL protection
 
 ---
 

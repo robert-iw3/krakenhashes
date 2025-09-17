@@ -15,6 +15,7 @@ import (
 
 	"github.com/ZerkerEOD/krakenhashes/agent/internal/agent"
 	"github.com/ZerkerEOD/krakenhashes/agent/internal/auth"
+	"github.com/ZerkerEOD/krakenhashes/agent/internal/cleanup"
 	"github.com/ZerkerEOD/krakenhashes/agent/internal/config"
 	"github.com/ZerkerEOD/krakenhashes/agent/internal/jobs"
 	"github.com/ZerkerEOD/krakenhashes/agent/internal/metrics"
@@ -713,6 +714,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Start the cleanup service for automatic file cleanup
+	cleanupService := cleanup.NewCleanupService(dataDirs)
+	cleanupCtx, cleanupCancel := context.WithCancel(context.Background())
+	cleanupService.Start(cleanupCtx)
+	debug.Info("File cleanup service started with 3-day retention policy")
+
 	debug.Info("Agent running, press Ctrl+C to exit")
 
 	// Wait for interrupt signal
@@ -721,7 +728,12 @@ func main() {
 	<-sigChan
 
 	debug.Info("Shutting down agent...")
-	
+
+	// Stop the cleanup service
+	debug.Info("Stopping cleanup service...")
+	cleanupCancel()
+	cleanupService.Stop()
+
 	// First, stop the job manager to cleanly stop all running jobs
 	if jobManager != nil {
 		debug.Info("Stopping job manager and all running tasks...")
@@ -733,13 +745,13 @@ func main() {
 			debug.Info("Job manager shutdown complete")
 		}
 	}
-	
+
 	// Send shutdown notification to server before closing connection
 	if conn != nil {
 		debug.Info("Sending shutdown notification to server...")
 		conn.SendShutdownNotification()
 		time.Sleep(500 * time.Millisecond) // Give time for the message to be sent
-		
+
 		debug.Info("Stopping connection...")
 		conn.Stop() // Stop the active connection and maintenance routines
 	}
