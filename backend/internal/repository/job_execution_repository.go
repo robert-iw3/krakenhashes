@@ -706,8 +706,14 @@ func (r *JobExecutionRepository) GetJobsWithPendingWork(ctx context.Context) ([]
 				 AND COALESCE(js.active_agents, 0) < COALESCE(NULLIF(je.max_agents, 0), 999))
 				OR
 				-- Rule-split job with more keyspace to dispatch
-				(je.uses_rule_splitting = true 
+				(je.uses_rule_splitting = true
 				 AND je.dispatched_keyspace < je.effective_keyspace
+				 AND COALESCE(js.active_agents, 0) < COALESCE(NULLIF(je.max_agents, 0), 999))
+				OR
+				-- Regular keyspace chunking job with more keyspace to dispatch
+				(je.uses_rule_splitting = false
+				 AND je.total_keyspace IS NOT NULL
+				 AND je.dispatched_keyspace < je.total_keyspace
 				 AND COALESCE(js.active_agents, 0) < COALESCE(NULLIF(je.max_agents, 0), 999))
 			)
 		ORDER BY je.priority DESC, je.created_at ASC`
