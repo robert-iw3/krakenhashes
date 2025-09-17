@@ -774,6 +774,26 @@ func (s *JobSchedulingService) assignWorkToAgent(ctx context.Context, agent *mod
 		// Regular chunking
 		chunkResult, err := s.jobChunkingService.CalculateNextChunk(ctx, chunkReq)
 		if err != nil {
+			// Special handling for "no remaining keyspace" - not an error, just done
+			if strings.Contains(err.Error(), "no remaining keyspace") {
+				debug.Log("All keyspace has been dispatched for job", map[string]interface{}{
+					"job_id": nextJob.ID,
+					"total_keyspace": nextJob.TotalKeyspace,
+				})
+
+				// Let ProcessJobCompletion handle the completion check
+				err = s.ProcessJobCompletion(ctx, nextJob.ID)
+				if err != nil {
+					debug.Log("Failed to process job completion", map[string]interface{}{
+						"job_id": nextJob.ID,
+						"error":  err.Error(),
+					})
+				}
+
+				return nil, interruptedJobs, nil // Return success, no task to create
+			}
+
+			// All other errors are actual failures
 			debug.Log("Failed to calculate chunk", map[string]interface{}{
 				"agent_id": agent.ID,
 				"error":    err.Error(),
@@ -1124,7 +1144,27 @@ func (s *JobSchedulingService) ProcessJobCompletion(ctx context.Context, jobExec
 	}
 
 	if incompleteTasks == 0 {
-		// All tasks are complete, mark job as completed
+		// NEW: For non-rule jobs only, verify entire keyspace is covered
+		if !job.UsesRuleSplitting && job.TotalKeyspace != nil {
+			// Get the highest keyspace_end value from all tasks
+			maxEnd, err := s.jobExecutionService.jobTaskRepo.GetMaxKeyspaceEnd(ctx, jobExecutionID)
+			if err != nil {
+				debug.Log("Error checking max keyspace end", map[string]interface{}{
+					"job_id": jobExecutionID,
+					"error": err.Error(),
+				})
+			} else if maxEnd < *job.TotalKeyspace {
+				debug.Log("Keyspace incomplete, not marking job complete", map[string]interface{}{
+					"job_id": jobExecutionID,
+					"max_end": maxEnd,
+					"total": *job.TotalKeyspace,
+					"percentage": float64(maxEnd) / float64(*job.TotalKeyspace) * 100,
+				})
+				return nil // Don't complete yet, more tasks needed
+			}
+		}
+
+		// All tasks are complete AND keyspace covered, mark job as completed
 		err = s.jobExecutionService.CompleteJobExecution(ctx, jobExecutionID)
 		if err != nil {
 			return fmt.Errorf("failed to complete job execution: %w", err)

@@ -575,6 +575,22 @@ func (r *JobTaskRepository) GetIncompleteTasksCount(ctx context.Context, jobExec
 	return count, nil
 }
 
+// GetMaxKeyspaceEnd returns the maximum keyspace_end value for a job
+func (r *JobTaskRepository) GetMaxKeyspaceEnd(ctx context.Context, jobExecutionID uuid.UUID) (int64, error) {
+	query := `
+		SELECT COALESCE(MAX(keyspace_end), 0)
+		FROM job_tasks
+		WHERE job_execution_id = $1`
+
+	var maxEnd int64
+	err := r.db.QueryRowContext(ctx, query, jobExecutionID).Scan(&maxEnd)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get max keyspace end: %w", err)
+	}
+
+	return maxEnd, nil
+}
+
 // GetFailedTasksByJobExecution returns all failed tasks for a job execution
 func (r *JobTaskRepository) GetFailedTasksByJobExecution(ctx context.Context, jobExecutionID uuid.UUID) ([]models.JobTask, error) {
 	query := `
