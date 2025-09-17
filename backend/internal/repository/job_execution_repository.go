@@ -687,7 +687,7 @@ func (r *JobExecutionRepository) GetJobsWithPendingWork(ctx context.Context) ([]
 			je.binary_version_id, je.chunk_size_seconds, je.status_updates_enabled,
 			je.allow_high_priority_override, je.additional_args,
 			je.hash_type,
-			je.name as preset_job_name,
+			pj.name as preset_job_name,
 			h.name as hashlist_name,
 			h.total_hashes as total_hashes,
 			h.cracked_hashes as cracked_hashes,
@@ -695,6 +695,7 @@ func (r *JobExecutionRepository) GetJobsWithPendingWork(ctx context.Context) ([]
 			COALESCE(js.pending_tasks, 0) + COALESCE(js.retryable_tasks, 0) as pending_work
 		FROM job_executions je
 		JOIN hashlists h ON je.hashlist_id = h.id
+		LEFT JOIN preset_jobs pj ON je.preset_job_id = pj.id
 		LEFT JOIN job_stats js ON je.id = js.id
 		WHERE je.status IN ('pending', 'running')
 			AND (
