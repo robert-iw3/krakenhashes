@@ -659,6 +659,18 @@ func (h *Handler) handleSyncResponse(client *Client, msg *wsservice.Message) {
 
 	if len(filesToSync) == 0 {
 		debug.Info("Agent %d is up to date, no files to sync", client.agent.ID)
+
+		// Mark sync as completed since agent already has all files
+		if h.agentService != nil {
+			err := h.agentService.UpdateAgentSyncStatus(context.Background(), client.agent.ID,
+				models.AgentSyncStatusCompleted, "")
+			if err != nil {
+				debug.Error("Failed to update sync status for agent %d: %v", client.agent.ID, err)
+			} else {
+				debug.Info("Agent %d sync status updated to completed", client.agent.ID)
+			}
+		}
+
 		return
 	}
 
