@@ -70,6 +70,10 @@ const AgentDetailsPage = lazy(() => import('./pages/AgentDetails'));
 const PotPage = lazy(() => import('./pages/Pot'));
 const PotHashlistPage = lazy(() => import('./pages/PotHashlist'));
 const PotClientPage = lazy(() => import('./pages/PotClient'));
+const PotJobPage = lazy(() => import('./pages/PotJob'));
+
+// Lazy load pages - Clients page moved to regular auth section
+const ClientsPage = lazy(() => import('./pages/AdminClients').then(module => ({ default: module.AdminClients })));
 
 // Lazy load Admin Pages
 const PresetJobListPage = lazy(() => import('./pages/admin/PresetJobList'));
@@ -77,7 +81,6 @@ const PresetJobFormPage = lazy(() => import('./pages/admin/PresetJobForm'));
 const JobWorkflowListPage = lazy(() => import('./pages/admin/JobWorkflowList'));
 const JobWorkflowFormPage = lazy(() => import('./pages/admin/JobWorkflowForm'));
 const AdminAuthSettingsPage = lazy(() => import('./pages/admin/AuthSettings'));
-const AdminClientsPage = lazy(() => import('./pages/AdminClients').then(module => ({ default: module.AdminClients })));
 const AdminUserListPage = lazy(() => import('./pages/admin/UserList'));
 const AdminUserDetailPage = lazy(() => import('./pages/admin/UserDetail'));
 const AdminSettingsIndexPage = lazy(() => import('./pages/AdminSettings').then(module => ({ default: module.AdminSettings })));
@@ -138,9 +141,11 @@ const App: React.FC = () => {
                     <Route path="/hashlists/:id" element={<HashlistDetailViewPage />} />
                     <Route path="/wordlists" element={<WordlistsManagementPage />} />
                     <Route path="/rules" element={<RulesManagementPage />} />
+                    <Route path="/clients" element={<ClientsPage />} />
                     <Route path="/pot" element={<PotPage />} />
                     <Route path="/pot/hashlist/:id" element={<PotHashlistPage />} />
                     <Route path="/pot/client/:id" element={<PotClientPage />} />
+                    <Route path="/pot/job/:id" element={<PotJobPage />} />
                     <Route path="/about" element={<AboutPage />} />
                     <Route path="/settings/profile" element={<ProfileSettingsPage />} />
 
@@ -154,7 +159,6 @@ const App: React.FC = () => {
                       <Route path="job-workflows/new" element={<JobWorkflowFormPage />} />
                       <Route path="job-workflows/:jobWorkflowId/edit" element={<JobWorkflowFormPage />} />
                       <Route path="auth-settings" element={<AdminAuthSettingsPage />} />
-                      <Route path="clients" element={<AdminClientsPage />} />
                       <Route path="users" element={<AdminUserListPage />} />
                       <Route path="users/:id" element={<AdminUserDetailPage />} />
                       <Route path="settings" element={<AdminSettingsIndexPage />} />

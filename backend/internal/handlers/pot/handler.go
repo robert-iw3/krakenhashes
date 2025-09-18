@@ -18,17 +18,20 @@ type Handler struct {
 	hashRepo     *repository.HashRepository
 	hashlistRepo *repository.HashListRepository
 	clientRepo   *repository.ClientRepository
+	jobRepo      *repository.JobExecutionRepository
 }
 
 func NewHandler(
 	hashRepo *repository.HashRepository,
 	hashlistRepo *repository.HashListRepository,
 	clientRepo *repository.ClientRepository,
+	jobRepo *repository.JobExecutionRepository,
 ) *Handler {
 	return &Handler{
 		hashRepo:     hashRepo,
 		hashlistRepo: hashlistRepo,
 		clientRepo:   clientRepo,
+		jobRepo:      jobRepo,
 	}
 }
 
@@ -138,7 +141,7 @@ func (h *Handler) HandleListCrackedHashesByClient(w http.ResponseWriter, r *http
 	ctx := r.Context()
 	vars := mux.Vars(r)
 	clientIDStr := vars["id"]
-	
+
 	clientID, err := uuid.Parse(clientIDStr)
 	if err != nil {
 		debug.Error("Invalid client ID: %v", err)
@@ -156,7 +159,7 @@ func (h *Handler) HandleListCrackedHashesByClient(w http.ResponseWriter, r *http
 			params.Limit = limit
 		}
 	}
-	
+
 	if offsetStr := r.URL.Query().Get("offset"); offsetStr != "" {
 		if offset, err := strconv.Atoi(offsetStr); err == nil && offset >= 0 {
 			params.Offset = offset
@@ -173,7 +176,55 @@ func (h *Handler) HandleListCrackedHashesByClient(w http.ResponseWriter, r *http
 	}
 
 	response := h.formatPotResponse(hashes, totalCount, params.Limit, params.Offset)
-	
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		debug.Error("Failed to encode response: %v", err)
+		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		return
+	}
+}
+
+func (h *Handler) HandleListCrackedHashesByJob(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	vars := mux.Vars(r)
+	jobIDStr := vars["id"]
+
+	jobID, err := uuid.Parse(jobIDStr)
+	if err != nil {
+		debug.Error("Invalid job ID: %v", err)
+		http.Error(w, "Invalid job ID", http.StatusBadRequest)
+		return
+	}
+
+	params := repository.CrackedHashParams{
+		Limit:  500,
+		Offset: 0,
+	}
+
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if limit, err := strconv.Atoi(limitStr); err == nil && limit > 0 {
+			params.Limit = limit
+		}
+	}
+
+	if offsetStr := r.URL.Query().Get("offset"); offsetStr != "" {
+		if offset, err := strconv.Atoi(offsetStr); err == nil && offset >= 0 {
+			params.Offset = offset
+		}
+	}
+
+	debug.Info("Fetching cracked hashes for job=%s with limit=%d, offset=%d", jobID, params.Limit, params.Offset)
+
+	hashes, totalCount, err := h.hashRepo.GetCrackedHashesByJob(ctx, jobID, params)
+	if err != nil {
+		debug.Error("Failed to get cracked hashes by job: %v", err)
+		http.Error(w, "Failed to retrieve cracked hashes", http.StatusInternalServerError)
+		return
+	}
+
+	response := h.formatPotResponse(hashes, totalCount, params.Limit, params.Offset)
+
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		debug.Error("Failed to encode response: %v", err)
@@ -563,6 +614,148 @@ func (h *Handler) HandleDownloadPassByClient(w http.ResponseWriter, r *http.Requ
 	}
 	
 	h.writePassFormat(w, hashes, sanitizeFilename(client.Name))
+}
+
+// Job-specific download handlers
+
+func (h *Handler) HandleDownloadHashPassByJob(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	vars := mux.Vars(r)
+	jobIDStr := vars["id"]
+
+	jobID, err := uuid.Parse(jobIDStr)
+	if err != nil {
+		debug.Error("Invalid job ID: %v", err)
+		http.Error(w, "Invalid job ID", http.StatusBadRequest)
+		return
+	}
+
+	// Get job name for filename
+	job, err := h.jobRepo.GetByID(ctx, jobID)
+	if err != nil {
+		debug.Error("Failed to get job: %v", err)
+		http.Error(w, "Failed to retrieve job", http.StatusInternalServerError)
+		return
+	}
+
+	params := repository.CrackedHashParams{
+		Limit:  999999,
+		Offset: 0,
+	}
+
+	hashes, _, err := h.hashRepo.GetCrackedHashesByJob(ctx, jobID, params)
+	if err != nil {
+		debug.Error("Failed to get cracked hashes for download: %v", err)
+		http.Error(w, "Failed to retrieve cracked hashes", http.StatusInternalServerError)
+		return
+	}
+
+	h.writeHashPassFormat(w, hashes, sanitizeFilename(job.Name))
+}
+
+func (h *Handler) HandleDownloadUserPassByJob(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	vars := mux.Vars(r)
+	jobIDStr := vars["id"]
+
+	jobID, err := uuid.Parse(jobIDStr)
+	if err != nil {
+		debug.Error("Invalid job ID: %v", err)
+		http.Error(w, "Invalid job ID", http.StatusBadRequest)
+		return
+	}
+
+	// Get job name for filename
+	job, err := h.jobRepo.GetByID(ctx, jobID)
+	if err != nil {
+		debug.Error("Failed to get job: %v", err)
+		http.Error(w, "Failed to retrieve job", http.StatusInternalServerError)
+		return
+	}
+
+	params := repository.CrackedHashParams{
+		Limit:  999999,
+		Offset: 0,
+	}
+
+	hashes, _, err := h.hashRepo.GetCrackedHashesByJob(ctx, jobID, params)
+	if err != nil {
+		debug.Error("Failed to get cracked hashes for download: %v", err)
+		http.Error(w, "Failed to retrieve cracked hashes", http.StatusInternalServerError)
+		return
+	}
+
+	h.writeUserPassFormat(w, hashes, sanitizeFilename(job.Name))
+}
+
+func (h *Handler) HandleDownloadUserByJob(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	vars := mux.Vars(r)
+	jobIDStr := vars["id"]
+
+	jobID, err := uuid.Parse(jobIDStr)
+	if err != nil {
+		debug.Error("Invalid job ID: %v", err)
+		http.Error(w, "Invalid job ID", http.StatusBadRequest)
+		return
+	}
+
+	// Get job name for filename
+	job, err := h.jobRepo.GetByID(ctx, jobID)
+	if err != nil {
+		debug.Error("Failed to get job: %v", err)
+		http.Error(w, "Failed to retrieve job", http.StatusInternalServerError)
+		return
+	}
+
+	params := repository.CrackedHashParams{
+		Limit:  999999,
+		Offset: 0,
+	}
+
+	hashes, _, err := h.hashRepo.GetCrackedHashesByJob(ctx, jobID, params)
+	if err != nil {
+		debug.Error("Failed to get cracked hashes for download: %v", err)
+		http.Error(w, "Failed to retrieve cracked hashes", http.StatusInternalServerError)
+		return
+	}
+
+	h.writeUserFormat(w, hashes, sanitizeFilename(job.Name))
+}
+
+func (h *Handler) HandleDownloadPassByJob(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	vars := mux.Vars(r)
+	jobIDStr := vars["id"]
+
+	jobID, err := uuid.Parse(jobIDStr)
+	if err != nil {
+		debug.Error("Invalid job ID: %v", err)
+		http.Error(w, "Invalid job ID", http.StatusBadRequest)
+		return
+	}
+
+	// Get job name for filename
+	job, err := h.jobRepo.GetByID(ctx, jobID)
+	if err != nil {
+		debug.Error("Failed to get job: %v", err)
+		http.Error(w, "Failed to retrieve job", http.StatusInternalServerError)
+		return
+	}
+
+	params := repository.CrackedHashParams{
+		Limit:  999999,
+		Offset: 0,
+	}
+
+	hashes, _, err := h.hashRepo.GetCrackedHashesByJob(ctx, jobID, params)
+	if err != nil {
+		debug.Error("Failed to get cracked hashes for download: %v", err)
+		http.Error(w, "Failed to retrieve cracked hashes", http.StatusInternalServerError)
+		return
+	}
+
+	h.writePassFormat(w, hashes, sanitizeFilename(job.Name))
 }
 
 // Helper functions for writing different formats

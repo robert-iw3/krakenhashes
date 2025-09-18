@@ -7,15 +7,12 @@ import (
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/db"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/email"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/admin/auth"
-	adminclient "github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/admin/client"
 	adminsettings "github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/admin/settings"
 	adminuser "github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/admin/user"
 	binaryhandler "github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/binary"
 	emailhandler "github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/email"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/middleware"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/repository"
-	clientsvc "github.com/ZerkerEOD/krakenhashes/backend/internal/services/client"
-	retentionsvc "github.com/ZerkerEOD/krakenhashes/backend/internal/services/retention"
 	"github.com/ZerkerEOD/krakenhashes/backend/pkg/debug"
 	"github.com/gorilla/mux"
 )
@@ -26,16 +23,12 @@ func SetupAdminRoutes(router *mux.Router, database *db.DB, emailService *email.S
 	debug.Debug("Setting up admin routes")
 
 	// Create Repositories needed by handlers/services
-	clientRepo := repository.NewClientRepository(database)
 	clientSettingsRepo := repository.NewClientSettingsRepository(database)
 	systemSettingsRepo := repository.NewSystemSettingsRepository(database)
-	hashlistRepo := repository.NewHashListRepository(database)
-	hashRepo := repository.NewHashRepository(database)
 	userRepo := repository.NewUserRepository(database)
 
-	// Create Services
-	retentionService := retentionsvc.NewRetentionService(database, hashlistRepo, hashRepo, clientRepo, clientSettingsRepo)
-	clientService := clientsvc.NewClientService(clientRepo, hashlistRepo, clientSettingsRepo, retentionService)
+	// Create Services (retention service no longer needed in admin routes)
+	// Client management moved to regular authenticated users
 
 	// Get preset job repository from handler - we need to find a way to access this
 	// For now, create it again here since we can't access it from the handler
@@ -48,7 +41,7 @@ func SetupAdminRoutes(router *mux.Router, database *db.DB, emailService *email.S
 	systemSettingsHandler := adminsettings.NewSystemSettingsHandler(systemSettingsRepo, presetJobRepo)
 	jobSettingsHandler := adminsettings.NewJobSettingsHandler(systemSettingsRepo)
 	monitoringSettingsHandler := adminsettings.NewMonitoringSettingsHandler(systemSettingsRepo)
-	clientHandler := adminclient.NewClientHandler(clientRepo, clientService)
+	// clientHandler removed - client management moved to regular authenticated users
 	userHandler := adminuser.NewUserHandler(userRepo, database)
 
 	// Create admin router
@@ -91,12 +84,7 @@ func SetupAdminRoutes(router *mux.Router, database *db.DB, emailService *email.S
 	adminRouter.HandleFunc("/settings/{key}", systemSettingsHandler.GetSetting).Methods(http.MethodGet, http.MethodOptions)
 	adminRouter.HandleFunc("/settings/{key}", systemSettingsHandler.UpdateSetting).Methods(http.MethodPut, http.MethodOptions)
 
-	// Client Management routes (New)
-	adminRouter.HandleFunc("/clients", clientHandler.ListClients).Methods(http.MethodGet, http.MethodOptions)
-	adminRouter.HandleFunc("/clients", clientHandler.CreateClient).Methods(http.MethodPost, http.MethodOptions)
-	adminRouter.HandleFunc("/clients/{id:[0-9a-fA-F-]+}", clientHandler.GetClient).Methods(http.MethodGet, http.MethodOptions)
-	adminRouter.HandleFunc("/clients/{id:[0-9a-fA-F-]+}", clientHandler.UpdateClient).Methods(http.MethodPut, http.MethodOptions)
-	adminRouter.HandleFunc("/clients/{id:[0-9a-fA-F-]+}", clientHandler.DeleteClient).Methods(http.MethodDelete, http.MethodOptions)
+	// Client Management routes moved to regular authenticated users at /api/clients
 
 	// User Management routes (New)
 	adminRouter.HandleFunc("/users", userHandler.ListUsers).Methods(http.MethodGet, http.MethodOptions)

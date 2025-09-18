@@ -1,12 +1,11 @@
 import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { List, ListItemButton, ListItemIcon, ListItemText } from '@mui/material';
-import { 
-  Settings as SettingsIcon, 
-  People as PeopleIcon, 
-  PlaylistAddCheck as PlaylistAddCheckIcon, 
+import {
+  Settings as SettingsIcon,
+  PlaylistAddCheck as PlaylistAddCheckIcon,
   AccountTree as AccountTreeIcon,
-  SupervisorAccount as SupervisorAccountIcon 
+  SupervisorAccount as SupervisorAccountIcon
 } from '@mui/icons-material';
 
 const AdminMenu: React.FC = () => {
@@ -33,26 +32,6 @@ const AdminMenu: React.FC = () => {
           <SettingsIcon />
         </ListItemIcon>
         <ListItemText primary="Admin Settings" />
-      </ListItemButton>
-
-      <ListItemButton
-        onClick={() => navigate('/admin/clients')}
-        selected={location.pathname.startsWith('/admin/clients')}
-        sx={{
-          minHeight: 48,
-          px: 2.5,
-        }}
-      >
-        <ListItemIcon
-          sx={{
-            minWidth: 0,
-            mr: 3,
-            justifyContent: 'center',
-          }}
-        >
-          <PeopleIcon />
-        </ListItemIcon>
-        <ListItemText primary="Client Management" />
       </ListItemButton>
 
       <ListItemButton

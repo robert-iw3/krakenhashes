@@ -269,9 +269,29 @@ const JobRow: React.FC<JobRowProps> = ({ job, onJobUpdated, isLastActiveJob, isC
 
         {/* Cracked Count */}
         <TableCell align="center">
-          <Typography variant="body2" sx={{ fontWeight: 'medium' }}>
-            {job.cracked_count.toLocaleString()}
-          </Typography>
+          {job.cracked_count > 0 ? (
+            <Typography
+              variant="body2"
+              sx={{
+                fontWeight: 'medium',
+                cursor: 'pointer',
+                color: 'primary.main',
+                '&:hover': {
+                  textDecoration: 'underline',
+                },
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                navigate(`/pot/job/${job.id}`);
+              }}
+            >
+              {job.cracked_count.toLocaleString()}
+            </Typography>
+          ) : (
+            <Typography variant="body2" sx={{ fontWeight: 'medium' }}>
+              {job.cracked_count.toLocaleString()}
+            </Typography>
+          )}
         </TableCell>
 
         {/* Agents */}

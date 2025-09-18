@@ -40,7 +40,7 @@ interface PotTableProps {
   fetchData: (limit: number, offset: number) => Promise<PotResponse>;
   filterParam?: string;
   filterValue?: string;
-  contextType: 'master' | 'hashlist' | 'client';
+  contextType: 'master' | 'hashlist' | 'client' | 'job';
   contextName: string;
   contextId?: string;
 }

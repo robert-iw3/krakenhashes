@@ -273,7 +273,7 @@ interface UpdateClientSettingPayload {
 }
 
 // Get Default Client Data Retention Setting
-export const getDefaultClientRetentionSetting = () => api.get<ClientSettingResponse>('/api/admin/settings/retention');
+export const getDefaultClientRetentionSetting = () => api.get<ClientSettingResponse>('/api/settings/retention');
 
 // Update Default Client Data Retention Setting
 export const updateDefaultClientRetentionSetting = (payload: UpdateClientSettingPayload) => 
@@ -283,22 +283,31 @@ export const updateDefaultClientRetentionSetting = (payload: UpdateClientSetting
 // --- Client Management (Admin) ---
 
 
+// Client Management APIs (available to all authenticated users)
+
 // List all clients
-export const listAdminClients = () => api.get<{data: Client[]}>('/api/admin/clients');
+export const listClients = () => api.get<{data: Client[]}>('/api/clients');
 
 // Get a single client by ID
-export const getAdminClient = (id: string) => api.get<{data: Client}>(`/api/admin/clients/${id}`);
+export const getClient = (id: string) => api.get<{data: Client}>(`/api/clients/${id}`);
 
 // Create a new client
-export const createAdminClient = (clientData: Omit<Client, 'id' | 'createdAt' | 'updatedAt'>) => 
-  api.post<{data: Client}>('/api/admin/clients', clientData);
+export const createClient = (clientData: Omit<Client, 'id' | 'createdAt' | 'updatedAt'>) =>
+  api.post<{data: Client}>('/api/clients', clientData);
 
 // Update an existing client
-export const updateAdminClient = (id: string, clientData: Partial<Omit<Client, 'id' | 'createdAt' | 'updatedAt'>>) => 
-  api.put<{data: Client}>(`/api/admin/clients/${id}`, clientData);
+export const updateClient = (id: string, clientData: Partial<Omit<Client, 'id' | 'createdAt' | 'updatedAt'>>) =>
+  api.put<{data: Client}>(`/api/clients/${id}`, clientData);
 
 // Delete a client
-export const deleteAdminClient = (id: string) => api.delete<any>(`/api/admin/clients/${id}`); 
+export const deleteClient = (id: string) => api.delete<any>(`/api/clients/${id}`);
+
+// Legacy admin client APIs (deprecated - use the above instead)
+export const listAdminClients = listClients;
+export const getAdminClient = getClient;
+export const createAdminClient = createClient;
+export const updateAdminClient = updateClient;
+export const deleteAdminClient = deleteClient; 
 
 // --- User Management (Admin) ---
 

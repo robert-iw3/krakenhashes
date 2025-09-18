@@ -178,7 +178,9 @@ func SetupRoutes(r *mux.Router, sqlDB *sql.DB, tlsProvider tls.Provider, agentSe
 	hashRepo := repository.NewHashRepository(database)
 	hashlistRepo := repository.NewHashListRepository(database)
 	clientRepo := repository.NewClientRepository(database)
-	debug.Info("Initialized PresetJob, SystemSettings, JobWorkflow, File, Hash, Hashlist, and Client repositories")
+	clientSettingsRepo := repository.NewClientSettingsRepository(database)
+	jobExecutionRepo := repository.NewJobExecutionRepository(database)
+	debug.Info("Initialized PresetJob, SystemSettings, JobWorkflow, File, Hash, Hashlist, Client, and ClientSettings repositories")
 
 	// Initialize Services for preset jobs and workflows
 	presetJobService := services.NewAdminPresetJobService(presetJobRepo, systemSettingsRepo, binaryManager, fileRepository, appConfig.DataDir)
@@ -205,16 +207,20 @@ func SetupRoutes(r *mux.Router, sqlDB *sql.DB, tlsProvider tls.Provider, agentSe
 	// Create system settings handler for users (read-only access to max priority)
 	userSystemSettingsHandler := adminsettings.NewSystemSettingsHandler(systemSettingsRepo, presetJobRepo)
 
+	// Create retention settings handler for users (read-only access to default retention)
+	userRetentionSettingsHandler := adminsettings.NewRetentionSettingsHandler(clientSettingsRepo)
+
 	// Setup feature-specific routes
 	SetupDashboardRoutes(jwtRouter)
 	SetupHashlistRoutes(jwtRouter)
 	// Note: Skipping SetupJobRoutes(jwtRouter) as it conflicts with SetupUserRoutes - the real job routes are in SetupUserRoutes
 	SetupAgentRoutes(jwtRouter, agentService, database)
 	SetupVoucherRoutes(jwtRouter, services.NewClaimVoucherService(repository.NewClaimVoucherRepository(database)))
-	SetupPotRoutes(jwtRouter, hashRepo, hashlistRepo, clientRepo)
+	SetupPotRoutes(jwtRouter, hashRepo, hashlistRepo, clientRepo, jobExecutionRepo)
 
-	// Add user accessible route for max priority (read-only)
+	// Add user accessible routes for settings (read-only)
 	jwtRouter.HandleFunc("/settings/max-priority", userSystemSettingsHandler.GetMaxPriorityForUsers).Methods(http.MethodGet, http.MethodOptions)
+	jwtRouter.HandleFunc("/settings/retention", userRetentionSettingsHandler.GetDefaultRetention).Methods(http.MethodGet, http.MethodOptions)
 
 	SetupAdminRoutes(jwtRouter, database, emailService, adminJobsHandler, binaryManager) // Pass adminJobsHandler and binaryManager
 	SetupUserRoutes(jwtRouter, database, appConfig.DataDir, binaryManager, agentService)

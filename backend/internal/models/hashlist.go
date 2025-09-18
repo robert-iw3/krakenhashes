@@ -67,6 +67,7 @@ type Client struct {
 	DataRetentionMonths *int      `json:"dataRetentionMonths,omitempty"` // Use pointer for nullable INT (Keep forever=0, Use Default=NULL)
 	CreatedAt           time.Time `json:"createdAt"`                     // Timestamp of creation
 	UpdatedAt           time.Time `json:"updatedAt"`                     // Timestamp of last update
+	CrackedCount        *int      `json:"cracked_count,omitempty"`       // Count of cracked hashes for this client (computed field)
 }
 
 // HashListHash represents the many-to-many relationship between hashlists and hashes.

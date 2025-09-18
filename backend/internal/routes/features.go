@@ -77,14 +77,15 @@ func SetupVoucherRoutes(jwtRouter *mux.Router, voucherService *services.ClaimVou
 }
 
 // SetupPotRoutes configures pot (cracked hashes) routes
-func SetupPotRoutes(jwtRouter *mux.Router, hashRepo *repository.HashRepository, hashlistRepo *repository.HashListRepository, clientRepo *repository.ClientRepository) {
-	potHandler := pot.NewHandler(hashRepo, hashlistRepo, clientRepo)
+func SetupPotRoutes(jwtRouter *mux.Router, hashRepo *repository.HashRepository, hashlistRepo *repository.HashListRepository, clientRepo *repository.ClientRepository, jobRepo *repository.JobExecutionRepository) {
+	potHandler := pot.NewHandler(hashRepo, hashlistRepo, clientRepo, jobRepo)
 	
 	// List routes
 	jwtRouter.HandleFunc("/pot", potHandler.HandleListCrackedHashes).Methods("GET", "OPTIONS")
 	jwtRouter.HandleFunc("/pot/hashlist/{id}", potHandler.HandleListCrackedHashesByHashlist).Methods("GET", "OPTIONS")
 	jwtRouter.HandleFunc("/pot/client/{id}", potHandler.HandleListCrackedHashesByClient).Methods("GET", "OPTIONS")
-	
+	jwtRouter.HandleFunc("/pot/job/{id}", potHandler.HandleListCrackedHashesByJob).Methods("GET", "OPTIONS")
+
 	// Download routes for all cracked hashes
 	jwtRouter.HandleFunc("/pot/download/hash-pass", potHandler.HandleDownloadHashPass).Methods("GET", "OPTIONS")
 	jwtRouter.HandleFunc("/pot/download/user-pass", potHandler.HandleDownloadUserPass).Methods("GET", "OPTIONS")
@@ -102,6 +103,12 @@ func SetupPotRoutes(jwtRouter *mux.Router, hashRepo *repository.HashRepository, 
 	jwtRouter.HandleFunc("/pot/client/{id}/download/user-pass", potHandler.HandleDownloadUserPassByClient).Methods("GET", "OPTIONS")
 	jwtRouter.HandleFunc("/pot/client/{id}/download/user", potHandler.HandleDownloadUserByClient).Methods("GET", "OPTIONS")
 	jwtRouter.HandleFunc("/pot/client/{id}/download/pass", potHandler.HandleDownloadPassByClient).Methods("GET", "OPTIONS")
-	
-	debug.Info("Configured pot endpoints: list and download routes for all/hashlist/client contexts")
+
+	// Download routes for job-specific cracked hashes
+	jwtRouter.HandleFunc("/pot/job/{id}/download/hash-pass", potHandler.HandleDownloadHashPassByJob).Methods("GET", "OPTIONS")
+	jwtRouter.HandleFunc("/pot/job/{id}/download/user-pass", potHandler.HandleDownloadUserPassByJob).Methods("GET", "OPTIONS")
+	jwtRouter.HandleFunc("/pot/job/{id}/download/user", potHandler.HandleDownloadUserByJob).Methods("GET", "OPTIONS")
+	jwtRouter.HandleFunc("/pot/job/{id}/download/pass", potHandler.HandleDownloadPassByJob).Methods("GET", "OPTIONS")
+
+	debug.Info("Configured pot endpoints: list and download routes for all/hashlist/client/job contexts")
 }

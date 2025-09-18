@@ -16,10 +16,13 @@ import (
 
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/config"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/db"
+	adminclient "github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/admin/client"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/models"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/processor"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/repository"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/services"
+	clientsvc "github.com/ZerkerEOD/krakenhashes/backend/internal/services/client"
+	retentionsvc "github.com/ZerkerEOD/krakenhashes/backend/internal/services/retention"
 	"github.com/ZerkerEOD/krakenhashes/backend/pkg/debug"
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
@@ -122,14 +125,22 @@ func registerHashlistRoutes(r *mux.Router, sqlDB *sql.DB, cfg *config.Config, ag
 	hashTypeRouter.HandleFunc("/{id}", h.handleUpdateHashType).Methods(http.MethodPut, http.MethodOptions)
 	hashTypeRouter.HandleFunc("/{id}", h.handleDeleteHashType).Methods(http.MethodDelete, http.MethodOptions)
 
-	// 2.3. Clients API
+	// 2.3. Clients API - Using admin handler for all authenticated users
+	// Create the admin client handler with full functionality (including cracked counts)
+	clientRepoForHandler := repository.NewClientRepository(database)
+	clientSettingsRepoForHandler := repository.NewClientSettingsRepository(database)
+	retentionService := retentionsvc.NewRetentionService(database, hashlistRepo, hashRepo, clientRepoForHandler, clientSettingsRepoForHandler)
+	clientService := clientsvc.NewClientService(clientRepoForHandler, hashlistRepo, clientSettingsRepoForHandler, retentionService)
+	clientHandler := adminclient.NewClientHandler(clientRepoForHandler, clientService)
+
+	// Register client routes for all authenticated users
 	clientRouter := r.PathPrefix("/clients").Subrouter() // Use 'r' directly
-	clientRouter.HandleFunc("", h.handleListClients).Methods(http.MethodGet)
-	clientRouter.HandleFunc("/search", h.handleSearchClients).Methods(http.MethodGet) // Changed to GET as per common practice
-	clientRouter.HandleFunc("", h.handleCreateClient).Methods(http.MethodPost)
-	clientRouter.HandleFunc("/{id}", h.handleGetClient).Methods(http.MethodGet)
-	clientRouter.HandleFunc("/{id}", h.handleUpdateClient).Methods(http.MethodPut)
-	clientRouter.HandleFunc("/{id}", h.handleDeleteClient).Methods(http.MethodDelete)
+	clientRouter.HandleFunc("", clientHandler.ListClients).Methods(http.MethodGet)
+	clientRouter.HandleFunc("/search", h.handleSearchClients).Methods(http.MethodGet) // Keep the search handler from hashlist
+	clientRouter.HandleFunc("", clientHandler.CreateClient).Methods(http.MethodPost)
+	clientRouter.HandleFunc("/{id:[0-9a-fA-F-]+}", clientHandler.GetClient).Methods(http.MethodGet)
+	clientRouter.HandleFunc("/{id:[0-9a-fA-F-]+}", clientHandler.UpdateClient).Methods(http.MethodPut)
+	clientRouter.HandleFunc("/{id:[0-9a-fA-F-]+}", clientHandler.DeleteClient).Methods(http.MethodDelete)
 
 	// 2.4. Hash Search API
 	hashSearchRouter := r.PathPrefix("/hashes").Subrouter() // Use 'r' directly

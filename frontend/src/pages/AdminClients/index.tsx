@@ -11,9 +11,7 @@ import { useSnackbar } from 'notistack';
 import { useNavigate } from 'react-router-dom';
 
 import { Client } from '../../types/client';
-import { listAdminClients, createAdminClient, updateAdminClient, deleteAdminClient, getDefaultClientRetentionSetting } from '../../services/api';
-import { useAuth } from '../../contexts/AuthContext';
-import { Navigate } from 'react-router-dom';
+import { listClients, createClient, updateClient, deleteClient, getDefaultClientRetentionSetting } from '../../services/api';
 
 export const AdminClients: React.FC = () => {
     const [clients, setClients] = useState<Client[]>([]);
@@ -29,14 +27,13 @@ export const AdminClients: React.FC = () => {
     const [isDefaultRetentionLoading, setIsDefaultRetentionLoading] = useState(true);
 
     const { enqueueSnackbar } = useSnackbar();
-    const { userRole } = useAuth();
     const navigate = useNavigate();
 
     const fetchClients = useCallback(async () => {
         setLoading(true);
         setError(null);
         try {
-            const response = await listAdminClients();
+            const response = await listClients();
             console.log("[AdminClients] Fetched clients data:", response.data);
             setClients(response.data.data || []); 
         } catch (err) {
@@ -53,12 +50,18 @@ export const AdminClients: React.FC = () => {
         setIsDefaultRetentionLoading(true);
         try {
             const response = await getDefaultClientRetentionSetting();
+            console.log("[AdminClients] Full retention response:", response.data);
             const defaultValue = response?.data?.data?.value;
             if (defaultValue !== undefined && defaultValue !== null) {
                 console.log(`[AdminClients] Default retention fetched: ${defaultValue}`);
                 setDefaultRetention(String(defaultValue));
             } else {
                 console.warn("[AdminClients] Default retention setting not found or value is null/undefined.");
+                console.warn("[AdminClients] Response structure:", {
+                    hasData: !!response?.data,
+                    hasNestedData: !!response?.data?.data,
+                    value: response?.data?.data?.value
+                });
                 setDefaultRetention(null);
             }
         } catch (err) {
@@ -71,34 +74,46 @@ export const AdminClients: React.FC = () => {
     }, []);
 
     useEffect(() => {
-        if (userRole === 'admin') { 
-            console.log("[AdminClients] User is admin, fetching clients...");
-            fetchClients();
-            fetchDefaultRetention();
-        } else {
-             console.log("[AdminClients] User role not admin or not loaded yet:", userRole);
-        }
-    }, [userRole, fetchClients, fetchDefaultRetention]);
+        console.log("[AdminClients] Fetching clients...");
+        fetchClients();
+        fetchDefaultRetention();
+    }, [fetchClients, fetchDefaultRetention]);
 
-    if (userRole === null) {
-        console.log("[AdminClients] userRole is null, showing loading spinner.");
-        return (
-            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
-                <CircularProgress />
-            </Box>
-        );
-    }
-    
-    if (userRole !== 'admin') {
-        console.log(`[AdminClients] userRole is '${userRole}', redirecting.`);
-        return <Navigate to="/" replace />;
-    }
 
-    console.log("[AdminClients] Rendering main content...");
     const columns: GridColDef[] = [
         { field: 'name', headerName: 'Name', flex: 1, minWidth: 150 },
         { field: 'description', headerName: 'Description', flex: 2, minWidth: 200 },
         { field: 'contactInfo', headerName: 'Contact', flex: 1, minWidth: 150 },
+        {
+            field: 'cracked_count',
+            headerName: 'Cracked',
+            width: 100,
+            align: 'center',
+            headerAlign: 'center',
+            renderCell: (params) => {
+                const crackedCount = params.value || 0;
+                if (crackedCount > 0) {
+                    return (
+                        <Box
+                            sx={{
+                                cursor: 'pointer',
+                                color: 'primary.main',
+                                '&:hover': {
+                                    textDecoration: 'underline',
+                                },
+                            }}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                navigate(`/pot/client/${params.row.id}`);
+                            }}
+                        >
+                            {crackedCount.toLocaleString()}
+                        </Box>
+                    );
+                }
+                return <span>{crackedCount}</span>;
+            },
+        },
         {
             field: 'dataRetentionMonths',
             headerName: 'Retention (Raw)',
@@ -141,7 +156,7 @@ export const AdminClients: React.FC = () => {
           name: '', 
           description: '', 
           contactInfo: '', 
-          dataRetentionMonths: defaultRetention ? parseInt(defaultRetention, 0) : null 
+          dataRetentionMonths: defaultRetention ? parseInt(defaultRetention, 10) : null 
         }); 
         setIsAddEditDialogOpen(true);
     };
@@ -203,10 +218,10 @@ export const AdminClients: React.FC = () => {
 
         try {
             if (selectedClient) { 
-                await updateAdminClient(selectedClient.id, payload);
+                await updateClient(selectedClient.id, payload);
                 enqueueSnackbar('Client updated successfully', { variant: 'success' });
             } else { 
-                await createAdminClient(payload as Omit<Client, 'id' | 'createdAt' | 'updatedAt'>);
+                await createClient(payload as Omit<Client, 'id' | 'createdAt' | 'updatedAt'>);
                 enqueueSnackbar('Client created successfully', { variant: 'success' });
             }
             fetchClients(); 
@@ -225,7 +240,7 @@ export const AdminClients: React.FC = () => {
         if (!selectedClient) return;
         setIsSaving(true); 
         try {
-            await deleteAdminClient(selectedClient.id);
+            await deleteClient(selectedClient.id);
             enqueueSnackbar('Client deleted successfully', { variant: 'success' });
             fetchClients(); 
             handleCloseDialog();

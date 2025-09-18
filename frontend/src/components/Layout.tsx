@@ -70,6 +70,7 @@ import {
   Rule as RuleIcon,
   ListAlt as ListAltIcon,
   Lock as LockIcon,
+  People as PeopleIcon,
 } from '@mui/icons-material';
 import { logout } from '../services/auth';
 import { useAuth } from '../contexts/AuthContext';
@@ -95,6 +96,7 @@ const menuItems: MenuItem[] = [
   { text: 'Cracked Hashes', icon: <LockIcon />, path: '/pot' },
   { text: 'Wordlists', icon: <DescriptionIcon />, path: '/wordlists' },
   { text: 'Rules', icon: <RuleIcon />, path: '/rules' },
+  { text: 'Client Management', icon: <PeopleIcon />, path: '/clients' },
 ];
 
 const bottomMenuItems: MenuItem[] = [

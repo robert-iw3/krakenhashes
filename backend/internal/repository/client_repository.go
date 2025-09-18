@@ -130,6 +130,40 @@ func (r *ClientRepository) List(ctx context.Context) ([]models.Client, error) {
 	return clients, nil
 }
 
+// ListWithCrackedCounts retrieves all clients with their cracked hash counts
+func (r *ClientRepository) ListWithCrackedCounts(ctx context.Context) ([]models.Client, error) {
+	rows, err := r.db.QueryContext(ctx, queries.ListClientsWithCrackedCountsQuery)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list clients with cracked counts: %w", err)
+	}
+	defer rows.Close()
+
+	var clients []models.Client
+	for rows.Next() {
+		var client models.Client
+		var crackedCount int
+		if err := rows.Scan(
+			&client.ID,
+			&client.Name,
+			&client.Description,
+			&client.ContactInfo,
+			&client.DataRetentionMonths,
+			&client.CreatedAt,
+			&client.UpdatedAt,
+			&crackedCount,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan client row with cracked count: %w", err)
+		}
+		client.CrackedCount = &crackedCount
+		clients = append(clients, client)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating client rows with cracked counts: %w", err)
+	}
+
+	return clients, nil
+}
+
 // Search retrieves clients matching a search query (name, description).
 // Note: This query is not in client_queries.go yet. Needs to be added.
 // const searchClientsQuery = `

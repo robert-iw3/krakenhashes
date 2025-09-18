@@ -38,4 +38,10 @@ export const potService = {
     const response = await api.get<PotResponse>(`/api/pot/client/${clientId}`, { params });
     return response.data;
   },
+
+  // Get cracked hashes by job
+  getPotByJob: async (jobId: string, params: PotParams): Promise<PotResponse> => {
+    const response = await api.get<PotResponse>(`/api/pot/job/${jobId}`, { params });
+    return response.data;
+  },
 };

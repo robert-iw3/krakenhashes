@@ -40,3 +40,22 @@ WHERE name ILIKE $1 OR description ILIKE $1
 ORDER BY name ASC
 LIMIT 50
 `
+
+// ListClientsWithCrackedCountsQuery retrieves all clients with their cracked hash counts
+const ListClientsWithCrackedCountsQuery = `
+SELECT
+    c.id,
+    c.name,
+    c.description,
+    c.contact_info,
+    c.data_retention_months,
+    c.created_at,
+    c.updated_at,
+    COUNT(DISTINCT h.id) FILTER (WHERE h.is_cracked = true) as cracked_count
+FROM clients c
+LEFT JOIN hashlists hl ON hl.client_id = c.id
+LEFT JOIN hashlist_hashes hh ON hh.hashlist_id = hl.id
+LEFT JOIN hashes h ON h.id = hh.hash_id
+GROUP BY c.id, c.name, c.description, c.contact_info, c.data_retention_months, c.created_at, c.updated_at
+ORDER BY c.name ASC
+`

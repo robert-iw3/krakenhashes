@@ -30,7 +30,7 @@ func NewClientHandler(cr *repository.ClientRepository, cs *client.ClientService)
 
 // ListClients godoc
 // @Summary List all clients
-// @Description Retrieves a list of all clients in the system.
+// @Description Retrieves a list of all clients in the system with their cracked hash counts.
 // @Tags Admin Clients
 // @Produce json
 // @Success 200 {object} httputil.SuccessResponse{data=[]models.Client}
@@ -38,9 +38,9 @@ func NewClientHandler(cr *repository.ClientRepository, cs *client.ClientService)
 // @Router /admin/clients [get]
 // @Security ApiKeyAuth
 func (h *ClientHandler) ListClients(w http.ResponseWriter, r *http.Request) {
-	clients, err := h.clientRepo.List(r.Context())
+	clients, err := h.clientRepo.ListWithCrackedCounts(r.Context())
 	if err != nil {
-		debug.Error("Failed to list clients: %v", err)
+		debug.Error("Failed to list clients with cracked counts: %v", err)
 		httputil.RespondWithError(w, http.StatusInternalServerError, "Failed to retrieve clients")
 		return
 	}
