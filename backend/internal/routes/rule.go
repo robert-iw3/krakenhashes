@@ -11,6 +11,7 @@ import (
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/auth/api"
 	rulehandler "github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/rule"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/middleware"
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/repository"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/rule"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/services"
 	"github.com/ZerkerEOD/krakenhashes/backend/pkg/debug"
@@ -23,6 +24,12 @@ import (
 func SetupRuleRoutes(r *mux.Router, sqlDB *sql.DB, cfg *config.Config, agentService *services.AgentService, presetJobService services.AdminPresetJobService) {
 	debug.Info("Setting up rule management routes")
 
+	// Create DB wrapper
+	database := &db.DB{DB: sqlDB}
+
+	// Initialize job execution repository
+	jobExecRepo := repository.NewJobExecutionRepository(database)
+
 	// Initialize rule store and manager
 	store := rule.NewStore(sqlDB)
 	manager := rule.NewManager(
@@ -31,13 +38,11 @@ func SetupRuleRoutes(r *mux.Router, sqlDB *sql.DB, cfg *config.Config, agentServ
 		0,                       // No file size limit
 		[]string{"rule", "txt"}, // Allowed formats
 		[]string{"text/plain"},  // Allowed MIME types
+		jobExecRepo,
 	)
 
 	// Create handler
 	handler := rulehandler.NewHandler(manager, cfg)
-
-	// Create DB wrapper for middleware
-	database := &db.DB{DB: sqlDB}
 
 	// User routes (accessible to all authenticated users)
 	userRouter := r.PathPrefix("/rules").Subrouter()

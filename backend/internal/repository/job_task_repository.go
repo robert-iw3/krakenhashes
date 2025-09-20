@@ -118,11 +118,11 @@ func (r *JobTaskRepository) CreateWithRuleSplitting(ctx context.Context, task *m
 // GetByID retrieves a job task by ID
 func (r *JobTaskRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.JobTask, error) {
 	query := `
-		SELECT 
+		SELECT
 			jt.id, jt.job_execution_id, jt.agent_id, jt.status,
 			jt.keyspace_start, jt.keyspace_end, jt.keyspace_processed,
 			jt.effective_keyspace_start, jt.effective_keyspace_end, jt.effective_keyspace_processed,
-			jt.benchmark_speed, jt.chunk_duration, jt.assigned_at,
+			jt.benchmark_speed, jt.average_speed, jt.chunk_duration, jt.assigned_at,
 			jt.started_at, jt.completed_at, jt.last_checkpoint, jt.error_message,
 			jt.rule_start_index, jt.rule_end_index, jt.rule_chunk_path, jt.is_rule_split_task,
 			a.name as agent_name
@@ -135,7 +135,7 @@ func (r *JobTaskRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.
 		&task.ID, &task.JobExecutionID, &task.AgentID, &task.Status,
 		&task.KeyspaceStart, &task.KeyspaceEnd, &task.KeyspaceProcessed,
 		&task.EffectiveKeyspaceStart, &task.EffectiveKeyspaceEnd, &task.EffectiveKeyspaceProcessed,
-		&task.BenchmarkSpeed, &task.ChunkDuration, &task.AssignedAt,
+		&task.BenchmarkSpeed, &task.AverageSpeed, &task.ChunkDuration, &task.AssignedAt,
 		&task.StartedAt, &task.CompletedAt, &task.LastCheckpoint, &task.ErrorMessage,
 		&task.RuleStartIndex, &task.RuleEndIndex, &task.RuleChunkPath, &task.IsRuleSplitTask,
 		&task.AgentName,
@@ -154,11 +154,11 @@ func (r *JobTaskRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.
 // GetTasksByJobExecution retrieves all tasks for a job execution
 func (r *JobTaskRepository) GetTasksByJobExecution(ctx context.Context, jobExecutionID uuid.UUID) ([]models.JobTask, error) {
 	query := `
-		SELECT 
+		SELECT
 			jt.id, jt.job_execution_id, jt.agent_id, jt.status,
 			jt.keyspace_start, jt.keyspace_end, jt.keyspace_processed,
 			jt.effective_keyspace_start, jt.effective_keyspace_end, jt.effective_keyspace_processed,
-			jt.benchmark_speed, jt.chunk_duration, jt.assigned_at,
+			jt.benchmark_speed, jt.average_speed, jt.chunk_duration, jt.assigned_at,
 			jt.started_at, jt.completed_at, jt.last_checkpoint, jt.error_message,
 			jt.crack_count,
 			jt.rule_start_index, jt.rule_end_index, jt.rule_chunk_path, jt.is_rule_split_task,
@@ -182,7 +182,7 @@ func (r *JobTaskRepository) GetTasksByJobExecution(ctx context.Context, jobExecu
 			&task.ID, &task.JobExecutionID, &task.AgentID, &task.Status,
 			&task.KeyspaceStart, &task.KeyspaceEnd, &task.KeyspaceProcessed,
 			&task.EffectiveKeyspaceStart, &task.EffectiveKeyspaceEnd, &task.EffectiveKeyspaceProcessed,
-			&task.BenchmarkSpeed, &task.ChunkDuration, &task.AssignedAt,
+			&task.BenchmarkSpeed, &task.AverageSpeed, &task.ChunkDuration, &task.AssignedAt,
 			&task.StartedAt, &task.CompletedAt, &task.LastCheckpoint, &task.ErrorMessage,
 			&task.CrackCount,
 			&task.RuleStartIndex, &task.RuleEndIndex, &task.RuleChunkPath, &task.IsRuleSplitTask,
@@ -448,6 +448,15 @@ func (r *JobTaskRepository) UpdateProgress(ctx context.Context, id uuid.UUID, ke
 // CompleteTask marks a task as completed
 func (r *JobTaskRepository) CompleteTask(ctx context.Context, id uuid.UUID) error {
 	now := time.Now()
+
+	// Calculate and store average speed before marking as complete
+	err := r.CalculateAndStoreAverageSpeed(ctx, id)
+	if err != nil {
+		// Log error but don't fail the completion
+		// Average speed is nice to have but not critical
+		fmt.Printf("Warning: failed to calculate average speed for task %s: %v\n", id, err)
+	}
+
 	// Update both status and detailed_status to maintain database constraint consistency
 	query := `UPDATE job_tasks SET status = $1, detailed_status = $2, completed_at = $3, progress_percent = 100 WHERE id = $4`
 	result, err := r.db.ExecContext(ctx, query, models.JobTaskStatusCompleted, "completed_no_cracks", now, id)
@@ -814,17 +823,17 @@ func (r *JobTaskRepository) IncrementPotfileEntriesAddedTx(tx *sql.Tx, id uuid.U
 // GetActiveTaskForAgentAndHashlist finds the active task for a specific agent and hashlist
 func (r *JobTaskRepository) GetActiveTaskForAgentAndHashlist(ctx context.Context, agentID int, hashlistID int64) (*models.JobTask, error) {
 	query := `
-		SELECT 
+		SELECT
 			jt.id, jt.job_execution_id, jt.agent_id, jt.status, jt.priority,
 			jt.attack_cmd, jt.keyspace_start, jt.keyspace_end, jt.keyspace_processed,
-			jt.progress_percent, jt.benchmark_speed, jt.chunk_duration,
+			jt.progress_percent, jt.benchmark_speed, jt.average_speed, jt.chunk_duration,
 			jt.created_at, jt.assigned_at, jt.started_at, jt.completed_at, jt.updated_at,
 			jt.last_checkpoint, jt.error_message, jt.crack_count, jt.detailed_status,
 			jt.retry_count, jt.rule_start_index, jt.rule_end_index, jt.rule_chunk_path,
 			jt.is_rule_split_task
 		FROM job_tasks jt
 		JOIN job_executions je ON jt.job_execution_id = je.id
-		WHERE jt.agent_id = $1 
+		WHERE jt.agent_id = $1
 		  AND je.hashlist_id = $2
 		  AND jt.status IN ('running', 'assigned')
 		ORDER BY jt.assigned_at DESC
@@ -834,7 +843,7 @@ func (r *JobTaskRepository) GetActiveTaskForAgentAndHashlist(ctx context.Context
 	err := r.db.QueryRowContext(ctx, query, agentID, hashlistID).Scan(
 		&task.ID, &task.JobExecutionID, &task.AgentID, &task.Status, &task.Priority,
 		&task.AttackCmd, &task.KeyspaceStart, &task.KeyspaceEnd, &task.KeyspaceProcessed,
-		&task.ProgressPercent, &task.BenchmarkSpeed, &task.ChunkDuration,
+		&task.ProgressPercent, &task.BenchmarkSpeed, &task.AverageSpeed, &task.ChunkDuration,
 		&task.CreatedAt, &task.AssignedAt, &task.StartedAt, &task.CompletedAt, &task.UpdatedAt,
 		&task.LastCheckpoint, &task.ErrorMessage, &task.CrackCount, &task.DetailedStatus,
 		&task.RetryCount, &task.RuleStartIndex, &task.RuleEndIndex, &task.RuleChunkPath,
@@ -854,17 +863,17 @@ func (r *JobTaskRepository) GetActiveTaskForAgentAndHashlist(ctx context.Context
 // GetActiveTaskForAgentAndHashlistTx finds the active task within a transaction
 func (r *JobTaskRepository) GetActiveTaskForAgentAndHashlistTx(tx *sql.Tx, agentID int, hashlistID int64) (*models.JobTask, error) {
 	query := `
-		SELECT 
+		SELECT
 			jt.id, jt.job_execution_id, jt.agent_id, jt.status, jt.priority,
 			jt.attack_cmd, jt.keyspace_start, jt.keyspace_end, jt.keyspace_processed,
-			jt.progress_percent, jt.benchmark_speed, jt.chunk_duration,
+			jt.progress_percent, jt.benchmark_speed, jt.average_speed, jt.chunk_duration,
 			jt.created_at, jt.assigned_at, jt.started_at, jt.completed_at, jt.updated_at,
 			jt.last_checkpoint, jt.error_message, jt.crack_count, jt.detailed_status,
 			jt.retry_count, jt.rule_start_index, jt.rule_end_index, jt.rule_chunk_path,
 			jt.is_rule_split_task
 		FROM job_tasks jt
 		JOIN job_executions je ON jt.job_execution_id = je.id
-		WHERE jt.agent_id = $1 
+		WHERE jt.agent_id = $1
 		  AND je.hashlist_id = $2
 		  AND jt.status IN ('running', 'assigned')
 		ORDER BY jt.assigned_at DESC
@@ -874,7 +883,7 @@ func (r *JobTaskRepository) GetActiveTaskForAgentAndHashlistTx(tx *sql.Tx, agent
 	err := tx.QueryRowContext(context.Background(), query, agentID, hashlistID).Scan(
 		&task.ID, &task.JobExecutionID, &task.AgentID, &task.Status, &task.Priority,
 		&task.AttackCmd, &task.KeyspaceStart, &task.KeyspaceEnd, &task.KeyspaceProcessed,
-		&task.ProgressPercent, &task.BenchmarkSpeed, &task.ChunkDuration,
+		&task.ProgressPercent, &task.BenchmarkSpeed, &task.AverageSpeed, &task.ChunkDuration,
 		&task.CreatedAt, &task.AssignedAt, &task.StartedAt, &task.CompletedAt, &task.UpdatedAt,
 		&task.LastCheckpoint, &task.ErrorMessage, &task.CrackCount, &task.DetailedStatus,
 		&task.RetryCount, &task.RuleStartIndex, &task.RuleEndIndex, &task.RuleChunkPath,
@@ -1284,4 +1293,85 @@ func (r *JobTaskRepository) GetTasksByAgentAndStatus(ctx context.Context, agentI
 	}
 
 	return taskIDs, nil
+}
+
+// CalculateAndStoreAverageSpeed calculates the time-weighted average speed for a task and stores it
+func (r *JobTaskRepository) CalculateAndStoreAverageSpeed(ctx context.Context, taskID uuid.UUID) error {
+	// Query all speed metrics for this task from agent_performance_metrics
+	query := `
+		SELECT value, timestamp
+		FROM agent_performance_metrics
+		WHERE task_id = $1
+		  AND metric_type = 'hash_rate'
+		  AND aggregation_level = 'realtime'
+		ORDER BY timestamp ASC`
+
+	rows, err := r.db.QueryContext(ctx, query, taskID)
+	if err != nil {
+		return fmt.Errorf("failed to query speed metrics: %w", err)
+	}
+	defer rows.Close()
+
+	var metrics []struct {
+		Speed     float64
+		Timestamp time.Time
+	}
+
+	for rows.Next() {
+		var m struct {
+			Speed     float64
+			Timestamp time.Time
+		}
+		err := rows.Scan(&m.Speed, &m.Timestamp)
+		if err != nil {
+			return fmt.Errorf("failed to scan metric: %w", err)
+		}
+		metrics = append(metrics, m)
+	}
+
+	if len(metrics) == 0 {
+		// No metrics recorded, cannot calculate average
+		return nil
+	}
+
+	// Calculate time-weighted average
+	var totalWeightedSpeed float64
+	var totalDuration float64
+
+	for i := 0; i < len(metrics)-1; i++ {
+		duration := metrics[i+1].Timestamp.Sub(metrics[i].Timestamp).Seconds()
+		totalWeightedSpeed += metrics[i].Speed * duration
+		totalDuration += duration
+	}
+
+	// For the last metric, use a reasonable duration (e.g., 10 seconds) or until now
+	if len(metrics) > 0 {
+		lastDuration := 10.0 // Default 10 seconds for last measurement
+		// Or use time until now if task just completed
+		timeSinceLast := time.Since(metrics[len(metrics)-1].Timestamp).Seconds()
+		if timeSinceLast < 60 { // If less than 60 seconds ago, use actual time
+			lastDuration = timeSinceLast
+		}
+		totalWeightedSpeed += metrics[len(metrics)-1].Speed * lastDuration
+		totalDuration += lastDuration
+	}
+
+	var averageSpeed int64
+	if totalDuration > 0 {
+		averageSpeed = int64(totalWeightedSpeed / totalDuration)
+	}
+
+	// Update the task with the calculated average speed
+	updateQuery := `
+		UPDATE job_tasks
+		SET average_speed = $1,
+		    updated_at = CURRENT_TIMESTAMP
+		WHERE id = $2`
+
+	_, err = r.db.ExecContext(ctx, updateQuery, averageSpeed, taskID)
+	if err != nil {
+		return fmt.Errorf("failed to update average speed: %w", err)
+	}
+
+	return nil
 }

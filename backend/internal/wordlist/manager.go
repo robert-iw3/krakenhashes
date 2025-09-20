@@ -10,9 +10,11 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/models"
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/repository"
 	"github.com/ZerkerEOD/krakenhashes/backend/pkg/debug"
 	"github.com/ZerkerEOD/krakenhashes/backend/pkg/fsutil"
 	"github.com/google/uuid"
@@ -63,10 +65,11 @@ type manager struct {
 	maxUploadSize    int64
 	allowedFormats   []string
 	allowedMimeTypes []string
+	jobExecRepo      *repository.JobExecutionRepository
 }
 
 // NewManager creates a new wordlist manager
-func NewManager(store WordlistStore, wordlistsDir string, maxUploadSize int64, allowedFormats, allowedMimeTypes []string) Manager {
+func NewManager(store WordlistStore, wordlistsDir string, maxUploadSize int64, allowedFormats, allowedMimeTypes []string, jobExecRepo *repository.JobExecutionRepository) Manager {
 	// Ensure wordlists directory exists
 	if err := os.MkdirAll(wordlistsDir, 0755); err != nil {
 		debug.Error("Failed to create wordlists directory: %v", err)
@@ -79,6 +82,7 @@ func NewManager(store WordlistStore, wordlistsDir string, maxUploadSize int64, a
 		maxUploadSize:    maxUploadSize,
 		allowedFormats:   allowedFormats,
 		allowedMimeTypes: allowedMimeTypes,
+		jobExecRepo:      jobExecRepo,
 	}
 }
 
@@ -204,6 +208,17 @@ func (m *manager) UpdateWordlist(ctx context.Context, id int, req *models.Wordli
 
 // DeleteWordlist deletes a wordlist
 func (m *manager) DeleteWordlist(ctx context.Context, id int) error {
+	// Check if wordlist is being used by active jobs
+	if m.jobExecRepo != nil {
+		hasActiveJobs, err := m.jobExecRepo.HasActiveJobsUsingWordlist(ctx, strconv.Itoa(id))
+		if err != nil {
+			return fmt.Errorf("failed to check for active jobs: %w", err)
+		}
+		if hasActiveJobs {
+			return models.ErrResourceInUse
+		}
+	}
+
 	// Get wordlist to find filename
 	wordlist, err := m.store.GetWordlist(ctx, id)
 	if err != nil {

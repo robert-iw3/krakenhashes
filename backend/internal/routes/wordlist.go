@@ -11,6 +11,7 @@ import (
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/auth/api"
 	wordlisthandler "github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/wordlist"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/middleware"
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/repository"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/services"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/wordlist"
 	"github.com/ZerkerEOD/krakenhashes/backend/pkg/debug"
@@ -23,6 +24,12 @@ import (
 func SetupWordlistRoutes(r *mux.Router, sqlDB *sql.DB, cfg *config.Config, agentService *services.AgentService, presetJobService services.AdminPresetJobService) {
 	debug.Info("Setting up wordlist management routes")
 
+	// Create DB wrapper
+	database := &db.DB{DB: sqlDB}
+
+	// Initialize job execution repository
+	jobExecRepo := repository.NewJobExecutionRepository(database)
+
 	// Initialize wordlist store and manager
 	store := wordlist.NewStore(sqlDB)
 	manager := wordlist.NewManager(
@@ -31,13 +38,11 @@ func SetupWordlistRoutes(r *mux.Router, sqlDB *sql.DB, cfg *config.Config, agent
 		0, // No file size limit
 		[]string{"txt", "dict", "lst", "gz", "zip"},                   // Allowed formats
 		[]string{"text/plain", "application/gzip", "application/zip"}, // Allowed MIME types
+		jobExecRepo,
 	)
 
 	// Create handler
 	handler := wordlisthandler.NewHandler(manager)
-
-	// Create DB wrapper for middleware
-	database := &db.DB{DB: sqlDB}
 
 	// User routes (accessible to all authenticated users)
 	userRouter := r.PathPrefix("/wordlists").Subrouter()

@@ -548,6 +548,10 @@ func (h *Handler) HandleDeleteWordlist(w http.ResponseWriter, r *http.Request) {
 
 	// Delete wordlist
 	if err := h.manager.DeleteWordlist(ctx, id); err != nil {
+		if err == models.ErrResourceInUse {
+			httputil.RespondWithError(w, http.StatusConflict, "Cannot delete wordlist: it is currently being used by active jobs")
+			return
+		}
 		debug.Error("Failed to delete wordlist %d: %v", id, err)
 		httputil.RespondWithError(w, http.StatusInternalServerError, "Failed to delete wordlist")
 		return

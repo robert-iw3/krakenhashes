@@ -192,6 +192,7 @@ func main() {
 		0, // No file size limit
 		[]string{"txt", "dict", "lst", "gz", "zip"},                   // Allowed formats
 		[]string{"text/plain", "application/gzip", "application/zip"}, // Allowed MIME types
+		jobExecutionRepo, // Pass job execution repository for dependency checking
 	)
 
 	ruleStore := rule.NewStore(sqlDB)
@@ -201,6 +202,7 @@ func main() {
 		0,                                       // No file size limit
 		[]string{"rule", "rules", "txt", "lst"}, // Allowed formats
 		[]string{"text/plain"},                  // Allowed MIME types
+		jobExecutionRepo, // Pass job execution repository for dependency checking
 	)
 
 	// Initialize binary manager

@@ -8,9 +8,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/models"
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/repository"
 	"github.com/ZerkerEOD/krakenhashes/backend/pkg/debug"
 	"github.com/ZerkerEOD/krakenhashes/backend/pkg/fsutil"
 	"github.com/google/uuid"
@@ -61,10 +63,11 @@ type manager struct {
 	maxUploadSize    int64
 	allowedFormats   []string
 	allowedMimeTypes []string
+	jobExecRepo      *repository.JobExecutionRepository
 }
 
 // NewManager creates a new rule manager
-func NewManager(store RuleStore, rulesDir string, maxUploadSize int64, allowedFormats, allowedMimeTypes []string) Manager {
+func NewManager(store RuleStore, rulesDir string, maxUploadSize int64, allowedFormats, allowedMimeTypes []string, jobExecRepo *repository.JobExecutionRepository) Manager {
 	// Ensure rules directory exists
 	if err := os.MkdirAll(rulesDir, 0755); err != nil {
 		debug.Error("Failed to create rules directory: %v", err)
@@ -89,6 +92,7 @@ func NewManager(store RuleStore, rulesDir string, maxUploadSize int64, allowedFo
 		maxUploadSize:    maxUploadSize,
 		allowedFormats:   allowedFormats,
 		allowedMimeTypes: allowedMimeTypes,
+		jobExecRepo:      jobExecRepo,
 	}
 }
 
@@ -233,6 +237,17 @@ func (m *manager) UpdateRule(ctx context.Context, id int, req *models.RuleUpdate
 
 // DeleteRule deletes a rule
 func (m *manager) DeleteRule(ctx context.Context, id int) error {
+	// Check if rule is being used by active jobs
+	if m.jobExecRepo != nil {
+		hasActiveJobs, err := m.jobExecRepo.HasActiveJobsUsingRule(ctx, strconv.Itoa(id))
+		if err != nil {
+			return fmt.Errorf("failed to check for active jobs: %w", err)
+		}
+		if hasActiveJobs {
+			return models.ErrResourceInUse
+		}
+	}
+
 	// Get rule to find filename
 	rule, err := m.store.GetRule(ctx, id)
 	if err != nil {

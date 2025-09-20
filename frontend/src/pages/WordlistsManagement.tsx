@@ -183,9 +183,11 @@ export default function WordlistsManagement() {
       await wordlistService.deleteWordlist(id);
       enqueueSnackbar(`Wordlist "${name}" deleted successfully`, { variant: 'success' });
       fetchWordlists();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error deleting wordlist:', err);
-      enqueueSnackbar('Failed to delete wordlist', { variant: 'error' });
+      // Extract error message from axios response
+      const errorMessage = err.response?.data?.error || 'Failed to delete wordlist';
+      enqueueSnackbar(errorMessage, { variant: 'error' });
     } finally {
       setDeleteDialogOpen(false);
       setWordlistToDelete(null);

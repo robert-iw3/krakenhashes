@@ -96,6 +96,7 @@ export interface JobTask {
   effective_keyspace_end?: number;
   effective_keyspace_processed?: number;
   benchmark_speed?: number;
+  average_speed?: number;
   chunk_duration?: number;
   assigned_agent_id?: string;
   assigned_at?: string;

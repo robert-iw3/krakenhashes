@@ -227,8 +227,8 @@ func (s *JobSchedulingService) assignWorkToAgent(ctx context.Context, agent *mod
 		"agent_id":         agent.ID,
 		"job_execution_id": nextJob.ID,
 		"job_priority":     nextJob.Priority,
-		"preset_job_name":  nextJob.PresetJobName,
-		"hashlist_name":    nextJob.HashlistName,
+		"job_name":         nextJob.Name,
+		"hashlist_id":      nextJob.HashlistID,
 	})
 
 	// Note: Interruption logic has been moved to main ScheduleJobs method

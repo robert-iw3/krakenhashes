@@ -166,9 +166,11 @@ export default function RulesManagement() {
       await ruleService.deleteRule(id);
       enqueueSnackbar(`Rule "${name}" deleted successfully`, { variant: 'success' });
       fetchRules();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error deleting rule:', err);
-      enqueueSnackbar('Failed to delete rule', { variant: 'error' });
+      // Extract error message from axios response
+      const errorMessage = err.response?.data?.error || 'Failed to delete rule';
+      enqueueSnackbar(errorMessage, { variant: 'error' });
     } finally {
       setDeleteDialogOpen(false);
       setRuleToDelete(null);

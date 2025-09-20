@@ -547,7 +547,7 @@ const JobDetails: React.FC = () => {
                 <TableCell>Status</TableCell>
                 <TableCell>Keyspace Range</TableCell>
                 <TableCell>Progress</TableCell>
-                <TableCell>Speed</TableCell>
+                <TableCell>Current Speed</TableCell>
                 <TableCell>Cracks</TableCell>
               </TableRow>
             </TableHead>
@@ -702,7 +702,7 @@ const JobDetails: React.FC = () => {
                         {formatKeyspace(task.effective_keyspace_start || task.keyspace_start)} - {formatKeyspace(task.effective_keyspace_end || task.keyspace_end)}
                       </TableCell>
                       <TableCell>{task.progress_percent?.toFixed(2) || 100}%</TableCell>
-                      <TableCell>{formatSpeed(task.benchmark_speed)}</TableCell>
+                      <TableCell>{formatSpeed(task.average_speed || task.benchmark_speed)}</TableCell>
                       <TableCell>
                         {task.crack_count > 0 ? (
                           <Link

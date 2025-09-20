@@ -942,20 +942,17 @@ func (h *UserJobsHandler) RetryTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Reset the task to pending status
-	if err := h.jobTaskRepo.UpdateStatus(ctx, taskID, models.JobTaskStatusPending); err != nil {
-		debug.Error("Failed to reset task status: %v", err)
+	// Use the proper ResetTaskForRetry method which handles everything correctly:
+	// - Sets status to 'pending' and clears agent assignment
+	// - Clears error_message
+	// - Increments retry_count
+	// - Resets progress fields
+	// - Adjusts keyspace in transaction
+	if err := h.jobTaskRepo.ResetTaskForRetry(ctx, taskID); err != nil {
+		debug.Error("Failed to reset task for retry: %v", err)
 		http.Error(w, "Failed to retry task", http.StatusInternalServerError)
 		return
 	}
-
-	// Clear the error message
-	if err := h.jobTaskRepo.UpdateTaskError(ctx, taskID, ""); err != nil {
-		debug.Error("Failed to clear task error: %v", err)
-		// Don't fail the request, just log the error
-	}
-
-	// Note: ResetTaskForRetry increments retry_count, which is fine for tracking retries
 
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{

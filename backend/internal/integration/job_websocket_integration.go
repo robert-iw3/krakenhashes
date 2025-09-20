@@ -766,6 +766,26 @@ func (s *JobWebSocketIntegration) HandleJobProgress(ctx context.Context, agentID
 		return fmt.Errorf("failed to process task progress: %w", err)
 	}
 
+	// Record speed metric for average calculation if speed is available
+	if progress.HashRate > 0 && task.AgentID != nil {
+		metric := &models.AgentPerformanceMetric{
+			AgentID:          *task.AgentID,
+			MetricType:       models.MetricTypeHashRate,
+			Value:            float64(progress.HashRate),
+			Timestamp:        time.Now(),
+			AggregationLevel: models.AggregationLevelRealtime,
+			TaskID:           &progress.TaskID,
+		}
+
+		// Store metric (ignore errors to not block progress updates)
+		if err := s.benchmarkRepo.CreateAgentPerformanceMetric(ctx, metric); err != nil {
+			debug.Log("Failed to record speed metric", map[string]interface{}{
+				"task_id": progress.TaskID,
+				"error":   err.Error(),
+			})
+		}
+	}
+
 	// Process cracked hashes if any
 	if progress.CrackedCount > 0 && len(progress.CrackedHashes) > 0 {
 		err = s.processCrackedHashes(ctx, progress.TaskID, progress.CrackedHashes)

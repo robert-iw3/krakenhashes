@@ -879,10 +879,10 @@ func (s *JobExecutionService) GetNextPendingJob(ctx context.Context) (*models.Jo
 	// Jobs are already ordered by priority DESC, created_at ASC in the repository
 	nextJob := &pendingJobs[0]
 	debug.Log("Selected next job", map[string]interface{}{
-		"job_id":     nextJob.ID,
-		"priority":   nextJob.Priority,
-		"preset_job": nextJob.PresetJobName,
-		"hashlist":   nextJob.HashlistName,
+		"job_id":      nextJob.ID,
+		"priority":    nextJob.Priority,
+		"job_name":    nextJob.Name,
+		"hashlist_id": nextJob.HashlistID,
 	})
 
 	return nextJob, nil
@@ -914,8 +914,8 @@ func (s *JobExecutionService) GetNextJobWithWork(ctx context.Context) (*models.J
 	debug.Log("Selected next job with work", map[string]interface{}{
 		"job_id":        nextJob.ID,
 		"priority":      nextJob.Priority,
-		"preset_job":    nextJob.PresetJobName,
-		"hashlist":      nextJob.HashlistName,
+		"job_name":      nextJob.Name,
+		"hashlist_id":   nextJob.HashlistID,
 		"active_agents": nextJob.ActiveAgents,
 		"max_agents":    nextJob.MaxAgents,
 		"pending_work":  nextJob.PendingWork,

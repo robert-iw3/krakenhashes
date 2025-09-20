@@ -173,12 +173,6 @@ type JobExecution struct {
 	CompletionEmailSent   bool       `json:"completion_email_sent" db:"completion_email_sent"`
 	CompletionEmailSentAt *time.Time `json:"completion_email_sent_at" db:"completion_email_sent_at"`
 	CompletionEmailError  *string    `json:"completion_email_error" db:"completion_email_error"`
-
-	// Populated fields from JOINs
-	PresetJobName string `json:"preset_job_name,omitempty" db:"preset_job_name"`
-	HashlistName  string `json:"hashlist_name,omitempty" db:"hashlist_name"`
-	TotalHashes   int    `json:"total_hashes,omitempty" db:"total_hashes"`
-	CrackedHashes int    `json:"cracked_hashes,omitempty" db:"cracked_hashes"`
 }
 
 // JobTaskStatus represents the status of a job task
@@ -209,7 +203,8 @@ type JobTask struct {
 	EffectiveKeyspaceEnd    *int64  `json:"effective_keyspace_end" db:"effective_keyspace_end"`       // For rule splitting: base_keyspace * rule_end_index  
 	EffectiveKeyspaceProcessed *int64 `json:"effective_keyspace_processed" db:"effective_keyspace_processed"` // Actual effective progress
 	ProgressPercent         float64 `json:"progress_percent" db:"progress_percent"` // Task progress percentage (0-100)
-	BenchmarkSpeed    *int64        `json:"benchmark_speed" db:"benchmark_speed"`   // hashes per second
+	BenchmarkSpeed    *int64        `json:"benchmark_speed" db:"benchmark_speed"`   // hashes per second (current/last reported)
+	AverageSpeed      *int64        `json:"average_speed" db:"average_speed"`       // time-weighted average hashes per second
 	ChunkDuration     int           `json:"chunk_duration" db:"chunk_duration"`     // seconds
 	CreatedAt         time.Time     `json:"created_at" db:"created_at"`
 	AssignedAt        time.Time     `json:"assigned_at" db:"assigned_at"`

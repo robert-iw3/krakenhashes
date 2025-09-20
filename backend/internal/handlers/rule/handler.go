@@ -608,6 +608,10 @@ func (h *Handler) HandleDeleteRule(w http.ResponseWriter, r *http.Request) {
 
 	// Delete rule
 	if err := h.manager.DeleteRule(ctx, id); err != nil {
+		if err == models.ErrResourceInUse {
+			httputil.RespondWithError(w, http.StatusConflict, "Cannot delete rule: it is currently being used by active jobs")
+			return
+		}
 		debug.Error("Failed to delete rule %d: %v", id, err)
 		httputil.RespondWithError(w, http.StatusInternalServerError, "Failed to delete rule")
 		return

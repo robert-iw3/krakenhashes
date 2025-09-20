@@ -63,7 +63,7 @@ func (r *JobExecutionRepository) Create(ctx context.Context, exec *models.JobExe
 // GetByID retrieves a job execution by ID
 func (r *JobExecutionRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.JobExecution, error) {
 	query := `
-		SELECT 
+		SELECT
 			je.id, je.name, je.preset_job_id, je.hashlist_id, je.status, je.priority, COALESCE(je.max_agents, 0) as max_agents,
 			je.total_keyspace, je.processed_keyspace, je.attack_mode, je.created_by,
 			je.created_at, je.started_at, je.completed_at, je.error_message, je.interrupted_by,
@@ -72,12 +72,8 @@ func (r *JobExecutionRepository) GetByID(ctx context.Context, id uuid.UUID) (*mo
 			je.uses_rule_splitting, je.rule_split_count,
 			je.overall_progress_percent, je.last_progress_update,
 			je.dispatched_keyspace,
-			je.completion_email_sent, je.completion_email_sent_at, je.completion_email_error,
-			h.name as hashlist_name,
-			h.total_hashes as total_hashes,
-			h.cracked_hashes as cracked_hashes
+			je.completion_email_sent, je.completion_email_sent_at, je.completion_email_error
 		FROM job_executions je
-		JOIN hashlists h ON je.hashlist_id = h.id
 		WHERE je.id = $1`
 
 	var exec models.JobExecution
@@ -91,7 +87,6 @@ func (r *JobExecutionRepository) GetByID(ctx context.Context, id uuid.UUID) (*mo
 		&exec.OverallProgressPercent, &exec.LastProgressUpdate,
 		&exec.DispatchedKeyspace,
 		&exec.CompletionEmailSent, &exec.CompletionEmailSentAt, &exec.CompletionEmailError,
-		&exec.HashlistName, &exec.TotalHashes, &exec.CrackedHashes,
 	)
 
 	if err == sql.ErrNoRows {
@@ -107,7 +102,7 @@ func (r *JobExecutionRepository) GetByID(ctx context.Context, id uuid.UUID) (*mo
 // GetPendingJobs retrieves pending jobs ordered by priority and creation time
 func (r *JobExecutionRepository) GetPendingJobs(ctx context.Context) ([]models.JobExecution, error) {
 	query := `
-		SELECT 
+		SELECT
 			je.id, je.preset_job_id, je.hashlist_id, je.status, je.priority,
 			je.total_keyspace, je.processed_keyspace, je.attack_mode, je.created_by,
 			je.created_at, je.started_at, je.completed_at, je.error_message, je.interrupted_by,
@@ -116,13 +111,12 @@ func (r *JobExecutionRepository) GetPendingJobs(ctx context.Context) ([]models.J
 			je.base_keyspace, je.effective_keyspace, je.multiplication_factor,
 			je.uses_rule_splitting, je.rule_split_count,
 			je.overall_progress_percent, je.last_progress_update,
-			pj.name as preset_job_name,
-			h.name as hashlist_name,
-			h.total_hashes as total_hashes,
-			h.cracked_hashes as cracked_hashes
+			je.dispatched_keyspace,
+			je.name, je.wordlist_ids, je.rule_ids, je.mask,
+			je.binary_version_id, je.chunk_size_seconds, je.status_updates_enabled,
+			je.allow_high_priority_override, je.additional_args,
+			je.hash_type
 		FROM job_executions je
-		JOIN preset_jobs pj ON je.preset_job_id = pj.id
-		JOIN hashlists h ON je.hashlist_id = h.id
 		WHERE je.status = 'pending'
 		ORDER BY je.priority DESC, je.created_at ASC`
 
@@ -144,7 +138,11 @@ func (r *JobExecutionRepository) GetPendingJobs(ctx context.Context) ([]models.J
 			&exec.BaseKeyspace, &exec.EffectiveKeyspace, &exec.MultiplicationFactor,
 			&exec.UsesRuleSplitting, &exec.RuleSplitCount,
 			&exec.OverallProgressPercent, &exec.LastProgressUpdate,
-			&exec.PresetJobName, &exec.HashlistName, &exec.TotalHashes, &exec.CrackedHashes,
+			&exec.DispatchedKeyspace,
+			&exec.Name, &exec.WordlistIDs, &exec.RuleIDs, &exec.Mask,
+			&exec.BinaryVersionID, &exec.ChunkSizeSeconds, &exec.StatusUpdatesEnabled,
+			&exec.AllowHighPriorityOverride, &exec.AdditionalArgs,
+			&exec.HashType,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan job execution: %w", err)
@@ -673,7 +671,7 @@ func (r *JobExecutionRepository) GetJobsWithPendingWork(ctx context.Context) ([]
 			WHERE je.status IN ('pending', 'running')
 			GROUP BY je.id
 		)
-		SELECT 
+		SELECT
 			je.id, je.preset_job_id, je.hashlist_id, je.status, je.priority,
 			je.total_keyspace, je.processed_keyspace, je.attack_mode, je.created_by,
 			je.created_at, je.started_at, je.completed_at, je.error_message, je.interrupted_by,
@@ -687,15 +685,9 @@ func (r *JobExecutionRepository) GetJobsWithPendingWork(ctx context.Context) ([]
 			je.binary_version_id, je.chunk_size_seconds, je.status_updates_enabled,
 			je.allow_high_priority_override, je.additional_args,
 			je.hash_type,
-			pj.name as preset_job_name,
-			h.name as hashlist_name,
-			h.total_hashes as total_hashes,
-			h.cracked_hashes as cracked_hashes,
 			COALESCE(js.active_agents, 0) as active_agents,
 			COALESCE(js.pending_tasks, 0) + COALESCE(js.retryable_tasks, 0) as pending_work
 		FROM job_executions je
-		JOIN hashlists h ON je.hashlist_id = h.id
-		LEFT JOIN preset_jobs pj ON je.preset_job_id = pj.id
 		LEFT JOIN job_stats js ON je.id = js.id
 		WHERE je.status IN ('pending', 'running')
 			AND (
@@ -742,7 +734,6 @@ func (r *JobExecutionRepository) GetJobsWithPendingWork(ctx context.Context) ([]
 			&exec.BinaryVersionID, &exec.ChunkSizeSeconds, &exec.StatusUpdatesEnabled,
 			&exec.AllowHighPriorityOverride, &exec.AdditionalArgs,
 			&exec.HashType,
-			&exec.PresetJobName, &exec.HashlistName, &exec.TotalHashes, &exec.CrackedHashes,
 			&exec.ActiveAgents, &exec.PendingWork,
 		)
 		if err != nil {
