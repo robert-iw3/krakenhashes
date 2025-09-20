@@ -39,6 +39,11 @@ func NewJobCleanupService(
 func (s *JobCleanupService) CleanupStaleTasksOnStartup(ctx context.Context) error {
 	debug.Info("Starting cleanup of stale tasks on startup with grace period for reconnection")
 
+	// FIRST: Check for orphaned running jobs (jobs with no active tasks)
+	// This must run regardless of whether there are stale tasks
+	debug.Info("Checking for orphaned running jobs on startup")
+	s.checkForOrphanedRunningJobs(ctx)
+
 	// Get all tasks that are in assigned or running state
 	staleTasks, err := s.jobTaskRepo.GetStaleTasks(ctx)
 	if err != nil {
@@ -85,10 +90,10 @@ func (s *JobCleanupService) CleanupStaleTasksOnStartup(ctx context.Context) erro
 	// IMPORTANT: Do NOT mark jobs as pending here
 	// Jobs should remain "running" if they have reconnect_pending tasks
 	debug.Info("Jobs with reconnect_pending tasks will remain in running state awaiting agent reconnection")
-	
+
 	// Log final status
 	debug.Info("Startup cleanup completed - %d tasks marked as reconnect_pending", len(staleTasks))
-	
+
 	return nil
 }
 
@@ -246,6 +251,10 @@ func (s *JobCleanupService) checkForStaleTasks(ctx context.Context) {
 		}
 	}
 
+	// FIRST: Always check for orphaned running jobs (jobs with no active tasks at all)
+	// This must run regardless of whether there are stale tasks
+	s.checkForOrphanedRunningJobs(ctx)
+
 	// Find tasks that haven't been updated in the timeout period
 	cutoffTime := time.Now().Add(-taskTimeout)
 
@@ -294,6 +303,9 @@ func (s *JobCleanupService) checkForStaleTasks(ctx context.Context) {
 			if task.AgentID != nil {
 				s.updateAgentConsecutiveFailures(ctx, *task.AgentID, true)
 			}
+
+			// Check if the job should be transitioned to pending after task failure
+			s.checkJobForPendingTransition(ctx, task.JobExecutionID)
 		} else {
 			// Reset task for retry
 			err := s.jobTaskRepo.ResetTaskForRetry(ctx, task.ID)
@@ -321,45 +333,128 @@ func (s *JobCleanupService) checkForStaleTasks(ctx context.Context) {
 	}
 
 	for jobID := range affectedJobs {
-		// Check if this job has any running or assigned tasks
-		allTasks, err := s.jobTaskRepo.GetTasksByJobExecution(ctx, jobID)
+		s.checkJobForPendingTransition(ctx, jobID)
+	}
+}
+
+// checkJobForPendingTransition checks if a job should be transitioned to pending
+func (s *JobCleanupService) checkJobForPendingTransition(ctx context.Context, jobID uuid.UUID) {
+	// Check if this job has any running, assigned, or pending tasks
+	allTasks, err := s.jobTaskRepo.GetTasksByJobExecution(ctx, jobID)
+	if err != nil {
+		debug.Log("Failed to check tasks for job", map[string]interface{}{
+			"job_id": jobID,
+			"error":  err.Error(),
+		})
+		return
+	}
+
+	// Count active tasks (running, assigned, pending, or reconnect_pending)
+	activeTaskCount := 0
+	for _, task := range allTasks {
+		if task.Status == models.JobTaskStatusRunning ||
+		   task.Status == models.JobTaskStatusAssigned ||
+		   task.Status == models.JobTaskStatusPending ||
+		   task.Status == models.JobTaskStatusReconnectPending {
+			activeTaskCount++
+		}
+	}
+
+	// If no active tasks, transition job to pending
+	if activeTaskCount == 0 {
+		job, err := s.jobExecutionRepo.GetByID(ctx, jobID)
 		if err != nil {
-			debug.Log("Failed to check tasks for job", map[string]interface{}{
-				"job_id": jobID,
-				"error":  err.Error(),
-			})
-			continue
+			return
 		}
 
-		// Count active tasks (running or assigned)
-		activeTaskCount := 0
-		for _, task := range allTasks {
-			if task.Status == models.JobTaskStatusRunning || task.Status == models.JobTaskStatusAssigned {
-				activeTaskCount++
-			}
-		}
+		if job.Status == models.JobExecutionStatusRunning {
+			// Check if job has remaining keyspace to process
+			hasRemainingWork := false
 
-		// If no active tasks, transition job to pending
-		if activeTaskCount == 0 {
-			job, err := s.jobExecutionRepo.GetByID(ctx, jobID)
-			if err != nil {
-				continue
+			// For jobs with effective keyspace, check if it's been fully dispatched
+			if job.EffectiveKeyspace != nil {
+				hasRemainingWork = job.DispatchedKeyspace < *job.EffectiveKeyspace
+			} else if job.TotalKeyspace != nil && job.ProcessedKeyspace < *job.TotalKeyspace {
+				hasRemainingWork = true
 			}
 
-			if job.Status == models.JobExecutionStatusRunning {
+			if hasRemainingWork {
 				err = s.jobExecutionRepo.UpdateStatus(ctx, jobID, models.JobExecutionStatusPending)
 				if err != nil {
 					debug.Log("Failed to update job status to pending", map[string]interface{}{
 						"job_id": jobID,
 						"error":  err.Error(),
 					})
-					continue
+					return
 				}
 
-				debug.Log("Updated job status to pending after all tasks timed out", map[string]interface{}{
+				debug.Log("Updated job status to pending - no active tasks but work remains", map[string]interface{}{
+					"job_id": jobID,
+					"dispatched": job.DispatchedKeyspace,
+					"effective": job.EffectiveKeyspace,
+				})
+			} else {
+				// Job is complete - no active tasks and no remaining work
+				err = s.jobExecutionRepo.UpdateStatus(ctx, jobID, models.JobExecutionStatusCompleted)
+				if err != nil {
+					debug.Log("Failed to update job status to completed", map[string]interface{}{
+						"job_id": jobID,
+						"error":  err.Error(),
+					})
+					return
+				}
+
+				debug.Log("Updated job status to completed - no active tasks and no remaining work", map[string]interface{}{
 					"job_id": jobID,
 				})
 			}
+		}
+	}
+}
+
+// checkForOrphanedRunningJobs finds and fixes jobs stuck in running with no active tasks
+func (s *JobCleanupService) checkForOrphanedRunningJobs(ctx context.Context) {
+	// Get all running jobs
+	runningJobs, err := s.jobExecutionRepo.GetJobsByStatus(ctx, models.JobExecutionStatusRunning)
+	if err != nil {
+		debug.Log("Failed to get running jobs for orphan check", map[string]interface{}{
+			"error": err.Error(),
+		})
+		return
+	}
+
+	for _, job := range runningJobs {
+		// Check each running job for active tasks
+		allTasks, err := s.jobTaskRepo.GetTasksByJobExecution(ctx, job.ID)
+		if err != nil {
+			debug.Log("Failed to get tasks for orphan check", map[string]interface{}{
+				"job_id": job.ID,
+				"error":  err.Error(),
+			})
+			continue
+		}
+
+		// Count active tasks
+		activeTaskCount := 0
+		for _, task := range allTasks {
+			if task.Status == models.JobTaskStatusRunning ||
+			   task.Status == models.JobTaskStatusAssigned ||
+			   task.Status == models.JobTaskStatusPending ||
+			   task.Status == models.JobTaskStatusReconnectPending {
+				activeTaskCount++
+			}
+		}
+
+		// If no active tasks, this is an orphaned job
+		if activeTaskCount == 0 {
+			debug.Log("Found orphaned running job with no active tasks", map[string]interface{}{
+				"job_id": job.ID,
+				"name": job.Name,
+				"total_tasks": len(allTasks),
+			})
+
+			// Use the helper function to handle the transition
+			s.checkJobForPendingTransition(ctx, job.ID)
 		}
 	}
 }

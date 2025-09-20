@@ -20,12 +20,13 @@ import {
   IconButton,
   Link
 } from '@mui/material';
-import { 
-  ArrowBack, 
+import {
+  ArrowBack,
   Edit as EditIcon,
   Save as SaveIcon,
   Cancel as CancelIcon,
-  Refresh as RefreshIcon
+  Refresh as RefreshIcon,
+  Replay as ReplayIcon
 } from '@mui/icons-material';
 import { getJobDetails, api } from '../../services/api';
 import { JobDetailsResponse, JobTask } from '../../types/jobs';
@@ -190,6 +191,19 @@ const JobDetails: React.FC = () => {
     setAutoRefreshEnabled(true); // Resume auto-refresh after cancel
   };
 
+  // Handle retry task
+  const handleRetryTask = async (taskId: string) => {
+    if (!id) return;
+
+    try {
+      await api.post(`/api/jobs/${id}/tasks/${taskId}/retry`);
+      await fetchJobDetails();
+    } catch (err) {
+      console.error('Failed to retry task:', err);
+      setError('Failed to retry task');
+    }
+  };
+
   // Format helpers
   const formatDate = (dateString?: string) => {
     if (!dateString) return 'N/A';
@@ -274,6 +288,9 @@ const JobDetails: React.FC = () => {
   const activeTasks = jobData.tasks.filter(task => 
     ['running', 'pending', 'reconnect_pending'].includes(task.status)
   );
+
+  // Get failed tasks
+  const failedTasks = jobData.tasks.filter(task => task.status === 'failed');
 
   // Get completed tasks and sort by completion time (most recent first)
   const completedTasks = jobData.tasks
@@ -581,6 +598,69 @@ const JobDetails: React.FC = () => {
           </Table>
         </TableContainer>
       </Paper>
+
+      {/* Failed Tasks Table */}
+      {failedTasks.length > 0 && (
+        <Paper sx={{ mt: 3 }}>
+          <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
+            <Typography variant="h6" color="error">
+              Failed Tasks ({failedTasks.length} total)
+            </Typography>
+          </Box>
+          <TableContainer>
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableCell>Agent ID</TableCell>
+                  <TableCell>Task ID</TableCell>
+                  <TableCell>Status</TableCell>
+                  <TableCell>Retry Count</TableCell>
+                  <TableCell>Error Message</TableCell>
+                  <TableCell>Last Updated</TableCell>
+                  <TableCell align="center">Actions</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {failedTasks.map((task) => (
+                  <TableRow key={task.id}>
+                    <TableCell>{task.agent_id || 'Unassigned'}</TableCell>
+                    <TableCell>
+                      <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>
+                        {task.id.substring(0, 8)}...
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Chip
+                        label={task.status}
+                        color="error"
+                        size="small"
+                      />
+                    </TableCell>
+                    <TableCell>{task.retry_count || 0}</TableCell>
+                    <TableCell>
+                      <Typography variant="body2" sx={{ maxWidth: 300 }}>
+                        {task.error_message || 'No error message'}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>{formatDate(task.updated_at)}</TableCell>
+                    <TableCell align="center">
+                      <Button
+                        variant="outlined"
+                        size="small"
+                        startIcon={<ReplayIcon />}
+                        onClick={() => handleRetryTask(task.id)}
+                        sx={{ textTransform: 'none' }}
+                      >
+                        Retry
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </Paper>
+      )}
 
       {/* Completed Tasks Table */}
       {completedTasks.length > 0 && (

@@ -107,6 +107,8 @@ export interface JobTask {
   progress_percent?: number;
   detailed_status?: string;
   created_at?: string;
+  updated_at?: string;
+  retry_count?: number;
 }
 
 // Job agent information

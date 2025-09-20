@@ -715,6 +715,7 @@ func (h *UserJobsHandler) GetJobDetail(w http.ResponseWriter, r *http.Request) {
 			"is_rule_split_task":           task.IsRuleSplitTask,
 			"progress_percent":             taskProgressPercent,
 			"crack_count":                  task.CrackCount,
+			"retry_count":                  task.RetryCount,
 			"detailed_status":              task.DetailedStatus,
 			"error_message":                task.ErrorMessage,
 			"created_at":                   task.CreatedAt.Format(time.RFC3339),
@@ -902,6 +903,64 @@ func (h *UserJobsHandler) RetryJob(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{
 		"message": "Job retry initiated successfully",
+	})
+}
+
+// RetryTask handles POST /api/jobs/{id}/tasks/{taskId}/retry
+func (h *UserJobsHandler) RetryTask(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	vars := mux.Vars(r)
+
+	jobID, err := uuid.Parse(vars["id"])
+	if err != nil {
+		http.Error(w, "Invalid job ID", http.StatusBadRequest)
+		return
+	}
+
+	taskID, err := uuid.Parse(vars["taskId"])
+	if err != nil {
+		http.Error(w, "Invalid task ID", http.StatusBadRequest)
+		return
+	}
+
+	// Verify the task belongs to this job
+	task, err := h.jobTaskRepo.GetByID(ctx, taskID)
+	if err != nil {
+		debug.Error("Failed to get task %s: %v", taskID, err)
+		http.Error(w, "Task not found", http.StatusNotFound)
+		return
+	}
+
+	if task.JobExecutionID != jobID {
+		http.Error(w, "Task does not belong to this job", http.StatusBadRequest)
+		return
+	}
+
+	// Check if task is in a state that can be retried
+	if task.Status != models.JobTaskStatusFailed {
+		http.Error(w, "Only failed tasks can be retried", http.StatusBadRequest)
+		return
+	}
+
+	// Reset the task to pending status
+	if err := h.jobTaskRepo.UpdateStatus(ctx, taskID, models.JobTaskStatusPending); err != nil {
+		debug.Error("Failed to reset task status: %v", err)
+		http.Error(w, "Failed to retry task", http.StatusInternalServerError)
+		return
+	}
+
+	// Clear the error message
+	if err := h.jobTaskRepo.UpdateTaskError(ctx, taskID, ""); err != nil {
+		debug.Error("Failed to clear task error: %v", err)
+		// Don't fail the request, just log the error
+	}
+
+	// Note: ResetTaskForRetry increments retry_count, which is fine for tracking retries
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{
+		"message": "Task retry initiated successfully",
+		"task_id": taskID.String(),
 	})
 }
 
