@@ -16,6 +16,7 @@ import (
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/services"
 	wsservice "github.com/ZerkerEOD/krakenhashes/backend/internal/services/websocket"
 	"github.com/ZerkerEOD/krakenhashes/backend/pkg/debug"
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 )
 
@@ -81,6 +82,7 @@ type Handler struct {
 	agentService       *services.AgentService
 	systemSettingsRepo *repository.SystemSettingsRepository
 	jobTaskRepo        *repository.JobTaskRepository
+	jobExecRepo        *repository.JobExecutionRepository
 	tlsConfig          *tls.Config
 	clients            map[int]*Client
 	mu                 sync.RWMutex
@@ -97,7 +99,7 @@ type Client struct {
 }
 
 // NewHandler creates a new WebSocket handler
-func NewHandler(wsService *wsservice.Service, agentService *services.AgentService, systemSettingsRepo *repository.SystemSettingsRepository, jobTaskRepo *repository.JobTaskRepository, tlsConfig *tls.Config) *Handler {
+func NewHandler(wsService *wsservice.Service, agentService *services.AgentService, systemSettingsRepo *repository.SystemSettingsRepository, jobTaskRepo *repository.JobTaskRepository, jobExecRepo *repository.JobExecutionRepository, tlsConfig *tls.Config) *Handler {
 	// Initialize timing configuration
 	initTimingConfig()
 
@@ -106,6 +108,7 @@ func NewHandler(wsService *wsservice.Service, agentService *services.AgentServic
 		agentService:       agentService,
 		systemSettingsRepo: systemSettingsRepo,
 		jobTaskRepo:        jobTaskRepo,
+		jobExecRepo:        jobExecRepo,
 		tlsConfig:          tlsConfig,
 		clients:            make(map[int]*Client),
 	}
@@ -1172,19 +1175,49 @@ func (h *Handler) handleAgentShutdown(client *Client, msg *wsservice.Message) {
 	debug.Info("Agent %d: Shutdown reason: %s, HasTask: %v, TaskID: %s", 
 		client.agent.ID, shutdownPayload.Reason, shutdownPayload.HasRunningTask, shutdownPayload.TaskID)
 	
-	// If agent had running tasks, reset them immediately
-	if shutdownPayload.HasRunningTask || shutdownPayload.TaskID != "" {
-		debug.Info("Agent %d: Agent was running task %s, will reset for immediate retry", 
+	// If agent had running tasks, reset them immediately to pending
+	if shutdownPayload.HasRunningTask && shutdownPayload.TaskID != "" {
+		debug.Info("Agent %d: Agent was running task %s, will reset to pending immediately",
 			client.agent.ID, shutdownPayload.TaskID)
-		
-		// Get the job handler and reset any tasks
-		jobHandler := h.wsService.GetJobHandler()
-		if jobHandler != nil {
-			resetCount, err := jobHandler.HandleAgentReconnectionWithNoTask(client.ctx, client.agent.ID)
+
+		// Parse task ID and reset it directly to pending
+		taskID, err := uuid.Parse(shutdownPayload.TaskID)
+		if err != nil {
+			debug.Error("Agent %d: Failed to parse task ID %s: %v",
+				client.agent.ID, shutdownPayload.TaskID, err)
+		} else {
+			// Directly set the task to pending for immediate reassignment
+			err = h.jobTaskRepo.SetTaskPending(client.ctx, taskID)
 			if err != nil {
-				debug.Error("Agent %d: Failed to reset tasks on shutdown: %v", client.agent.ID, err)
-			} else if resetCount > 0 {
-				debug.Info("Agent %d: Reset %d tasks on graceful shutdown", client.agent.ID, resetCount)
+				debug.Error("Agent %d: Failed to reset task %s to pending: %v",
+					client.agent.ID, taskID, err)
+			} else {
+				debug.Info("Agent %d: Successfully reset task %s to pending for immediate reassignment",
+					client.agent.ID, taskID)
+
+				// Check if we need to update the job status
+				// If this was the only running task, the job should also be set to pending
+				if shutdownPayload.JobID != "" {
+					jobID, err := uuid.Parse(shutdownPayload.JobID)
+					if err == nil {
+						// Get active task count for this job
+						activeCount, err := h.jobTaskRepo.GetActiveTasksCount(client.ctx, jobID)
+						if err == nil && activeCount == 0 {
+							debug.Info("Agent %d: No other active tasks for job %s, updating job status to pending",
+								client.agent.ID, jobID)
+
+							// No active tasks remaining, set job to pending
+							err = h.jobExecRepo.UpdateStatus(client.ctx, jobID, models.JobExecutionStatusPending)
+							if err != nil {
+								debug.Error("Agent %d: Failed to update job %s status to pending: %v",
+									client.agent.ID, jobID, err)
+							} else {
+								debug.Info("Agent %d: Successfully updated job %s status to pending",
+									client.agent.ID, jobID)
+							}
+						}
+					}
+				}
 			}
 		}
 	}

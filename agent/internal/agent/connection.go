@@ -2016,16 +2016,16 @@ func (c *Connection) SetJobManager(jm JobManager) {
 }
 
 // SendShutdownNotification sends a notification to the backend that the agent is shutting down gracefully
-func (c *Connection) SendShutdownNotification() {
+func (c *Connection) SendShutdownNotification(hasTask bool, taskID string, jobID string) {
 	debug.Info("Sending shutdown notification to backend")
-	
+
 	// Check if connected
 	if !c.isConnected.Load() {
 		debug.Warning("Not connected, cannot send shutdown notification")
 		return
 	}
-	
-	// Create shutdown payload with current task status
+
+	// Create shutdown payload with provided task status
 	shutdownPayload := struct {
 		AgentID        int    `json:"agent_id"`
 		Reason         string `json:"reason"`
@@ -2033,9 +2033,12 @@ func (c *Connection) SendShutdownNotification() {
 		TaskID         string `json:"task_id,omitempty"`
 		JobID          string `json:"job_id,omitempty"`
 	}{
-		Reason: "graceful_shutdown",
+		Reason:         "graceful_shutdown",
+		HasRunningTask: hasTask,
+		TaskID:         taskID,
+		JobID:          jobID,
 	}
-	
+
 	// Try to get agent ID from config
 	configDir := config.GetConfigDir()
 	agentIDPath := filepath.Join(configDir, "agent_id")
@@ -2044,16 +2047,6 @@ func (c *Connection) SendShutdownNotification() {
 		agentIDStr := strings.TrimSpace(string(agentIDBytes))
 		if agentID, err := strconv.Atoi(agentIDStr); err == nil {
 			shutdownPayload.AgentID = agentID
-		}
-	}
-	
-	// Get current task status from job manager if available
-	if c.jobManager != nil {
-		if jm, ok := c.jobManager.(*jobs.JobManager); ok {
-			hasTask, taskID, jobID, _ := jm.GetCurrentTaskStatus()
-			shutdownPayload.HasRunningTask = hasTask
-			shutdownPayload.TaskID = taskID
-			shutdownPayload.JobID = jobID
 		}
 	}
 	

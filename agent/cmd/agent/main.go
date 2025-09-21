@@ -734,7 +734,17 @@ func main() {
 	cleanupCancel()
 	cleanupService.Stop()
 
-	// First, stop the job manager to cleanly stop all running jobs
+	// Capture current task status BEFORE stopping the job manager
+	var hasTask bool
+	var taskID, jobID string
+	if jobManager != nil {
+		hasTask, taskID, jobID, _ = jobManager.GetCurrentTaskStatus()
+		if hasTask {
+			debug.Info("Capturing task status before shutdown - TaskID: %s, JobID: %s", taskID, jobID)
+		}
+	}
+
+	// Now stop the job manager to cleanly stop all running jobs
 	if jobManager != nil {
 		debug.Info("Stopping job manager and all running tasks...")
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -749,7 +759,7 @@ func main() {
 	// Send shutdown notification to server before closing connection
 	if conn != nil {
 		debug.Info("Sending shutdown notification to server...")
-		conn.SendShutdownNotification()
+		conn.SendShutdownNotification(hasTask, taskID, jobID)
 		time.Sleep(500 * time.Millisecond) // Give time for the message to be sent
 
 		debug.Info("Stopping connection...")
