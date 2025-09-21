@@ -60,6 +60,7 @@ export interface JobExecution {
   id: string;
   preset_job_id: string;
   preset_job_name?: string;
+  name?: string;
   hashlist_id: number;
   hashlist_name?: string;
   status: string;

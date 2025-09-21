@@ -76,6 +76,7 @@ import { api, getUserAgents } from '../services/api';
 import { JobSummary, PaginationInfo } from '../types/jobs';
 import { AgentWithTask } from '../types/agent';
 import { calculateJobProgress, formatKeyspace } from '../utils/jobProgress';
+import { formatHashRate } from '../utils/formatters';
 import { useNavigate } from 'react-router-dom';
 import HashlistOverview from '../components/dashboard/HashlistOverview';
 // import JobStatusMonitor from '../components/JobStatusMonitor'; // Removed to improve page load performance
@@ -402,8 +403,8 @@ const Dashboard: React.FC = () => {
                   {agent.currentTask ? (
                     <>
                       <Typography variant="caption" color="text.secondary" display="block">
-                        Hash Rate: {agent.currentTask.benchmark_speed ? 
-                          `${(agent.currentTask.benchmark_speed / 1000000000).toFixed(2)} GH/s` : 
+                        Hash Rate: {agent.currentTask.benchmark_speed ?
+                          formatHashRate(agent.currentTask.benchmark_speed, 2) :
                           'N/A'
                         }
                       </Typography>
@@ -418,7 +419,7 @@ const Dashboard: React.FC = () => {
                           }}
                           onClick={() => navigate(`/jobs/${agent.jobExecution!.id}`)}
                         >
-                          Job: {agent.jobExecution.preset_job_name || 'Unnamed Job'}
+                          Job: {agent.jobExecution.name || 'Unnamed Job'}
                         </Typography>
                       )}
                     </>
