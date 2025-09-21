@@ -81,6 +81,7 @@ func CreateJobsHandler(database *db.DB, dataDir string, binaryManager binary.Man
 		ruleStore,
 		binaryStore,
 		jobExecutionService,
+		systemSettingsRepo,
 	)
 }
 

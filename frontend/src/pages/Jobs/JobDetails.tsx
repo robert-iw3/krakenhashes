@@ -31,21 +31,27 @@ import {
 import { getJobDetails, api } from '../../services/api';
 import { JobDetailsResponse, JobTask } from '../../types/jobs';
 import JobProgressBar from '../../components/JobProgressBar';
+import { useSnackbar } from 'notistack';
+import { getMaxPriorityForUsers } from '../../services/systemSettings';
 
 const JobDetails: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { enqueueSnackbar } = useSnackbar();
   
   const [jobData, setJobData] = useState<JobDetailsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
+  const [maxPriority, setMaxPriority] = useState<number>(1000); // Default to 1000
   
   // Edit states
   const [editingPriority, setEditingPriority] = useState(false);
   const [editingMaxAgents, setEditingMaxAgents] = useState(false);
-  const [tempPriority, setTempPriority] = useState<number>(0);
-  const [tempMaxAgents, setTempMaxAgents] = useState<number>(1);
+  const [editingChunkSize, setEditingChunkSize] = useState(false);
+  const [tempPriority, setTempPriority] = useState<string>('');
+  const [tempMaxAgents, setTempMaxAgents] = useState<string>('');
+  const [tempChunkSize, setTempChunkSize] = useState<string>('');
   const [saving, setSaving] = useState(false);
   
   // Completed tasks pagination state
@@ -59,8 +65,8 @@ const JobDetails: React.FC = () => {
 
   // Update editing ref when editing state changes
   useEffect(() => {
-    isEditingRef.current = editingPriority || editingMaxAgents;
-  }, [editingPriority, editingMaxAgents]);
+    isEditingRef.current = editingPriority || editingMaxAgents || editingChunkSize;
+  }, [editingPriority, editingMaxAgents, editingChunkSize]);
   
   // Update status ref when job data changes
   useEffect(() => {
@@ -93,6 +99,15 @@ const JobDetails: React.FC = () => {
   // Initial fetch
   useEffect(() => {
     fetchJobDetails();
+    // Fetch max priority setting
+    getMaxPriorityForUsers()
+      .then(config => {
+        setMaxPriority(config.max_priority);
+      })
+      .catch(err => {
+        console.error('Failed to fetch max priority:', err);
+        // Keep default of 1000 if fetch fails
+      });
   }, [fetchJobDetails]);
   
   // Setup and manage polling
@@ -135,17 +150,24 @@ const JobDetails: React.FC = () => {
 
   // Handle priority edit
   const handleEditPriority = () => {
-    setTempPriority(jobData?.priority || 0);
+    setTempPriority(String(jobData?.priority || 0));
     setEditingPriority(true);
     setAutoRefreshEnabled(false); // Pause auto-refresh during edit
   };
 
   const handleSavePriority = async () => {
     if (!id) return;
-    
+
+    // Validate priority before saving
+    const priorityValue = parseInt(tempPriority) || 0;
+    if (priorityValue < 0 || priorityValue > maxPriority) {
+      enqueueSnackbar(`Priority must be between 0 and ${maxPriority}`, { variant: 'error' });
+      return;
+    }
+
     setSaving(true);
     try {
-      await api.patch(`/api/jobs/${id}`, { priority: tempPriority });
+      await api.patch(`/api/jobs/${id}`, { priority: priorityValue });
       await fetchJobDetails();
       setEditingPriority(false);
       setAutoRefreshEnabled(true); // Resume auto-refresh after save
@@ -164,17 +186,24 @@ const JobDetails: React.FC = () => {
 
   // Handle max agents edit
   const handleEditMaxAgents = () => {
-    setTempMaxAgents(jobData?.max_agents || 1);
+    setTempMaxAgents(String(jobData?.max_agents || 0));
     setEditingMaxAgents(true);
     setAutoRefreshEnabled(false); // Pause auto-refresh during edit
   };
 
   const handleSaveMaxAgents = async () => {
     if (!id) return;
-    
+
+    // Validate max agents before saving (0 = unlimited)
+    const maxAgentsValue = parseInt(tempMaxAgents) || 0;
+    if (maxAgentsValue < 0) {
+      enqueueSnackbar('Max agents must be 0 (unlimited) or positive', { variant: 'error' });
+      return;
+    }
+
     setSaving(true);
     try {
-      await api.patch(`/api/jobs/${id}`, { max_agents: tempMaxAgents });
+      await api.patch(`/api/jobs/${id}`, { max_agents: maxAgentsValue });
       await fetchJobDetails();
       setEditingMaxAgents(false);
       setAutoRefreshEnabled(true); // Resume auto-refresh after save
@@ -188,6 +217,65 @@ const JobDetails: React.FC = () => {
   
   const handleCancelMaxAgents = () => {
     setEditingMaxAgents(false);
+    setAutoRefreshEnabled(true); // Resume auto-refresh after cancel
+  };
+
+  // Handle chunk size edit
+  const handleEditChunkSize = () => {
+    setTempChunkSize(String(jobData?.chunk_size_seconds || 1200));
+    setEditingChunkSize(true);
+    setAutoRefreshEnabled(false); // Pause auto-refresh during edit
+  };
+
+  const handleSaveChunkSize = async () => {
+    if (!id) return;
+
+    // Validate chunk size before saving
+    const chunkSizeValue = parseInt(tempChunkSize) || 0;
+    if (chunkSizeValue < 5) {
+      enqueueSnackbar('Chunk size must be at least 5 seconds', { variant: 'error' });
+      return;
+    }
+    if (chunkSizeValue > 86400) {
+      enqueueSnackbar('Chunk size cannot exceed 24 hours (86400 seconds)', { variant: 'error' });
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const response = await api.patch(`/api/jobs/${id}`, { chunk_size_seconds: chunkSizeValue });
+
+      // Show success notification with specific message
+      enqueueSnackbar(response.data?.message || 'Chunk size updated successfully. Changes will take effect on next task creation.', {
+        variant: 'success',
+        autoHideDuration: 5000,
+      });
+
+      await fetchJobDetails();
+      setEditingChunkSize(false);
+      setAutoRefreshEnabled(true); // Resume auto-refresh after save
+    } catch (err: any) {
+      console.error('Failed to update chunk size:', err);
+
+      // Parse error message from response if available
+      let errorMessage = 'Failed to update chunk size';
+      if (err.response?.data) {
+        errorMessage = typeof err.response.data === 'string' ? err.response.data : err.response.data.message || errorMessage;
+      } else if (err.message) {
+        errorMessage = err.message;
+      }
+
+      enqueueSnackbar(errorMessage, {
+        variant: 'error',
+        autoHideDuration: 5000,
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCancelChunkSize = () => {
+    setEditingChunkSize(false);
     setAutoRefreshEnabled(true); // Resume auto-refresh after cancel
   };
 
@@ -226,6 +314,25 @@ const JobDetails: React.FC = () => {
     if (speed >= 1e6) return `${(speed / 1e6).toFixed(2)} MH/s`;
     if (speed >= 1e3) return `${(speed / 1e3).toFixed(2)} KH/s`;
     return `${speed} H/s`;
+  };
+
+  const formatChunkSize = (seconds?: number): string => {
+    if (seconds === undefined || seconds === null) return 'N/A';
+    if (seconds === 0) return 'Not set (using default)';
+
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+
+    if (hours > 0 && minutes > 0) {
+      return `${hours} hour${hours > 1 ? 's' : ''} ${minutes} minute${minutes !== 1 ? 's' : ''}`;
+    } else if (hours > 0) {
+      return `${hours} hour${hours > 1 ? 's' : ''}`;
+    } else if (minutes > 0) {
+      return `${minutes} minute${minutes !== 1 ? 's' : ''}`;
+    } else {
+      return `${secs} second${secs !== 1 ? 's' : ''}`;
+    }
   };
 
   const getStatusColor = (status: string) => {
@@ -380,11 +487,11 @@ const JobDetails: React.FC = () => {
                       <TextField
                         type="number"
                         value={tempPriority}
-                        onChange={(e) => setTempPriority(parseInt(e.target.value) || 0)}
-                        inputProps={{ min: 0, max: 10 }}
+                        onChange={(e) => setTempPriority(e.target.value)}
                         size="small"
                         sx={{ width: 100 }}
                         disabled={saving}
+                        helperText={`0-${maxPriority}`}
                       />
                       <IconButton onClick={handleSavePriority} disabled={saving} size="small" title="Save">
                         <SaveIcon />
@@ -411,11 +518,11 @@ const JobDetails: React.FC = () => {
                       <TextField
                         type="number"
                         value={tempMaxAgents}
-                        onChange={(e) => setTempMaxAgents(parseInt(e.target.value) || 1)}
-                        inputProps={{ min: 1 }}
+                        onChange={(e) => setTempMaxAgents(e.target.value)}
                         size="small"
                         sx={{ width: 100 }}
                         disabled={saving}
+                        helperText="0=unlimited"
                       />
                       <IconButton onClick={handleSaveMaxAgents} disabled={saving} size="small" title="Save">
                         <SaveIcon />
@@ -428,6 +535,37 @@ const JobDetails: React.FC = () => {
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                       {jobData.max_agents}
                       <IconButton onClick={handleEditMaxAgents} size="small">
+                        <EditIcon />
+                      </IconButton>
+                    </Box>
+                  )}
+                </TableCell>
+              </TableRow>
+              <TableRow>
+                <TableCell sx={{ fontWeight: 'bold' }}>Chunk Size</TableCell>
+                <TableCell>
+                  {editingChunkSize ? (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <TextField
+                        type="number"
+                        value={tempChunkSize}
+                        onChange={(e) => setTempChunkSize(e.target.value)}
+                        size="small"
+                        sx={{ width: 120 }}
+                        disabled={saving}
+                        helperText="Seconds (5-86400)"
+                      />
+                      <IconButton onClick={handleSaveChunkSize} disabled={saving} size="small" title="Save">
+                        <SaveIcon />
+                      </IconButton>
+                      <IconButton onClick={handleCancelChunkSize} disabled={saving} size="small" title="Cancel">
+                        <CancelIcon />
+                      </IconButton>
+                    </Box>
+                  ) : (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      {formatChunkSize(jobData.chunk_size_seconds)}
+                      <IconButton onClick={handleEditChunkSize} size="small">
                         <EditIcon />
                       </IconButton>
                     </Box>

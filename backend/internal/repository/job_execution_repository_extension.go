@@ -327,6 +327,26 @@ func (r *JobExecutionRepository) UpdateMaxAgents(ctx context.Context, id uuid.UU
 	return nil
 }
 
+// UpdateChunkSizeSeconds updates the chunk size (in seconds) for a job execution
+func (r *JobExecutionRepository) UpdateChunkSizeSeconds(ctx context.Context, id uuid.UUID, chunkSizeSeconds int) error {
+	query := `UPDATE job_executions SET chunk_size_seconds = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`
+	result, err := r.db.ExecContext(ctx, query, chunkSizeSeconds, id)
+	if err != nil {
+		return fmt.Errorf("failed to update job execution chunk size: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return ErrNotFound
+	}
+
+	return nil
+}
+
 // Delete deletes a job execution and related tasks
 func (r *JobExecutionRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	// Start transaction

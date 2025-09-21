@@ -72,7 +72,10 @@ func (r *JobExecutionRepository) GetByID(ctx context.Context, id uuid.UUID) (*mo
 			je.uses_rule_splitting, je.rule_split_count,
 			je.overall_progress_percent, je.last_progress_update,
 			je.dispatched_keyspace,
-			je.completion_email_sent, je.completion_email_sent_at, je.completion_email_error
+			je.completion_email_sent, je.completion_email_sent_at, je.completion_email_error,
+			je.wordlist_ids, je.rule_ids, je.mask, je.binary_version_id,
+			je.chunk_size_seconds, je.status_updates_enabled, je.allow_high_priority_override,
+			je.additional_args, je.hash_type, je.updated_at
 		FROM job_executions je
 		WHERE je.id = $1`
 
@@ -87,6 +90,9 @@ func (r *JobExecutionRepository) GetByID(ctx context.Context, id uuid.UUID) (*mo
 		&exec.OverallProgressPercent, &exec.LastProgressUpdate,
 		&exec.DispatchedKeyspace,
 		&exec.CompletionEmailSent, &exec.CompletionEmailSentAt, &exec.CompletionEmailError,
+		&exec.WordlistIDs, &exec.RuleIDs, &exec.Mask, &exec.BinaryVersionID,
+		&exec.ChunkSizeSeconds, &exec.StatusUpdatesEnabled, &exec.AllowHighPriorityOverride,
+		&exec.AdditionalArgs, &exec.HashType, &exec.UpdatedAt,
 	)
 
 	if err == sql.ErrNoRows {

@@ -30,6 +30,7 @@ type UserJobsHandler struct {
 	ruleStore           *rule.Store
 	binaryStore         binary.Store
 	jobExecutionService *services.JobExecutionService
+	systemSettingsRepo  *repository.SystemSettingsRepository
 }
 
 // NewUserJobsHandler creates a new user jobs handler
@@ -44,6 +45,7 @@ func NewUserJobsHandler(
 	ruleStore *rule.Store,
 	binaryStore binary.Store,
 	jobExecutionService *services.JobExecutionService,
+	systemSettingsRepo *repository.SystemSettingsRepository,
 ) *UserJobsHandler {
 	return &UserJobsHandler{
 		jobExecRepo:         jobExecRepo,
@@ -56,6 +58,7 @@ func NewUserJobsHandler(
 		ruleStore:           ruleStore,
 		binaryStore:         binaryStore,
 		jobExecutionService: jobExecutionService,
+		systemSettingsRepo:  systemSettingsRepo,
 	}
 }
 
@@ -749,6 +752,7 @@ func (h *UserJobsHandler) GetJobDetail(w http.ResponseWriter, r *http.Request) {
 		"status":                    string(job.Status),
 		"priority":                  job.Priority,
 		"max_agents":                job.MaxAgents,
+		"chunk_size_seconds":        job.ChunkSizeSeconds,
 		"attack_mode":               job.AttackMode,
 		"total_keyspace":            job.TotalKeyspace,
 		"effective_keyspace":        job.EffectiveKeyspace,
@@ -809,8 +813,9 @@ func (h *UserJobsHandler) UpdateJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var update struct {
-		Priority  *int `json:"priority"`
-		MaxAgents *int `json:"max_agents"`
+		Priority         *int `json:"priority"`
+		MaxAgents        *int `json:"max_agents"`
+		ChunkSizeSeconds *int `json:"chunk_size_seconds"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
@@ -818,13 +823,30 @@ func (h *UserJobsHandler) UpdateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Track what was updated for the response message
+	var updatedFields []string
+
 	// Update job execution
 	if update.Priority != nil {
+		// Validate priority against system settings
+		maxPriority, err := h.systemSettingsRepo.GetMaxJobPriority(ctx)
+		if err != nil {
+			debug.Error("Failed to get max priority setting: %v", err)
+			http.Error(w, "Failed to validate priority", http.StatusInternalServerError)
+			return
+		}
+
+		if *update.Priority < 0 || *update.Priority > maxPriority {
+			http.Error(w, fmt.Sprintf("Priority must be between 0 and %d", maxPriority), http.StatusBadRequest)
+			return
+		}
+
 		if err := h.jobExecRepo.UpdatePriority(ctx, jobID, *update.Priority); err != nil {
 			debug.Error("Failed to update job priority: %v", err)
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
+		updatedFields = append(updatedFields, "priority")
 	}
 
 	if update.MaxAgents != nil {
@@ -833,11 +855,36 @@ func (h *UserJobsHandler) UpdateJob(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
+		updatedFields = append(updatedFields, "max agents")
+	}
+
+	if update.ChunkSizeSeconds != nil {
+		// Validate chunk size
+		if *update.ChunkSizeSeconds < 5 {
+			http.Error(w, "Chunk size must be at least 5 seconds", http.StatusBadRequest)
+			return
+		}
+		if *update.ChunkSizeSeconds > 86400 {
+			http.Error(w, "Chunk size cannot exceed 24 hours (86400 seconds)", http.StatusBadRequest)
+			return
+		}
+
+		if err := h.jobExecRepo.UpdateChunkSizeSeconds(ctx, jobID, *update.ChunkSizeSeconds); err != nil {
+			debug.Error("Failed to update job chunk size: %v", err)
+			http.Error(w, "Failed to update chunk size", http.StatusInternalServerError)
+			return
+		}
+		updatedFields = append(updatedFields, "chunk size")
+	}
+
+	responseMessage := "Job updated successfully"
+	if len(updatedFields) > 0 && update.ChunkSizeSeconds != nil {
+		responseMessage = "Job updated successfully. Chunk size changes will take effect on next task creation."
 	}
 
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{
-		"message": "Job updated successfully",
+		"message": responseMessage,
 	})
 }
 
