@@ -1103,19 +1103,7 @@ func (s *JobExecutionService) GetAvailableAgents(ctx context.Context) ([]models.
 }
 
 // CreateJobTask creates a task chunk for an agent
-func (s *JobExecutionService) CreateJobTask(ctx context.Context, jobExecution *models.JobExecution, agent *models.Agent, keyspaceStart, keyspaceEnd int64, benchmarkSpeed *int64) (*models.JobTask, error) {
-	// Get chunk duration setting
-	chunkDurationSetting, err := s.systemSettingsRepo.GetSetting(ctx, "default_chunk_duration")
-	if err != nil {
-		return nil, fmt.Errorf("failed to get chunk duration setting: %w", err)
-	}
-
-	chunkDuration := 1200 // Default 20 minutes
-	if chunkDurationSetting.Value != nil {
-		if parsed, parseErr := strconv.Atoi(*chunkDurationSetting.Value); parseErr == nil {
-			chunkDuration = parsed
-		}
-	}
+func (s *JobExecutionService) CreateJobTask(ctx context.Context, jobExecution *models.JobExecution, agent *models.Agent, keyspaceStart, keyspaceEnd int64, benchmarkSpeed *int64, chunkDuration int) (*models.JobTask, error) {
 
 	// Calculate effective keyspace for this task
 	var effectiveKeyspaceStart, effectiveKeyspaceEnd *int64
@@ -1144,7 +1132,7 @@ func (s *JobExecutionService) CreateJobTask(ctx context.Context, jobExecution *m
 		ChunkDuration:          chunkDuration,
 	}
 
-	err = s.jobTaskRepo.Create(ctx, jobTask)
+	err := s.jobTaskRepo.Create(ctx, jobTask)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create job task: %w", err)
 	}

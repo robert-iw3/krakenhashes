@@ -97,8 +97,31 @@ func (s *JobChunkingService) CalculateNextChunk(ctx context.Context, req ChunkCa
 		return nil, fmt.Errorf("failed to get benchmark: %w", err)
 	}
 
+	debug.Log("Retrieved benchmark speed for chunking", map[string]interface{}{
+		"agent_id":        req.Agent.ID,
+		"attack_mode":     req.AttackMode,
+		"hash_type":       req.HashType,
+		"benchmark_speed": benchmarkSpeed,
+		"chunk_duration":  req.ChunkDuration,
+	})
+
+	// Validate benchmark speed
+	if benchmarkSpeed <= 0 {
+		debug.Log("Invalid benchmark speed detected, using default", map[string]interface{}{
+			"agent_id":        req.Agent.ID,
+			"benchmark_speed": benchmarkSpeed,
+		})
+		benchmarkSpeed = s.getDefaultBenchmarkEstimate(req.AttackMode, req.HashType)
+	}
+
 	// Calculate chunk size based on benchmark and desired duration
 	desiredChunkSize := int64(req.ChunkDuration) * benchmarkSpeed
+
+	debug.Log("Calculated desired chunk size", map[string]interface{}{
+		"chunk_duration":    req.ChunkDuration,
+		"benchmark_speed":   benchmarkSpeed,
+		"desired_chunk_size": desiredChunkSize,
+	})
 
 	// Get fluctuation percentage setting
 	fluctuationSetting, err := s.systemSettingsRepo.GetSetting(ctx, "chunk_fluctuation_percentage")
@@ -120,11 +143,24 @@ func (s *JobChunkingService) CalculateNextChunk(ctx context.Context, req ChunkCa
 	isLastChunk := false
 	actualDuration := req.ChunkDuration
 
+	debug.Log("Initial keyspace calculation", map[string]interface{}{
+		"keyspace_start":     keyspaceStart,
+		"desired_chunk_size": desiredChunkSize,
+		"keyspace_end":       keyspaceEnd,
+		"total_keyspace":     totalKeyspace,
+	})
+
 	if keyspaceEnd >= totalKeyspace {
 		// This is the last chunk
 		keyspaceEnd = totalKeyspace
 		isLastChunk = true
 		actualDuration = int((totalKeyspace - keyspaceStart) / benchmarkSpeed)
+
+		debug.Log("Adjusted to last chunk", map[string]interface{}{
+			"reason":           "keyspace_end >= total_keyspace",
+			"keyspace_end":     keyspaceEnd,
+			"actual_duration":  actualDuration,
+		})
 	} else {
 		// Check if the remaining keyspace after this chunk would be too small
 		remainingAfterChunk := totalKeyspace - keyspaceEnd
@@ -153,12 +189,15 @@ func (s *JobChunkingService) CalculateNextChunk(ctx context.Context, req ChunkCa
 		IsLastChunk:    isLastChunk,
 	}
 
-	debug.Log("Chunk calculated", map[string]interface{}{
-		"keyspace_start":  keyspaceStart,
-		"keyspace_end":    keyspaceEnd,
+	debug.Log("Chunk calculated - Final result", map[string]interface{}{
+		"keyspace_start":  result.KeyspaceStart,
+		"keyspace_end":    result.KeyspaceEnd,
 		"benchmark_speed": benchmarkSpeed,
-		"actual_duration": actualDuration,
-		"is_last_chunk":   isLastChunk,
+		"benchmark_ptr":   result.BenchmarkSpeed,
+		"actual_duration": result.ActualDuration,
+		"is_last_chunk":   result.IsLastChunk,
+		"chunk_size":      result.KeyspaceEnd - result.KeyspaceStart,
+		"job_id":          req.JobExecution.ID,
 	})
 
 	return result, nil

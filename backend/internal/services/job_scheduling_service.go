@@ -878,6 +878,14 @@ func (s *JobSchedulingService) assignWorkToAgent(ctx context.Context, agent *mod
 			"keyspace_start":  chunkResult.KeyspaceStart,
 			"keyspace_end":    chunkResult.KeyspaceEnd,
 			"benchmark_speed": chunkResult.BenchmarkSpeed,
+			"benchmark_value": func() int64 {
+				if chunkResult.BenchmarkSpeed != nil {
+					return *chunkResult.BenchmarkSpeed
+				}
+				return 0
+			}(),
+			"chunk_duration": chunkReq.ChunkDuration,
+			"chunk_size":     chunkResult.KeyspaceEnd - chunkResult.KeyspaceStart,
 		})
 
 		// Create the job task
@@ -888,6 +896,7 @@ func (s *JobSchedulingService) assignWorkToAgent(ctx context.Context, agent *mod
 			chunkResult.KeyspaceStart,
 			chunkResult.KeyspaceEnd,
 			chunkResult.BenchmarkSpeed,
+			chunkReq.ChunkDuration,
 		)
 		if err != nil {
 			return nil, interruptedJobs, fmt.Errorf("failed to create job task: %w", err)
