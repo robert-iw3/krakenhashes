@@ -327,30 +327,30 @@ func getJobName(job models.JobExecution, hashlist *models.HashList) string {
 }
 
 // generateJobName creates a job name based on the provided parameters
-func generateJobName(client *models.Client, presetName string, hashTypeID int, customName string) string {
+func generateJobName(client *models.Client, presetName string, hashlistName string, hashTypeID int, customName string) string {
 	if customName != "" && presetName != "" {
 		// User provided custom name with preset job
 		return fmt.Sprintf("%s - %s", customName, presetName)
 	}
-	
+
 	if customName != "" {
 		// Custom job with user-provided name
 		return customName
 	}
-	
+
 	// Default naming format
 	clientName := "Unknown"
 	if client != nil && client.Name != "" {
 		clientName = client.Name
 	}
-	
+
 	if presetName != "" {
 		// Preset job: [client]-[presetname]-[hashmode]
 		return fmt.Sprintf("%s-%s-%d", clientName, presetName, hashTypeID)
 	}
-	
-	// Custom job without name: [client]-[hashmode]
-	return fmt.Sprintf("%s-%d", clientName, hashTypeID)
+
+	// Custom job without name: [client]-[hashlist]-[hashmode]
+	return fmt.Sprintf("%s-%s-%d", clientName, hashlistName, hashTypeID)
 }
 
 // CreateJobFromHashlist handles POST /api/hashlists/{id}/create-job
@@ -444,7 +444,7 @@ func (h *UserJobsHandler) CreateJobFromHashlist(w http.ResponseWriter, r *http.R
 			}
 			
 			// Generate job name
-			jobName := generateJobName(client, presetJob.Name, hashlist.HashTypeID, req.CustomJobName)
+			jobName := generateJobName(client, presetJob.Name, hashlist.Name, hashlist.HashTypeID, req.CustomJobName)
 
 			// Use CreateJobExecution to create job with keyspace calculation
 			jobExecution, err := h.jobExecutionService.CreateJobExecution(ctx, presetJobID, hashlistID, &userID, jobName)
@@ -493,7 +493,7 @@ func (h *UserJobsHandler) CreateJobFromHashlist(w http.ResponseWriter, r *http.R
 				}
 				
 				// Generate job name for workflow step
-				jobName := generateJobName(client, presetJob.Name, hashlist.HashTypeID, req.CustomJobName)
+				jobName := generateJobName(client, presetJob.Name, hashlist.Name, hashlist.HashTypeID, req.CustomJobName)
 
 				// Use CreateJobExecution to create job with keyspace calculation
 				jobExecution, err := h.jobExecutionService.CreateJobExecution(ctx, step.PresetJobID, hashlistID, &userID, jobName)
@@ -545,7 +545,7 @@ func (h *UserJobsHandler) CreateJobFromHashlist(w http.ResponseWriter, r *http.R
 
 		// Generate job name for custom job
 		// For custom jobs, prefer the top-level custom_job_name, fall back to the job's own name
-		jobName := generateJobName(client, "", hashlist.HashTypeID, req.CustomJobName)
+		jobName := generateJobName(client, "", hashlist.Name, hashlist.HashTypeID, req.CustomJobName)
 		
 		// Create job execution directly without saving preset
 		jobExecution, err := h.jobExecutionService.CreateCustomJobExecution(ctx, config, hashlistID, &userID, jobName)

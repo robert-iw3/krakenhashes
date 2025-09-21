@@ -179,18 +179,6 @@ export default function CreateJobDialog({
       let payload: any = {};
 
       if (tabValue === 0) {
-        // Preset jobs
-        if (selectedPresetJobs.length === 0) {
-          setError('Please select at least one preset job');
-          setLoading(false);
-          return;
-        }
-        payload = {
-          type: 'preset',
-          preset_job_ids: selectedPresetJobs,
-          custom_job_name: customJobName
-        };
-      } else if (tabValue === 1) {
         // Workflows
         if (selectedWorkflows.length === 0) {
           setError('Please select at least one workflow');
@@ -200,6 +188,18 @@ export default function CreateJobDialog({
         payload = {
           type: 'workflow',
           workflow_ids: selectedWorkflows,
+          custom_job_name: customJobName
+        };
+      } else if (tabValue === 1) {
+        // Preset jobs
+        if (selectedPresetJobs.length === 0) {
+          setError('Please select at least one preset job');
+          setLoading(false);
+          return;
+        }
+        payload = {
+          type: 'preset',
+          preset_job_ids: selectedPresetJobs,
           custom_job_name: customJobName
         };
       } else if (tabValue === 2) {
@@ -218,13 +218,32 @@ export default function CreateJobDialog({
           setLoading(false);
           return;
         }
-        
+
+        // Validate chunk duration
+        if (customJob.chunk_duration < 5) {
+          setError('Chunk duration must be at least 5 seconds');
+          setLoading(false);
+          return;
+        }
+        if (customJob.chunk_duration > 86400) {
+          setError('Chunk duration cannot exceed 24 hours (86400 seconds)');
+          setLoading(false);
+          return;
+        }
+
         // Custom jobs need keyspace calculation
         setLoadingMessage('Calculating keyspace...');
-        
+
+        // Map chunk_duration to chunk_size_seconds for API
+        const customJobPayload = {
+          ...customJob,
+          chunk_size_seconds: customJob.chunk_duration
+        };
+        delete (customJobPayload as any).chunk_duration;
+
         payload = {
           type: 'custom',
-          custom_job: customJob,
+          custom_job: customJobPayload,
           custom_job_name: customJobName || customJob.name
         };
       }
@@ -325,8 +344,8 @@ export default function CreateJobDialog({
         )}
 
         <Tabs value={tabValue} onChange={handleTabChange} sx={{ mb: 3 }}>
-          <Tab icon={<WorkIcon />} label="Preset Jobs" />
           <Tab icon={<WorkflowIcon />} label="Workflows" />
+          <Tab icon={<WorkIcon />} label="Preset Jobs" />
           <Tab icon={<CustomIcon />} label="Custom Job" />
         </Tabs>
 
@@ -336,91 +355,8 @@ export default function CreateJobDialog({
           </Box>
         ) : (
           <>
-            {/* Preset Jobs Tab */}
-            {tabValue === 0 && (
-              <Box>
-                {presetJobs.length === 0 ? (
-                  <Alert severity="info">
-                    No preset jobs available. Please create preset jobs in the admin panel first.
-                  </Alert>
-                ) : (
-                  <>
-                    <TextField
-                      fullWidth
-                      label="Job Name (Optional)"
-                      placeholder="Leave empty for auto-generated name"
-                      value={customJobName}
-                      onChange={(e) => setCustomJobName(e.target.value)}
-                      helperText="Your name will be appended with each job type (e.g., 'My Name - Potfile Run')"
-                      sx={{ mb: 3 }}
-                    />
-                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                      Select one or more preset jobs to run. You can select multiple jobs - they will be created as separate job executions.
-                    </Typography>
-                    <List>
-                      {presetJobs.map((job) => (
-                        <ListItem
-                          key={job.id}
-                          sx={{
-                            border: job.allow_high_priority_override ? 2 : 1,
-                            borderColor: job.allow_high_priority_override ? 'error.main' : 'divider',
-                            borderRadius: 1,
-                            mb: 1,
-                            bgcolor: selectedPresetJobs.includes(job.id) ? 'action.selected' : 'transparent'
-                          }}
-                        >
-                          <ListItemIcon>
-                            <Checkbox
-                              checked={selectedPresetJobs.includes(job.id)}
-                              onChange={() => togglePresetJob(job.id)}
-                            />
-                          </ListItemIcon>
-                          <ListItemText
-                            primary={job.name}
-                            secondary={
-                              <Box>
-                                {job.description && (
-                                  <Typography variant="body2" color="text.secondary">
-                                    {job.description}
-                                  </Typography>
-                                )}
-                                <Box sx={{ mt: 1 }}>
-                                  <Chip
-                                    size="small"
-                                    label={getAttackModeName(job.attack_mode)}
-                                    sx={{ mr: 1 }}
-                                  />
-                                  <Chip
-                                    size="small"
-                                    icon={<SpeedIcon />}
-                                    label={`Priority: ${job.priority}`}
-                                    sx={{ mr: 1 }}
-                                  />
-                                  {job.allow_high_priority_override && (
-                                    <Chip
-                                      size="small"
-                                      label="Can Interrupt"
-                                      color="error"
-                                      variant="filled"
-                                    />
-                                  )}
-                                </Box>
-                              </Box>
-                            }
-                          />
-                        </ListItem>
-                      ))}
-                    </List>
-                    <Typography variant="caption" color="text.secondary" sx={{ mt: 2, display: 'block' }}>
-                      {selectedPresetJobs.length} job(s) selected
-                    </Typography>
-                  </>
-                )}
-              </Box>
-            )}
-
             {/* Workflows Tab */}
-            {tabValue === 1 && (
+            {tabValue === 0 && (
               <Box>
                 {workflows.length === 0 ? (
                   <Alert severity="info">
@@ -502,6 +438,89 @@ export default function CreateJobDialog({
               </Box>
             )}
 
+            {/* Preset Jobs Tab */}
+            {tabValue === 1 && (
+              <Box>
+                {presetJobs.length === 0 ? (
+                  <Alert severity="info">
+                    No preset jobs available. Please create preset jobs in the admin panel first.
+                  </Alert>
+                ) : (
+                  <>
+                    <TextField
+                      fullWidth
+                      label="Job Name (Optional)"
+                      placeholder="Leave empty for auto-generated name"
+                      value={customJobName}
+                      onChange={(e) => setCustomJobName(e.target.value)}
+                      helperText="Your name will be appended with each job type (e.g., 'My Name - Potfile Run')"
+                      sx={{ mb: 3 }}
+                    />
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                      Select one or more preset jobs to run. You can select multiple jobs - they will be created as separate job executions.
+                    </Typography>
+                    <List>
+                      {presetJobs.map((job) => (
+                        <ListItem
+                          key={job.id}
+                          sx={{
+                            border: job.allow_high_priority_override ? 2 : 1,
+                            borderColor: job.allow_high_priority_override ? 'error.main' : 'divider',
+                            borderRadius: 1,
+                            mb: 1,
+                            bgcolor: selectedPresetJobs.includes(job.id) ? 'action.selected' : 'transparent'
+                          }}
+                        >
+                          <ListItemIcon>
+                            <Checkbox
+                              checked={selectedPresetJobs.includes(job.id)}
+                              onChange={() => togglePresetJob(job.id)}
+                            />
+                          </ListItemIcon>
+                          <ListItemText
+                            primary={job.name}
+                            secondary={
+                              <Box>
+                                {job.description && (
+                                  <Typography variant="body2" color="text.secondary">
+                                    {job.description}
+                                  </Typography>
+                                )}
+                                <Box sx={{ mt: 1 }}>
+                                  <Chip
+                                    size="small"
+                                    label={getAttackModeName(job.attack_mode)}
+                                    sx={{ mr: 1 }}
+                                  />
+                                  <Chip
+                                    size="small"
+                                    icon={<SpeedIcon />}
+                                    label={`Priority: ${job.priority}`}
+                                    sx={{ mr: 1 }}
+                                  />
+                                  {job.allow_high_priority_override && (
+                                    <Chip
+                                      size="small"
+                                      label="Can Interrupt"
+                                      color="error"
+                                      variant="filled"
+                                    />
+                                  )}
+                                </Box>
+                              </Box>
+                            }
+                          />
+                        </ListItem>
+                      ))}
+                    </List>
+                    <Typography variant="caption" color="text.secondary" sx={{ mt: 2, display: 'block' }}>
+                      {selectedPresetJobs.length} job(s) selected
+                    </Typography>
+                  </>
+                )}
+              </Box>
+            )}
+
             {/* Custom Job Tab */}
             {tabValue === 2 && (
               <Box>
@@ -513,7 +532,7 @@ export default function CreateJobDialog({
                       placeholder="Leave empty for auto-generated name"
                       value={customJob.name}
                       onChange={(e) => setCustomJob(prev => ({ ...prev, name: e.target.value }))}
-                      helperText="Leave empty to use format: ClientName-HashMode"
+                      helperText="Leave empty to use format: ClientName-HashlistName-HashMode"
                     />
                   </Grid>
 
@@ -638,11 +657,10 @@ export default function CreateJobDialog({
                       type="number"
                       value={customJob.chunk_duration}
                       onChange={(e) => {
-                        const value = parseInt(e.target.value) || 60;
+                        const value = e.target.value === '' ? 0 : parseInt(e.target.value) || 0;
                         setCustomJob(prev => ({ ...prev, chunk_duration: value }));
                       }}
-                      inputProps={{ min: 60 }}
-                      helperText="Time in seconds for each chunk (min: 60)"
+                      helperText="Time in seconds for each chunk (5-86400 seconds)"
                     />
                   </Grid>
 
@@ -688,8 +706,8 @@ export default function CreateJobDialog({
           onClick={handleSubmit}
           variant="contained"
           disabled={loading || (
-            tabValue === 0 && selectedPresetJobs.length === 0 ||
-            tabValue === 1 && selectedWorkflows.length === 0
+            tabValue === 0 && selectedWorkflows.length === 0 ||
+            tabValue === 1 && selectedPresetJobs.length === 0
           )}
           startIcon={loading && <CircularProgress size={20} />}
         >
