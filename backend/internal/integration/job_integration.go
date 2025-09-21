@@ -181,3 +181,20 @@ func (m *JobIntegrationManager) StopJob(ctx context.Context, jobExecutionID uuid
 func (m *JobIntegrationManager) GetConnectedAgentCount() int {
 	return len(m.wsHandler.GetConnectedAgents())
 }
+
+// GetTask retrieves a task by ID from the database
+func (m *JobIntegrationManager) GetTask(ctx context.Context, taskID string) (*models.JobTask, error) {
+	// Parse task ID as UUID
+	taskUUID, err := uuid.Parse(taskID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid task ID format: %w", err)
+	}
+
+	// Get the task from database
+	task, err := m.wsIntegration.jobTaskRepo.GetByID(ctx, taskUUID)
+	if err != nil {
+		return nil, err
+	}
+
+	return task, nil
+}

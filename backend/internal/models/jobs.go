@@ -207,7 +207,7 @@ type JobTask struct {
 	AverageSpeed      *int64        `json:"average_speed" db:"average_speed"`       // time-weighted average hashes per second
 	ChunkDuration     int           `json:"chunk_duration" db:"chunk_duration"`     // seconds
 	CreatedAt         time.Time     `json:"created_at" db:"created_at"`
-	AssignedAt        time.Time     `json:"assigned_at" db:"assigned_at"`
+	AssignedAt        *time.Time    `json:"assigned_at" db:"assigned_at"`
 	StartedAt         *time.Time    `json:"started_at" db:"started_at"`
 	CompletedAt       *time.Time    `json:"completed_at" db:"completed_at"`
 	UpdatedAt         time.Time     `json:"updated_at" db:"updated_at"`

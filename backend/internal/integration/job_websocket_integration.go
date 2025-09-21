@@ -289,6 +289,19 @@ func (s *JobWebSocketIntegration) SendJobAssignment(ctx context.Context, task *m
 		return fmt.Errorf("failed to send task assignment via WebSocket: %w", err)
 	}
 
+	// Update agent metadata to mark as busy AFTER successful send
+	// This prevents agents from getting stuck in busy state if the assignment fails
+	if agent.Metadata == nil {
+		agent.Metadata = make(map[string]string)
+	}
+	agent.Metadata["busy_status"] = "true"
+	agent.Metadata["current_task_id"] = task.ID.String()
+	agent.Metadata["current_job_id"] = jobExecution.ID.String()
+	if err := s.agentRepo.Update(ctx, agent); err != nil {
+		debug.Error("Failed to update agent metadata after task assignment: %v", err)
+		// Don't fail the assignment, the agent is still running the task
+	}
+
 	debug.Log("Job assignment sent successfully", map[string]interface{}{
 		"task_id":  task.ID,
 		"agent_id": agent.ID,
@@ -766,25 +779,8 @@ func (s *JobWebSocketIntegration) HandleJobProgress(ctx context.Context, agentID
 		return fmt.Errorf("failed to process task progress: %w", err)
 	}
 
-	// Record speed metric for average calculation if speed is available
-	if progress.HashRate > 0 && task.AgentID != nil {
-		metric := &models.AgentPerformanceMetric{
-			AgentID:          *task.AgentID,
-			MetricType:       models.MetricTypeHashRate,
-			Value:            float64(progress.HashRate),
-			Timestamp:        time.Now(),
-			AggregationLevel: models.AggregationLevelRealtime,
-			TaskID:           &progress.TaskID,
-		}
-
-		// Store metric (ignore errors to not block progress updates)
-		if err := s.benchmarkRepo.CreateAgentPerformanceMetric(ctx, metric); err != nil {
-			debug.Log("Failed to record speed metric", map[string]interface{}{
-				"task_id": progress.TaskID,
-				"error":   err.Error(),
-			})
-		}
-	}
+	// Note: Hash rate metric recording removed here to prevent duplicate entries.
+	// The metric is already recorded in job_scheduling_service.go with full device information.
 
 	// Process cracked hashes if any
 	if progress.CrackedCount > 0 && len(progress.CrackedHashes) > 0 {

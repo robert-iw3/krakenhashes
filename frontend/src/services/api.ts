@@ -511,9 +511,10 @@ export const toggleAgentScheduling = async (agentId: number, enabled: boolean, t
 
 // Get detailed job information including tasks
 export const getJobDetails = async (id: string): Promise<any> => {
-  logApiCall('GET', `/api/jobs/${id}`);
-  const response = await api.get(`/api/jobs/${id}`);
-  logApiResponse('GET', `/api/jobs/${id}`, response.data);
+  const url = `/api/jobs/${id}`;
+  logApiCall('GET', url);
+  const response = await api.get(url);
+  logApiResponse('GET', url, response.data);
   return response.data;
 };
 

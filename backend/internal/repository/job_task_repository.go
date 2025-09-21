@@ -457,6 +457,34 @@ func (r *JobTaskRepository) CompleteTask(ctx context.Context, id uuid.UUID) erro
 		fmt.Printf("Warning: failed to calculate average speed for task %s: %v\n", id, err)
 	}
 
+	// Update agent benchmark with the average speed from this task
+	task, err := r.GetByID(ctx, id)
+	if err == nil && task.AverageSpeed != nil && *task.AverageSpeed > 0 && task.AgentID != nil {
+		// Get job execution to find attack mode and hash type
+		jobExecQuery := `SELECT attack_mode, hash_type FROM job_executions WHERE id = $1`
+		var attackMode int
+		var hashType int
+
+		err = r.db.QueryRowContext(ctx, jobExecQuery, task.JobExecutionID).Scan(&attackMode, &hashType)
+		if err == nil {
+			// Update the existing benchmark (it must exist or task wouldn't have run)
+			updateBenchmarkQuery := `
+				UPDATE agent_benchmarks
+				SET speed = $1, updated_at = NOW()
+				WHERE agent_id = $2 AND attack_mode = $3 AND hash_type = $4`
+
+			_, err = r.db.ExecContext(ctx, updateBenchmarkQuery,
+				*task.AverageSpeed, *task.AgentID, attackMode, hashType)
+			if err != nil {
+				// Log but don't fail task completion
+				fmt.Printf("Warning: failed to update benchmark for agent %d: %v\n", *task.AgentID, err)
+			} else {
+				fmt.Printf("Updated benchmark for agent %d, mode %d, type %d: %d H/s\n",
+					*task.AgentID, attackMode, hashType, *task.AverageSpeed)
+			}
+		}
+	}
+
 	// Update both status and detailed_status to maintain database constraint consistency
 	query := `UPDATE job_tasks SET status = $1, detailed_status = $2, completed_at = $3, progress_percent = 100 WHERE id = $4`
 	result, err := r.db.ExecContext(ctx, query, models.JobTaskStatusCompleted, "completed_no_cracks", now, id)

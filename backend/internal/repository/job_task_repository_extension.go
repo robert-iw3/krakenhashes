@@ -8,12 +8,63 @@ import (
 	"github.com/google/uuid"
 )
 
+// GetAllTasksByJobExecution retrieves ALL tasks for a job execution without pagination
+func (r *JobTaskRepository) GetAllTasksByJobExecution(ctx context.Context, jobExecutionID uuid.UUID) ([]models.JobTask, error) {
+	query := `
+		SELECT
+			id, job_execution_id, agent_id, status, keyspace_start, keyspace_end,
+			keyspace_processed, benchmark_speed, chunk_duration,
+			COALESCE(crack_count, 0) as crack_count,
+			COALESCE(detailed_status, 'pending') as detailed_status,
+			COALESCE(retry_count, 0) as retry_count,
+			error_message,
+			created_at, started_at, completed_at, updated_at,
+			effective_keyspace_start, effective_keyspace_end, effective_keyspace_processed,
+			rule_start_index, rule_end_index, is_rule_split_task,
+			progress_percent, average_speed
+		FROM job_tasks
+		WHERE job_execution_id = $1
+		ORDER BY
+			CASE
+				WHEN status = 'completed' THEN completed_at
+				ELSE created_at
+			END DESC`
+
+	rows, err := r.db.QueryContext(ctx, query, jobExecutionID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get tasks for job execution: %w", err)
+	}
+	defer rows.Close()
+
+	var tasks []models.JobTask
+	for rows.Next() {
+		var task models.JobTask
+		err := rows.Scan(
+			&task.ID, &task.JobExecutionID, &task.AgentID, &task.Status,
+			&task.KeyspaceStart, &task.KeyspaceEnd, &task.KeyspaceProcessed,
+			&task.BenchmarkSpeed, &task.ChunkDuration,
+			&task.CrackCount, &task.DetailedStatus, &task.RetryCount,
+			&task.ErrorMessage,
+			&task.CreatedAt, &task.StartedAt, &task.CompletedAt, &task.UpdatedAt,
+			&task.EffectiveKeyspaceStart, &task.EffectiveKeyspaceEnd, &task.EffectiveKeyspaceProcessed,
+			&task.RuleStartIndex, &task.RuleEndIndex, &task.IsRuleSplitTask,
+			&task.ProgressPercent, &task.AverageSpeed,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan job task: %w", err)
+		}
+		tasks = append(tasks, task)
+	}
+
+	return tasks, nil
+}
+
 // GetTasksByJobExecutionWithPagination retrieves tasks for a job execution with pagination
 func (r *JobTaskRepository) GetTasksByJobExecutionWithPagination(ctx context.Context, jobExecutionID uuid.UUID, limit, offset int) ([]models.JobTask, error) {
 	query := `
-		SELECT 
+		SELECT
 			id, job_execution_id, agent_id, status, keyspace_start, keyspace_end,
-			keyspace_processed, benchmark_speed, chunk_duration, 
+			keyspace_processed, benchmark_speed, chunk_duration,
 			COALESCE(crack_count, 0) as crack_count,
 			COALESCE(detailed_status, 'pending') as detailed_status,
 			COALESCE(retry_count, 0) as retry_count,
@@ -24,7 +75,11 @@ func (r *JobTaskRepository) GetTasksByJobExecutionWithPagination(ctx context.Con
 			progress_percent
 		FROM job_tasks
 		WHERE job_execution_id = $1
-		ORDER BY created_at ASC
+		ORDER BY
+			CASE
+				WHEN status = 'completed' THEN completed_at
+				ELSE created_at
+			END DESC
 		LIMIT $2 OFFSET $3`
 
 	rows, err := r.db.QueryContext(ctx, query, jobExecutionID, limit, offset)
@@ -46,6 +101,54 @@ func (r *JobTaskRepository) GetTasksByJobExecutionWithPagination(ctx context.Con
 			&task.EffectiveKeyspaceStart, &task.EffectiveKeyspaceEnd, &task.EffectiveKeyspaceProcessed,
 			&task.RuleStartIndex, &task.RuleEndIndex, &task.IsRuleSplitTask,
 			&task.ProgressPercent,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan job task: %w", err)
+		}
+		tasks = append(tasks, task)
+	}
+
+	return tasks, nil
+}
+
+// GetActiveTasksByJobExecution retrieves all active tasks for a job execution
+func (r *JobTaskRepository) GetActiveTasksByJobExecution(ctx context.Context, jobExecutionID uuid.UUID) ([]models.JobTask, error) {
+	query := `
+		SELECT
+			id, job_execution_id, agent_id, status, keyspace_start, keyspace_end,
+			keyspace_processed, benchmark_speed, average_speed, chunk_duration,
+			COALESCE(crack_count, 0) as crack_count,
+			COALESCE(detailed_status, 'pending') as detailed_status,
+			COALESCE(retry_count, 0) as retry_count,
+			error_message,
+			created_at, started_at, completed_at, updated_at,
+			effective_keyspace_start, effective_keyspace_end, effective_keyspace_processed,
+			rule_start_index, rule_end_index, is_rule_split_task,
+			progress_percent, assigned_at, last_checkpoint, chunk_number
+		FROM job_tasks
+		WHERE job_execution_id = $1
+		AND status IN ('running', 'assigned', 'pending', 'reconnect_pending')
+		ORDER BY created_at DESC`
+
+	rows, err := r.db.QueryContext(ctx, query, jobExecutionID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get active tasks for job execution: %w", err)
+	}
+	defer rows.Close()
+
+	var tasks []models.JobTask
+	for rows.Next() {
+		var task models.JobTask
+		err := rows.Scan(
+			&task.ID, &task.JobExecutionID, &task.AgentID, &task.Status,
+			&task.KeyspaceStart, &task.KeyspaceEnd, &task.KeyspaceProcessed,
+			&task.BenchmarkSpeed, &task.AverageSpeed, &task.ChunkDuration,
+			&task.CrackCount, &task.DetailedStatus, &task.RetryCount,
+			&task.ErrorMessage,
+			&task.CreatedAt, &task.StartedAt, &task.CompletedAt, &task.UpdatedAt,
+			&task.EffectiveKeyspaceStart, &task.EffectiveKeyspaceEnd, &task.EffectiveKeyspaceProcessed,
+			&task.RuleStartIndex, &task.RuleEndIndex, &task.IsRuleSplitTask,
+			&task.ProgressPercent, &task.AssignedAt, &task.LastCheckpoint, &task.ChunkNumber,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan job task: %w", err)

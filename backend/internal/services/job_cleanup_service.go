@@ -434,19 +434,49 @@ func (s *JobCleanupService) checkForOrphanedRunningJobs(ctx context.Context) {
 			continue
 		}
 
-		// Count active tasks
-		activeTaskCount := 0
+		// Count different types of tasks
+		runningOrAssignedCount := 0
+		pendingCount := 0
 		for _, task := range allTasks {
 			if task.Status == models.JobTaskStatusRunning ||
 			   task.Status == models.JobTaskStatusAssigned ||
-			   task.Status == models.JobTaskStatusPending ||
 			   task.Status == models.JobTaskStatusReconnectPending {
-				activeTaskCount++
+				runningOrAssignedCount++
+			} else if task.Status == models.JobTaskStatusPending {
+				pendingCount++
 			}
 		}
 
-		// If no active tasks, this is an orphaned job
-		if activeTaskCount == 0 {
+		// If no running/assigned tasks but has pending tasks, check if job is stuck
+		if runningOrAssignedCount == 0 && pendingCount > 0 {
+			// Check how long the job has been in this state
+			// If the job hasn't been updated in 5+ minutes with only pending tasks, it's stuck
+			timeSinceUpdate := time.Since(job.UpdatedAt)
+			if timeSinceUpdate > 5*time.Minute {
+				debug.Log("Found orphaned running job stuck with only pending tasks", map[string]interface{}{
+					"job_id": job.ID,
+					"name": job.Name,
+					"pending_tasks": pendingCount,
+					"time_since_update": timeSinceUpdate.String(),
+				})
+
+				// Transition job back to pending so scheduler can handle it
+				err = s.jobExecutionRepo.UpdateStatus(ctx, job.ID, models.JobExecutionStatusPending)
+				if err != nil {
+					debug.Log("Failed to update orphaned job status to pending", map[string]interface{}{
+						"job_id": job.ID,
+						"error":  err.Error(),
+					})
+					continue
+				}
+
+				debug.Log("Successfully marked orphaned job as pending for rescheduling", map[string]interface{}{
+					"job_id": job.ID,
+					"name": job.Name,
+				})
+			}
+		} else if runningOrAssignedCount == 0 && pendingCount == 0 {
+			// No active tasks at all - completely orphaned
 			debug.Log("Found orphaned running job with no active tasks", map[string]interface{}{
 				"job_id": job.ID,
 				"name": job.Name,

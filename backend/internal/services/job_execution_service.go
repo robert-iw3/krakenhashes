@@ -100,6 +100,7 @@ type CustomJobConfig struct {
 	MaxAgents                 int
 	BinaryVersionID           int
 	AllowHighPriorityOverride bool
+	ChunkSizeSeconds          int
 }
 
 // CreateJobExecution creates a new job execution from a preset job and hashlist
@@ -215,6 +216,22 @@ func (s *JobExecutionService) CreateCustomJobExecution(ctx context.Context, conf
 		return nil, fmt.Errorf("failed to get hashlist: %w", err)
 	}
 
+	// Get chunk size from config or system settings
+	chunkSize := config.ChunkSizeSeconds
+	if chunkSize <= 0 {
+		// Fetch from system settings if not provided
+		defaultChunkSetting, err := s.systemSettingsRepo.GetSetting(ctx, "default_chunk_duration")
+		if err == nil && defaultChunkSetting != nil && defaultChunkSetting.Value != nil {
+			if parsed, parseErr := parseIntValueFromString(*defaultChunkSetting.Value); parseErr == nil {
+				chunkSize = parsed
+			}
+		}
+		// Final fallback
+		if chunkSize <= 0 {
+			chunkSize = 900
+		}
+	}
+
 	// Create a temporary preset job structure for keyspace calculation
 	// This ensures we use EXACTLY the same calculation logic as preset jobs
 	tempPreset := &models.PresetJob{
@@ -228,7 +245,7 @@ func (s *JobExecutionService) CreateCustomJobExecution(ctx context.Context, conf
 		Priority:                  config.Priority,
 		MaxAgents:                 config.MaxAgents,
 		AllowHighPriorityOverride: config.AllowHighPriorityOverride,
-		ChunkSizeSeconds:          900, // Default chunk size
+		ChunkSizeSeconds:          chunkSize,
 		StatusUpdatesEnabled:      true,
 	}
 
@@ -256,7 +273,7 @@ func (s *JobExecutionService) CreateCustomJobExecution(ctx context.Context, conf
 		WordlistIDs:               config.WordlistIDs,
 		RuleIDs:                   config.RuleIDs,
 		HashType:                  hashlist.HashTypeID,
-		ChunkSizeSeconds:          900, // Default
+		ChunkSizeSeconds:          chunkSize,
 		StatusUpdatesEnabled:      true,
 		AllowHighPriorityOverride: config.AllowHighPriorityOverride,
 		BinaryVersionID:           config.BinaryVersionID,
@@ -958,6 +975,51 @@ func (s *JobExecutionService) GetAvailableAgents(ctx context.Context) ([]models.
 			"status":     agent.Status,
 			"is_enabled": agent.IsEnabled,
 		})
+
+		// Clean up stale busy states before checking availability
+		if agent.Metadata != nil && agent.Metadata["busy_status"] == "true" {
+			if taskIDStr, exists := agent.Metadata["current_task_id"]; exists && taskIDStr != "" {
+				// Try to parse and verify the task
+				taskUUID, err := uuid.Parse(taskIDStr)
+				if err != nil {
+					// Invalid task ID, clear stale busy status
+					debug.Log("Clearing stale busy status with invalid task ID in GetAvailableAgents", map[string]interface{}{
+						"agent_id":      agent.ID,
+						"invalid_task": taskIDStr,
+					})
+					agent.Metadata["busy_status"] = "false"
+					delete(agent.Metadata, "current_task_id")
+					delete(agent.Metadata, "current_job_id")
+					s.agentRepo.Update(ctx, &agent)
+				} else {
+					// Valid UUID, check if task exists and is actually assigned to this agent
+					task, err := s.jobTaskRepo.GetByID(ctx, taskUUID)
+					if err != nil || task == nil ||
+					   task.AgentID == nil || *task.AgentID != agent.ID ||
+					   (task.Status != models.JobTaskStatusRunning && task.Status != models.JobTaskStatusAssigned) {
+						// Task doesn't exist, not assigned to agent, or not in running state
+						debug.Log("Clearing stale busy status in GetAvailableAgents", map[string]interface{}{
+							"agent_id":      agent.ID,
+							"stale_task_id": taskIDStr,
+							"reason":        "task validation failed",
+						})
+						agent.Metadata["busy_status"] = "false"
+						delete(agent.Metadata, "current_task_id")
+						delete(agent.Metadata, "current_job_id")
+						s.agentRepo.Update(ctx, &agent)
+					}
+				}
+			} else {
+				// No task ID but marked as busy, clear it
+				debug.Log("Clearing busy status with no task ID in GetAvailableAgents", map[string]interface{}{
+					"agent_id": agent.ID,
+				})
+				agent.Metadata["busy_status"] = "false"
+				delete(agent.Metadata, "current_task_id")
+				delete(agent.Metadata, "current_job_id")
+				s.agentRepo.Update(ctx, &agent)
+			}
+		}
 
 		// Skip disabled agents (maintenance mode)
 		if !agent.IsEnabled {
@@ -2303,4 +2365,20 @@ func (s *JobExecutionService) buildRuleSplitAttackCommand(ctx context.Context, j
 	}
 
 	return strings.Join(cmdParts, " "), nil
+}
+
+// parseIntValueFromString safely parses an integer value with error handling
+func parseIntValueFromString(value string) (int, error) {
+	if value == "" {
+		return 0, fmt.Errorf("empty value")
+	}
+
+	result := 0
+	for _, char := range value {
+		if char < '0' || char > '9' {
+			return 0, fmt.Errorf("invalid integer: %s", value)
+		}
+		result = result*10 + int(char-'0')
+	}
+	return result, nil
 }

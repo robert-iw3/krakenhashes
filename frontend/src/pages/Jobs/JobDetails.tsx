@@ -284,21 +284,19 @@ const JobDetails: React.FC = () => {
     );
   }
 
-  // Get active tasks for agent table
-  const activeTasks = jobData.tasks.filter(task => 
-    ['running', 'pending', 'reconnect_pending'].includes(task.status)
+  // Filter tasks client-side from the complete list
+  const allTasks = jobData.tasks || [];
+
+  // Get active tasks (running, assigned, pending, reconnect_pending)
+  const activeTasks = allTasks.filter(task =>
+    ['running', 'assigned', 'pending', 'reconnect_pending'].includes(task.status)
   );
 
   // Get failed tasks
-  const failedTasks = jobData.tasks.filter(task => task.status === 'failed');
+  const failedTasks = allTasks.filter(task => task.status === 'failed');
 
-  // Get completed tasks and sort by completion time (most recent first)
-  const completedTasks = jobData.tasks
-    .filter(task => task.status === 'completed')
-    .sort((a, b) => {
-      if (!a.completed_at || !b.completed_at) return 0;
-      return new Date(b.completed_at).getTime() - new Date(a.completed_at).getTime();
-    });
+  // Get completed tasks - they're already sorted by completion time from backend
+  const completedTasks = allTasks.filter(task => task.status === 'completed');
 
   // Paginate completed tasks
   const paginatedCompletedTasks = completedTasks.slice(
@@ -524,8 +522,8 @@ const JobDetails: React.FC = () => {
         <Typography variant="h6" sx={{ mb: 2 }}>
           Task Progress Visualization
         </Typography>
-        <JobProgressBar 
-          tasks={jobData.tasks} 
+        <JobProgressBar
+          tasks={allTasks}
           totalKeyspace={totalKeyspace}
           height={50}
         />
@@ -564,7 +562,7 @@ const JobDetails: React.FC = () => {
                 activeTasks.map((task) => (
                   <TableRow key={task.id}>
                     <TableCell>{task.agent_id || 'Unassigned'}</TableCell>
-                    <TableCell>{task.id.slice(0, 8)}...</TableCell>
+                    <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.75rem', padding: '6px 8px' }}>{task.id}</TableCell>
                     <TableCell>
                       <Chip 
                         label={task.status} 
@@ -608,7 +606,7 @@ const JobDetails: React.FC = () => {
             </Typography>
           </Box>
           <TableContainer>
-            <Table>
+            <Table size="small">
               <TableHead>
                 <TableRow>
                   <TableCell>Agent ID</TableCell>
@@ -625,8 +623,8 @@ const JobDetails: React.FC = () => {
                   <TableRow key={task.id}>
                     <TableCell>{task.agent_id || 'Unassigned'}</TableCell>
                     <TableCell>
-                      <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>
-                        {task.id.substring(0, 8)}...
+                      <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>
+                        {task.id}
                       </Typography>
                     </TableCell>
                     <TableCell>
@@ -671,7 +669,7 @@ const JobDetails: React.FC = () => {
             </Typography>
           </Box>
           <TableContainer>
-            <Table>
+            <Table size="small">
               <TableHead>
                 <TableRow>
                   <TableCell>Agent ID</TableCell>
@@ -696,7 +694,7 @@ const JobDetails: React.FC = () => {
                   paginatedCompletedTasks.map((task) => (
                     <TableRow key={task.id}>
                       <TableCell>{task.agent_id || 'Unassigned'}</TableCell>
-                      <TableCell>{task.id.slice(0, 8)}...</TableCell>
+                      <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.75rem', padding: '6px 8px' }}>{task.id}</TableCell>
                       <TableCell>{formatDate(task.completed_at)}</TableCell>
                       <TableCell>
                         {formatKeyspace(task.effective_keyspace_start || task.keyspace_start)} - {formatKeyspace(task.effective_keyspace_end || task.keyspace_end)}

@@ -1036,44 +1036,77 @@ func (h *Handler) handleCurrentTaskStatus(client *Client, msg *wsservice.Message
 	
 	// If agent has a running task, try to recover it
 	if status.HasRunningTask && status.TaskID != "" {
-		// Update agent metadata to mark it as busy
-		if client.agent.Metadata == nil {
-			client.agent.Metadata = make(map[string]string)
-		}
-		client.agent.Metadata["busy_status"] = "true"
-		client.agent.Metadata["current_task_id"] = status.TaskID
-		client.agent.Metadata["current_job_id"] = status.JobID
-		if err := h.agentService.Update(client.ctx, client.agent); err != nil {
-			debug.Error("Failed to update agent busy status metadata: %v", err)
-		}
-
-		// Check if the task is in reconnect_pending state
+		// Validate the task before setting busy status
 		jobHandler := h.wsService.GetJobHandler()
 		if jobHandler != nil {
-			err := jobHandler.RecoverTask(client.ctx, status.TaskID, client.agent.ID, status.KeyspaceProcessed)
-			if err != nil {
-				debug.Error("Agent %d: Failed to recover task %s: %v", client.agent.ID, status.TaskID, err)
-				// Clear busy status since recovery failed
-				client.agent.Metadata["busy_status"] = "false"
-				delete(client.agent.Metadata, "current_task_id")
-				delete(client.agent.Metadata, "current_job_id")
-				h.agentService.Update(client.ctx, client.agent)
-				
-				// Tell agent to stop the task if recovery failed
+			// First, validate that the task exists and is assigned to this agent
+			task, err := jobHandler.GetTask(client.ctx, status.TaskID)
+			if err != nil || task == nil {
+				debug.Warning("Agent %d reported status for non-existent task %s", client.agent.ID, status.TaskID)
+				// Tell agent to stop the non-existent task
 				stopMsg := wsservice.Message{
 					Type: wsservice.TypeJobStop,
 					Payload: json.RawMessage(`{"task_id":"` + status.TaskID + `"}`),
 				}
 				select {
 				case client.send <- &stopMsg:
-					debug.Info("Agent %d: Sent job stop for unrecoverable task %s", client.agent.ID, status.TaskID)
+					debug.Info("Agent %d: Sent job stop for non-existent task %s", client.agent.ID, status.TaskID)
 				case <-client.ctx.Done():
-					debug.Warning("Agent %d: Failed to send job stop (disconnected)", client.agent.ID)
 				}
+				// Don't set busy status for non-existent task
+			} else if task.AgentID == nil || *task.AgentID != client.agent.ID {
+				// Task exists but is not assigned to this agent
+				debug.Warning("Agent %d reported status for task %s not assigned to it (assigned to agent %v)",
+					client.agent.ID, status.TaskID, task.AgentID)
+				// Tell agent to stop the task that's not assigned to it
+				stopMsg := wsservice.Message{
+					Type: wsservice.TypeJobStop,
+					Payload: json.RawMessage(`{"task_id":"` + status.TaskID + `"}`),
+				}
+				select {
+				case client.send <- &stopMsg:
+					debug.Info("Agent %d: Sent job stop for unassigned task %s", client.agent.ID, status.TaskID)
+				case <-client.ctx.Done():
+				}
+				// Don't set busy status for unassigned task
 			} else {
-				debug.Info("Agent %d: Successfully recovered task %s", client.agent.ID, status.TaskID)
-				// Don't mark agent as available since it's running a task
-				return
+				// Task is valid and assigned to this agent, set busy status
+				if client.agent.Metadata == nil {
+					client.agent.Metadata = make(map[string]string)
+				}
+				client.agent.Metadata["busy_status"] = "true"
+				client.agent.Metadata["current_task_id"] = status.TaskID
+				client.agent.Metadata["current_job_id"] = status.JobID
+				if err := h.agentService.Update(client.ctx, client.agent); err != nil {
+					debug.Error("Failed to update agent busy status metadata: %v", err)
+				}
+
+				// Check if the task is in reconnect_pending state and try to recover
+				err := jobHandler.RecoverTask(client.ctx, status.TaskID, client.agent.ID, status.KeyspaceProcessed)
+				if err != nil {
+					debug.Error("Agent %d: Failed to recover task %s: %v", client.agent.ID, status.TaskID, err)
+					// Clear busy status since recovery failed
+					client.agent.Metadata["busy_status"] = "false"
+					delete(client.agent.Metadata, "current_task_id")
+					delete(client.agent.Metadata, "current_job_id")
+					h.agentService.Update(client.ctx, client.agent)
+
+					// Tell agent to stop the task if recovery failed
+					stopMsg := wsservice.Message{
+						Type: wsservice.TypeJobStop,
+						Payload: json.RawMessage(`{"task_id":"` + status.TaskID + `"}`),
+					}
+					select {
+					case client.send <- &stopMsg:
+						debug.Info("Agent %d: Sent job stop for unrecoverable task %s", client.agent.ID, status.TaskID)
+					case <-client.ctx.Done():
+						debug.Warning("Agent %d: Failed to send job stop (disconnected)", client.agent.ID)
+					}
+				} else {
+					debug.Info("Agent %d: Successfully recovered task %s", client.agent.ID, status.TaskID)
+					// Don't mark agent as available since it's running a task
+					return
+				}
 			}
 		}
 	}

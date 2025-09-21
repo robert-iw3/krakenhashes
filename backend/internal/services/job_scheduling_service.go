@@ -162,12 +162,80 @@ func (s *JobSchedulingService) assignWorkToAgent(ctx context.Context, agent *mod
 	// Check if agent is marked as busy (has a running task)
 	if agent.Metadata != nil {
 		if busyStatus, exists := agent.Metadata["busy_status"]; exists && busyStatus == "true" {
-			debug.Log("Agent is busy with a running task", map[string]interface{}{
-				"agent_id":   agent.ID,
-				"agent_name": agent.Name,
-				"task_id":    agent.Metadata["current_task_id"],
-			})
-			return nil, nil, nil // Agent is busy, skip assignment
+			// Validate that the task actually exists and is assigned to this agent
+			if taskIDStr, exists := agent.Metadata["current_task_id"]; exists && taskIDStr != "" {
+				taskUUID, err := uuid.Parse(taskIDStr)
+				if err != nil {
+					// Invalid task ID, clear stale busy status
+					debug.Log("Clearing stale busy status with invalid task ID", map[string]interface{}{
+						"agent_id":     agent.ID,
+						"invalid_task": taskIDStr,
+						"error":        err.Error(),
+					})
+					agent.Metadata["busy_status"] = "false"
+					delete(agent.Metadata, "current_task_id")
+					delete(agent.Metadata, "current_job_id")
+					s.agentRepo.Update(ctx, agent)
+					// Continue to assign work
+				} else {
+					// Valid UUID, check if task exists and is actually assigned to this agent
+					task, err := s.jobExecutionService.jobTaskRepo.GetByID(ctx, taskUUID)
+					if err != nil || task == nil {
+						// Task doesn't exist, clear stale busy status
+						debug.Log("Clearing stale busy status for non-existent task", map[string]interface{}{
+							"agent_id":      agent.ID,
+							"stale_task_id": taskIDStr,
+						})
+						agent.Metadata["busy_status"] = "false"
+						delete(agent.Metadata, "current_task_id")
+						delete(agent.Metadata, "current_job_id")
+						s.agentRepo.Update(ctx, agent)
+						// Continue to assign work
+					} else if task.AgentID == nil || *task.AgentID != agent.ID {
+						// Task exists but not assigned to this agent
+						debug.Log("Clearing stale busy status for unassigned task", map[string]interface{}{
+							"agent_id":         agent.ID,
+							"task_id":          taskIDStr,
+							"task_assigned_to": task.AgentID,
+						})
+						agent.Metadata["busy_status"] = "false"
+						delete(agent.Metadata, "current_task_id")
+						delete(agent.Metadata, "current_job_id")
+						s.agentRepo.Update(ctx, agent)
+						// Continue to assign work
+					} else if task.Status != models.JobTaskStatusRunning && task.Status != models.JobTaskStatusAssigned {
+						// Task is not in a running state
+						debug.Log("Clearing stale busy status for non-running task", map[string]interface{}{
+							"agent_id":    agent.ID,
+							"task_id":     taskIDStr,
+							"task_status": task.Status,
+						})
+						agent.Metadata["busy_status"] = "false"
+						delete(agent.Metadata, "current_task_id")
+						delete(agent.Metadata, "current_job_id")
+						s.agentRepo.Update(ctx, agent)
+						// Continue to assign work
+					} else {
+						// Valid busy status, agent is actually busy
+						debug.Log("Agent is busy with a running task", map[string]interface{}{
+							"agent_id":   agent.ID,
+							"agent_name": agent.Name,
+							"task_id":    taskIDStr,
+						})
+						return nil, nil, nil // Agent is busy, skip assignment
+					}
+				}
+			} else {
+				// No task ID but marked as busy, clear stale busy status
+				debug.Log("Clearing stale busy status with no task ID", map[string]interface{}{
+					"agent_id": agent.ID,
+				})
+				agent.Metadata["busy_status"] = "false"
+				delete(agent.Metadata, "current_task_id")
+				delete(agent.Metadata, "current_job_id")
+				s.agentRepo.Update(ctx, agent)
+				// Continue to assign work
+			}
 		}
 	}
 
@@ -327,7 +395,8 @@ func (s *JobSchedulingService) assignWorkToAgent(ctx context.Context, agent *mod
 			errorTask.AgentID = &agent.ID
 			errorTask.Status = models.JobTaskStatusPending
 			errorTask.RetryCount++
-			errorTask.AssignedAt = time.Now()
+			now := time.Now()
+			errorTask.AssignedAt = &now
 			errorTask.UpdatedAt = time.Now()
 			errorTask.ErrorMessage = nil
 			
@@ -350,7 +419,8 @@ func (s *JobSchedulingService) assignWorkToAgent(ctx context.Context, agent *mod
 			
 			// Reassign the task
 			staleTask.AgentID = &agent.ID
-			staleTask.AssignedAt = time.Now()
+			now := time.Now()
+			staleTask.AssignedAt = &now
 			staleTask.UpdatedAt = time.Now()
 			
 			if err := s.jobExecutionService.jobTaskRepo.Update(ctx, staleTask); err != nil {
@@ -370,7 +440,8 @@ func (s *JobSchedulingService) assignWorkToAgent(ctx context.Context, agent *mod
 			
 			// Assign the task
 			unassignedTask.AgentID = &agent.ID
-			unassignedTask.AssignedAt = time.Now()
+			now := time.Now()
+			unassignedTask.AssignedAt = &now
 			unassignedTask.UpdatedAt = time.Now()
 			
 			if err := s.jobExecutionService.jobTaskRepo.Update(ctx, unassignedTask); err != nil {
@@ -507,7 +578,8 @@ func (s *JobSchedulingService) assignWorkToAgent(ctx context.Context, agent *mod
 			// Update the task with the new agent assignment
 			pendingTask.AgentID = &agent.ID
 			pendingTask.Status = models.JobTaskStatusAssigned
-			pendingTask.AssignedAt = time.Now()
+			now := time.Now()
+			pendingTask.AssignedAt = &now
 			
 			// Update in database
 			err = s.jobExecutionService.jobTaskRepo.AssignTaskToAgent(ctx, pendingTask.ID, agent.ID)

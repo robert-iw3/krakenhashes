@@ -153,7 +153,7 @@ export interface JobDetailsResponse {
   completed_at?: string;
   updated_at?: string;
   error_message?: string;
-  tasks: JobTask[];
+  tasks: JobTask[];  // All tasks for the job
   tasks_page?: number;
   tasks_per_page?: number;
   total_tasks?: number;

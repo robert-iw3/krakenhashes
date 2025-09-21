@@ -19,6 +19,7 @@ type JobHandler interface {
 	ProcessBenchmarkResult(ctx context.Context, agentID int, payload json.RawMessage) error
 	RecoverTask(ctx context.Context, taskID string, agentID int, keyspaceProcessed int64) error
 	HandleAgentReconnectionWithNoTask(ctx context.Context, agentID int) (int, error)
+	GetTask(ctx context.Context, taskID string) (*models.JobTask, error)
 }
 
 // MessageType represents the type of WebSocket message

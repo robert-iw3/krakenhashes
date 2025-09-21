@@ -518,6 +518,7 @@ func (h *UserJobsHandler) CreateJobFromHashlist(w http.ResponseWriter, r *http.R
 				MaxAgents                 int      `json:"max_agents"`
 				BinaryVersionID           int      `json:"binary_version_id"`
 				AllowHighPriorityOverride bool     `json:"allow_high_priority_override"`
+				ChunkSizeSeconds          int      `json:"chunk_size_seconds"`
 			} `json:"custom_job"`
 		}
 		if err := json.Unmarshal(rawReq, &req); err != nil {
@@ -536,6 +537,7 @@ func (h *UserJobsHandler) CreateJobFromHashlist(w http.ResponseWriter, r *http.R
 			MaxAgents:                 req.CustomJob.MaxAgents,
 			BinaryVersionID:           req.CustomJob.BinaryVersionID,
 			AllowHighPriorityOverride: req.CustomJob.AllowHighPriorityOverride,
+			ChunkSizeSeconds:          req.CustomJob.ChunkSizeSeconds,
 		}
 
 		// Generate job name for custom job
@@ -600,26 +602,16 @@ func (h *UserJobsHandler) GetJobDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get tasks with pagination
-	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
-	if page < 1 {
-		page = 1
-	}
-	pageSize := 50
-	offset := (page - 1) * pageSize
-
-	tasks, err := h.jobTaskRepo.GetTasksByJobExecutionWithPagination(ctx, jobID, pageSize, offset)
+	// Get ALL tasks for this job execution (no pagination)
+	// Frontend will handle filtering and client-side pagination
+	tasks, err := h.jobTaskRepo.GetAllTasksByJobExecution(ctx, jobID)
 	if err != nil {
 		debug.Error("Failed to get tasks for job %s: %v", jobID, err)
 		tasks = []models.JobTask{}
 	}
 
-	// Get total task count
-	totalTasks, err := h.jobTaskRepo.GetTaskCountByJobExecution(ctx, jobID)
-	if err != nil {
-		debug.Error("Failed to get task count for job %s: %v", jobID, err)
-		totalTasks = 0
-	}
+	// Total task count is simply the length of all tasks
+	totalTasks := len(tasks)
 
 	// Calculate metrics
 	var agentCount int
@@ -730,9 +722,14 @@ func (h *UserJobsHandler) GetJobDetail(w http.ResponseWriter, r *http.Request) {
 		if task.BenchmarkSpeed != nil {
 			taskSummary["benchmark_speed"] = *task.BenchmarkSpeed
 		}
+		if task.AverageSpeed != nil {
+			taskSummary["average_speed"] = *task.AverageSpeed
+		}
 
 		taskSummaries = append(taskSummaries, taskSummary)
 	}
+
+	// No need for separate active tasks - frontend will filter from all tasks
 
 	// Calculate overall progress percentage
 	overallProgressPercent := 0.0
@@ -769,12 +766,7 @@ func (h *UserJobsHandler) GetJobDetail(w http.ResponseWriter, r *http.Request) {
 		"created_at":                job.CreatedAt.Format(time.RFC3339),
 		"updated_at":                job.UpdatedAt.Format(time.RFC3339),
 		"tasks":                     taskSummaries,
-		"task_pagination": map[string]interface{}{
-			"page":        page,
-			"page_size":   pageSize,
-			"total":       totalTasks,
-			"total_pages": (totalTasks + pageSize - 1) / pageSize,
-		},
+		"total_tasks": totalTasks,
 	}
 
 	if job.StartedAt != nil {
