@@ -335,6 +335,103 @@ const JobDetails: React.FC = () => {
     }
   };
 
+  const formatDuration = (seconds: number): string => {
+    if (!isFinite(seconds) || seconds <= 0) {
+      return 'Cannot estimate - no tasks currently running';
+    }
+
+    const years = Math.floor(seconds / (365 * 24 * 3600));
+    const months = Math.floor((seconds % (365 * 24 * 3600)) / (30 * 24 * 3600));
+    const days = Math.floor((seconds % (30 * 24 * 3600)) / (24 * 3600));
+    const hours = Math.floor((seconds % (24 * 3600)) / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+
+    const parts = [];
+
+    if (years > 0) {
+      parts.push(`${years} year${years !== 1 ? 's' : ''}`);
+    }
+    if (months > 0) {
+      parts.push(`${months} month${months !== 1 ? 's' : ''}`);
+    }
+    if (days > 0 && years === 0) { // Only show days if less than a year
+      parts.push(`${days} day${days !== 1 ? 's' : ''}`);
+    }
+    if (hours > 0 && years === 0 && months === 0) { // Only show hours if less than a month
+      parts.push(`${hours} hour${hours !== 1 ? 's' : ''}`);
+    }
+    if (minutes > 0 && years === 0 && months === 0 && days === 0) { // Only show minutes if less than a day
+      parts.push(`${minutes} minute${minutes !== 1 ? 's' : ''}`);
+    }
+
+    // Show at most 2 units for readability
+    const displayParts = parts.slice(0, 2);
+
+    if (displayParts.length === 0) {
+      return 'Less than 1 minute';
+    }
+
+    return `~${displayParts.join(' ')}`;
+  };
+
+  const calculateEstimatedCompletion = (): { timeRemaining: string; estimatedDate: string } => {
+    // Check if job is completed
+    if (jobData?.status === 'completed') {
+      return {
+        timeRemaining: 'Job completed',
+        estimatedDate: 'Job completed'
+      };
+    }
+
+    // Calculate remaining keyspace
+    const effectiveKeyspace = jobData?.effective_keyspace || jobData?.total_keyspace || 0;
+    const processedKeyspace = jobData?.processed_keyspace || 0;
+    const remainingKeyspace = effectiveKeyspace - processedKeyspace;
+
+    // If nothing left to process
+    if (remainingKeyspace <= 0) {
+      return {
+        timeRemaining: 'Job completed',
+        estimatedDate: 'Job completed'
+      };
+    }
+
+    // Calculate total speed from active tasks
+    let totalSpeed = 0;
+    const activeTasks = (jobData?.tasks || []).filter(task =>
+      ['running'].includes(task.status)
+    );
+
+    for (const task of activeTasks) {
+      if (task.benchmark_speed && task.benchmark_speed > 0) {
+        totalSpeed += task.benchmark_speed;
+      }
+    }
+
+    // If no active tasks or zero speed
+    if (totalSpeed === 0) {
+      return {
+        timeRemaining: 'Cannot estimate - no tasks currently running',
+        estimatedDate: 'Cannot estimate - no tasks currently running'
+      };
+    }
+
+    // Calculate seconds remaining
+    const secondsRemaining = remainingKeyspace / totalSpeed;
+
+    // Format duration
+    const timeRemaining = formatDuration(secondsRemaining);
+
+    // Calculate estimated completion date
+    const now = new Date();
+    const estimatedDate = new Date(now.getTime() + secondsRemaining * 1000);
+
+    return {
+      timeRemaining,
+      estimatedDate: estimatedDate.toLocaleString()
+    };
+  };
+
   const getStatusColor = (status: string) => {
     switch (status.toLowerCase()) {
       case 'running': return 'success';
@@ -412,6 +509,9 @@ const JobDetails: React.FC = () => {
   );
 
   const totalKeyspace = jobData.effective_keyspace || jobData.total_keyspace || 0;
+
+  // Calculate estimated completion once for efficiency
+  const estimatedCompletion = jobData ? calculateEstimatedCompletion() : { timeRemaining: '', estimatedDate: '' };
 
   return (
     <Box sx={{ p: 3 }}>
@@ -618,7 +718,7 @@ const JobDetails: React.FC = () => {
                     <Link
                       component="button"
                       variant="body2"
-                      onClick={() => navigate(`/pot/hashlist/${jobData.hashlist_id}`)}
+                      onClick={() => navigate(`/pot/job/${jobData.id}`)}
                       sx={{ fontWeight: 'medium' }}
                     >
                       {jobData.cracked_count}
@@ -635,6 +735,14 @@ const JobDetails: React.FC = () => {
               <TableRow>
                 <TableCell sx={{ fontWeight: 'bold' }}>Started At</TableCell>
                 <TableCell>{formatDate(jobData.started_at)}</TableCell>
+              </TableRow>
+              <TableRow>
+                <TableCell sx={{ fontWeight: 'bold' }}>Time Remaining</TableCell>
+                <TableCell>{estimatedCompletion.timeRemaining}</TableCell>
+              </TableRow>
+              <TableRow>
+                <TableCell sx={{ fontWeight: 'bold' }}>Estimated Completion</TableCell>
+                <TableCell>{estimatedCompletion.estimatedDate}</TableCell>
               </TableRow>
               <TableRow>
                 <TableCell sx={{ fontWeight: 'bold' }}>Completed At</TableCell>
@@ -718,7 +826,7 @@ const JobDetails: React.FC = () => {
                         <Link
                           component="button"
                           variant="body2"
-                          onClick={() => navigate(`/pot/hashlist/${jobData.hashlist_id}`)}
+                          onClick={() => navigate(`/pot/job/${jobData.id}`)}
                           sx={{ fontWeight: 'medium' }}
                         >
                           {task.crack_count}
@@ -844,7 +952,7 @@ const JobDetails: React.FC = () => {
                           <Link
                             component="button"
                             variant="body2"
-                            onClick={() => navigate(`/pot/hashlist/${jobData.hashlist_id}`)}
+                            onClick={() => navigate(`/pot/job/${jobData.id}`)}
                             sx={{ fontWeight: 'medium' }}
                           >
                             {task.crack_count}
