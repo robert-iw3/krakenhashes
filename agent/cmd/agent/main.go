@@ -19,6 +19,8 @@ import (
 	"github.com/ZerkerEOD/krakenhashes/agent/internal/config"
 	"github.com/ZerkerEOD/krakenhashes/agent/internal/jobs"
 	"github.com/ZerkerEOD/krakenhashes/agent/internal/metrics"
+	"github.com/ZerkerEOD/krakenhashes/agent/internal/version"
+	"github.com/ZerkerEOD/krakenhashes/agent/pkg/console"
 	"github.com/ZerkerEOD/krakenhashes/agent/pkg/debug"
 	"github.com/joho/godotenv"
 )
@@ -409,13 +411,19 @@ func main() {
 	debug.Reinitialize()
 	debug.Info("Debug logging initialized - Debug enabled: %v", cfg.debug || os.Getenv("DEBUG") == "true")
 
+	// Show startup message to console
+	agentVersion := version.GetVersion()
+	console.Info("Starting KrakenHashes Agent %s", agentVersion)
+
 	// Get and log current working directory
 	cwd, err := os.Getwd()
 	if err != nil {
 		debug.Error("Failed to get working directory: %v", err)
+		console.Error("Failed to get working directory: %v", err)
 		os.Exit(1)
 	}
 	debug.Info("Current working directory: %s", cwd)
+	console.Status("Working directory: %s", cwd)
 
 	// Log executable path
 	execPath, execErr := os.Executable()
@@ -514,8 +522,10 @@ func main() {
 
 	// Load configuration (pass the pre-parsed cfg)
 	debug.Info("Loading agent configuration...")
+	console.Status("Loading agent configuration...")
 	cfg = loadConfig(cfg)
 	debug.Info("Agent configuration loaded successfully")
+	console.Success("Configuration loaded successfully")
 
 	// Set environment variables from config
 	host, port, err := net.SplitHostPort(cfg.host)
@@ -532,12 +542,15 @@ func main() {
 	debug.Info("URL Configuration:")
 	debug.Info("- Base URL: %s", urlConfig.GetAPIBaseURL())
 	debug.Info("- WebSocket URL: %s", urlConfig.GetWebSocketURL())
+	console.Status("Connecting to backend at %s", cfg.host)
 
 	// Initialize data directories early in the process
 	debug.Info("Initializing data directories...")
+	console.Status("Initializing data directories...")
 	dataDirs, err := config.GetDataDirs()
 	if err != nil {
 		debug.Error("Failed to initialize data directories: %v", err)
+		console.Error("Failed to initialize data directories: %v", err)
 		os.Exit(1)
 	}
 	debug.Info("Data directories initialized successfully at %s", dataDirs.Binaries)
@@ -555,33 +568,41 @@ func main() {
 
 	// Check for existing certificates
 	debug.Info("Checking for existing certificates...")
+	console.Status("Checking for existing credentials...")
 	agentID, cert, err := agent.LoadCredentials()
 	if err != nil {
 		debug.Error("Failed to load credentials: %v", err)
-		
+
 		// Check if we have an API key but missing certificates
 		apiKey, agentIDFromKey, keyErr := auth.LoadAgentKey(config.GetConfigDir())
 		if keyErr == nil && apiKey != "" && agentIDFromKey != "" {
 			debug.Info("Found API key but missing certificates - attempting certificate renewal")
+			console.Warning("Found API key but missing certificates - renewing...")
 			if renewErr := agent.RenewCertificates(urlConfig); renewErr != nil {
 				debug.Error("Failed to renew certificates: %v", renewErr)
+				console.Error("Failed to renew certificates: %v", renewErr)
 				os.Exit(1)
 			}
 			// Reload credentials after renewal
 			agentID, cert, err = agent.LoadCredentials()
 			if err != nil {
 				debug.Error("Failed to load credentials after renewal: %v", err)
+				console.Error("Failed to load credentials after renewal: %v", err)
 				os.Exit(1)
 			}
+			console.Success("Certificates renewed successfully")
 		} else if cfg.claimCode == "" {
 			debug.Error("Claim code required for first-time registration")
+			console.Error("No existing credentials found. Please provide a claim code with --claim flag for first-time registration")
 			os.Exit(1)
 		} else {
 			debug.Info("Starting registration process with claim code")
+			console.Status("Registering agent with claim code...")
 
 			// Attempt registration
 			if err := agent.RegisterAgent(cfg.claimCode, urlConfig); err != nil {
 				debug.Error("Failed to register agent: %v", err)
+				console.Error("Failed to register agent: %v", err)
 				os.Exit(1)
 			}
 
@@ -590,6 +611,7 @@ func main() {
 			agentID, cert, err = agent.LoadCredentials()
 			if err != nil {
 				debug.Error("Failed to load credentials after registration: %v", err)
+				console.Error("Failed to load credentials after registration: %v", err)
 				os.Exit(1)
 			}
 
@@ -597,18 +619,22 @@ func main() {
 			if err := commentOutClaimCode(); err != nil {
 				debug.Warning("Failed to comment out claim code: %v", err)
 			}
+			console.Success("Agent registered successfully (ID: %s)", agentID)
 		}
 	} else if agentID == "" || cert == "" {
 		debug.Error("Loaded credentials are empty - Agent ID: %v, Certificate: %v", agentID != "", cert != "")
 		if cfg.claimCode == "" {
 			debug.Error("Claim code required for first-time registration")
+			console.Error("Invalid credentials found. Please provide a claim code with --claim flag to re-register")
 			os.Exit(1)
 		}
 		debug.Info("Starting registration process with claim code")
+		console.Status("Re-registering agent with claim code...")
 
 		// Attempt registration
 		if err := agent.RegisterAgent(cfg.claimCode, urlConfig); err != nil {
 			debug.Error("Failed to register agent: %v", err)
+			console.Error("Failed to register agent: %v", err)
 			os.Exit(1)
 		}
 
@@ -617,6 +643,7 @@ func main() {
 		agentID, cert, err = agent.LoadCredentials()
 		if err != nil {
 			debug.Error("Failed to load credentials after registration: %v", err)
+			console.Error("Failed to load credentials after registration: %v", err)
 			os.Exit(1)
 		}
 
@@ -624,10 +651,12 @@ func main() {
 		if err := commentOutClaimCode(); err != nil {
 			debug.Warning("Failed to comment out claim code: %v", err)
 		}
+		console.Success("Agent registered successfully (ID: %s)", agentID)
 	} else {
 		debug.Info("Found existing credentials, proceeding with WebSocket connection")
 		debug.Debug("Agent ID: %s", agentID)
 		debug.Debug("Certificate length: %d bytes", len(cert))
+		console.Success("Credentials loaded (Agent ID: %s)", agentID)
 	}
 
 	// Create job manager before establishing connection
@@ -644,10 +673,14 @@ func main() {
 
 	// Create connection with retry
 	debug.Info("Starting WebSocket connection process")
+	console.Status("Establishing WebSocket connection...")
 	var lastError error
 	var conn *agent.Connection
 	for i := 0; i < 3; i++ {
 		debug.Info("Connection attempt %d of 3", i+1)
+		if i > 0 {
+			console.Warning("Connection attempt %d of 3...", i+1)
+		}
 		conn, err = agent.NewConnection(urlConfig)
 		if err != nil {
 			lastError = err
@@ -655,15 +688,15 @@ func main() {
 			time.Sleep(time.Second * time.Duration(i+1))
 			continue
 		}
-		
+
 		// Create job manager with hardware monitor from connection
 		hwMonitor := conn.GetHardwareMonitor()
 		jobManager = jobs.NewJobManager(agentConfig, nil, hwMonitor)
 		debug.Info("Job manager created successfully with hardware monitor")
-		
+
 		// Set the job manager in the connection
 		conn.SetJobManager(jobManager)
-		
+
 		if err := conn.Start(); err != nil {
 			lastError = err
 			debug.Warning("Connection attempt %d failed: %v", i+1, err)
@@ -671,6 +704,7 @@ func main() {
 			continue
 		}
 		debug.Info("Connection attempt %d successful", i+1)
+		console.Success("Connected to backend successfully")
 
 		// Try to detect and send device information at startup
 		// This will only work if hashcat binaries are already present
@@ -706,6 +740,7 @@ func main() {
 
 	if lastError != nil {
 		debug.Error("Failed to establish connection after 3 attempts: %v", lastError)
+		console.Error("Failed to establish connection after 3 attempts: %v", lastError)
 		os.Exit(1)
 	}
 
@@ -715,6 +750,8 @@ func main() {
 	cleanupService.Start(cleanupCtx)
 	debug.Info("File cleanup service started with 3-day retention policy")
 
+	console.Success("Heartbeat active (interval: %ds)", cfg.heartbeatInterval)
+	console.Info("Agent running, press Ctrl+C to exit")
 	debug.Info("Agent running, press Ctrl+C to exit")
 
 	// Wait for interrupt signal
@@ -722,6 +759,7 @@ func main() {
 	signal.Notify(sigChan, os.Interrupt, os.Kill)
 	<-sigChan
 
+	console.Info("Shutting down agent...")
 	debug.Info("Shutting down agent...")
 
 	// Stop the cleanup service
@@ -736,12 +774,14 @@ func main() {
 		hasTask, taskID, jobID, _ = jobManager.GetCurrentTaskStatus()
 		if hasTask {
 			debug.Info("Capturing task status before shutdown - TaskID: %s, JobID: %s", taskID, jobID)
+			console.Status("Stopping active task: %s", taskID)
 		}
 	}
 
 	// Now stop the job manager to cleanly stop all running jobs
 	if jobManager != nil {
 		debug.Info("Stopping job manager and all running tasks...")
+		console.Status("Stopping active tasks...")
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := jobManager.Shutdown(ctx); err != nil {
@@ -758,9 +798,11 @@ func main() {
 		time.Sleep(500 * time.Millisecond) // Give time for the message to be sent
 
 		debug.Info("Stopping connection...")
+		console.Status("Disconnecting from backend...")
 		conn.Stop() // Stop the active connection and maintenance routines
 	}
 	time.Sleep(time.Second) // Give connections time to close gracefully
 
+	console.Success("Agent shutdown complete")
 	debug.Info("Agent shutdown complete")
 }

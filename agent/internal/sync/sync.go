@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/ZerkerEOD/krakenhashes/agent/internal/config"
+	"github.com/ZerkerEOD/krakenhashes/agent/pkg/console"
 	"github.com/ZerkerEOD/krakenhashes/agent/pkg/debug"
 
 	// Go library for archive extraction
@@ -35,6 +36,10 @@ type FileSync struct {
 	maxRetries int           // Maximum number of retries for downloads
 	apiKey     string        // API key for authentication
 	agentID    string        // Agent ID for authentication
+
+	// Progress tracking
+	progressCallback func(fileName string, bytesReceived, totalBytes int64)
+	multiProgress    *console.MultiProgress
 }
 
 // Config holds configuration for file synchronization
@@ -54,6 +59,72 @@ type FileInfo struct {
 	// For rules: "hashcat", "john", "custom"
 	ID        int   `json:"id,omitempty"`        // ID in the backend database
 	Timestamp int64 `json:"timestamp,omitempty"` // Last modified time
+}
+
+// progressReader wraps an io.Reader and reports progress
+type progressReader struct {
+	reader       io.Reader
+	fileName     string
+	bytesRead    int64
+	totalBytes   int64
+	lastReported int64
+	lastTime     time.Time
+	callback     func(fileName string, bytesReceived, totalBytes int64)
+	multiProgress *console.MultiProgress
+}
+
+// newProgressReader creates a new progress reader
+func newProgressReader(r io.Reader, fileName string, totalBytes int64, callback func(string, int64, int64), mp *console.MultiProgress) *progressReader {
+	return &progressReader{
+		reader:        r,
+		fileName:      fileName,
+		totalBytes:    totalBytes,
+		lastTime:      time.Now(),
+		callback:      callback,
+		multiProgress: mp,
+	}
+}
+
+// Read implements io.Reader interface with progress reporting
+func (pr *progressReader) Read(p []byte) (int, error) {
+	n, err := pr.reader.Read(p)
+	pr.bytesRead += int64(n)
+
+	// Calculate speed
+	now := time.Now()
+	elapsed := now.Sub(pr.lastTime).Seconds()
+	var speed int64
+	if elapsed > 0 && pr.bytesRead > pr.lastReported {
+		speed = int64(float64(pr.bytesRead-pr.lastReported) / elapsed)
+	}
+
+	// Report progress every 100KB or when complete
+	if pr.bytesRead-pr.lastReported > 102400 || err == io.EOF {
+		if pr.callback != nil {
+			pr.callback(pr.fileName, pr.bytesRead, pr.totalBytes)
+		}
+
+		// Update multi-progress display
+		if pr.multiProgress != nil {
+			progress := console.DownloadProgress{
+				FileName:      pr.fileName,
+				BytesReceived: pr.bytesRead,
+				TotalBytes:    pr.totalBytes,
+				BytesPerSec:   speed,
+			}
+			pr.multiProgress.Update(pr.fileName, progress)
+		}
+
+		pr.lastReported = pr.bytesRead
+		pr.lastTime = now
+	}
+
+	// Clear progress when complete
+	if err == io.EOF && pr.multiProgress != nil {
+		pr.multiProgress.Remove(pr.fileName)
+	}
+
+	return n, err
 }
 
 // NewFileSync creates a new file synchronization handler
@@ -104,13 +175,14 @@ func NewFileSync(urlConfig *config.URLConfig, dataDirs *config.DataDirs, apiKey,
 	}
 
 	return &FileSync{
-		client:     client,
-		urlConfig:  urlConfig,
-		dataDirs:   dataDirs,
-		sem:        make(chan struct{}, maxDownloads),
-		maxRetries: maxRetries,
-		apiKey:     apiKey,
-		agentID:    agentID,
+		client:        client,
+		urlConfig:     urlConfig,
+		dataDirs:      dataDirs,
+		sem:           make(chan struct{}, maxDownloads),
+		maxRetries:    maxRetries,
+		apiKey:        apiKey,
+		agentID:       agentID,
+		multiProgress: console.NewMultiProgress(),
 	}, nil
 }
 
@@ -239,11 +311,14 @@ func (fs *FileSync) ScanDirectory(fileType string) ([]FileInfo, error) {
 				// Extract the first archive we find (usually there's just one)
 				archivePath := archiveFiles[0]
 				debug.Info("Extracting archive during scan: %s", filepath.Base(archivePath))
+				console.Status("Extracting binary archive %s...", filepath.Base(archivePath))
 
 				if err := fs.ExtractBinary7z(archivePath, binaryIDDir); err != nil {
 					debug.Error("Failed to extract binary archive during scan: %v", err)
+					console.Error("Failed to extract binary archive: %v", err)
 				} else {
 					debug.Info("Successfully extracted archive during scan")
+					console.Success("Binary archive extracted successfully")
 				}
 			}
 		}
@@ -396,11 +471,14 @@ func (fs *FileSync) DownloadFileFromInfo(ctx context.Context, fileInfo *FileInfo
 
 				// Archive exists with correct hash but not extracted, extract it
 				debug.Info("Binary archive %s exists with correct hash but executables not found, extracting...", fileInfo.Name)
+				console.Status("Extracting existing binary archive %s...", fileInfo.Name)
 				if err := fs.ExtractBinary7z(archivePath, binaryDir); err != nil {
 					debug.Error("Failed to extract existing binary archive %s: %v", fileInfo.Name, err)
+					console.Error("Failed to extract binary archive %s: %v", fileInfo.Name, err)
 					return fmt.Errorf("failed to extract existing binary archive: %w", err)
 				}
 				debug.Info("Successfully extracted existing binary archive %s", fileInfo.Name)
+				console.Success("Binary archive %s extracted successfully", fileInfo.Name)
 				return nil
 			}
 		}
@@ -570,16 +648,34 @@ func (fs *FileSync) DownloadFileWithInfoRetry(ctx context.Context, fileInfo *Fil
 			fmt.Errorf("download failed with status %d: %s", resp.StatusCode, body))
 	}
 
+	// Get content length for progress tracking
+	contentLength := resp.ContentLength
+	if contentLength < 0 && fileInfo.Size > 0 {
+		contentLength = fileInfo.Size
+	}
+
+	// Create progress reader to track download progress
+	progressReader := newProgressReader(resp.Body, fileInfo.Name, contentLength, fs.progressCallback, fs.multiProgress)
+
 	// Create hash writer to verify MD5
 	h := md5.New()
 	writer := io.MultiWriter(tempFile, h)
 
-	// Copy response body to file and hash writer
-	size, err := io.Copy(writer, resp.Body)
+	// Copy response body to file and hash writer with progress tracking
+	size, err := io.Copy(writer, progressReader)
 	if err != nil {
 		debug.Error("Failed to write file %s: %v", tempPath, err)
+		// Clear progress on error
+		if fs.multiProgress != nil {
+			fs.multiProgress.Remove(fileInfo.Name)
+		}
 		return fs.retryOrFailInfo(ctx, fileInfo, retryCount,
 			fmt.Errorf("failed to write file: %w", err))
+	}
+
+	// Clear progress when complete
+	if fs.multiProgress != nil {
+		fs.multiProgress.Remove(fileInfo.Name)
 	}
 
 	// Close file before checking hash and moving
@@ -613,11 +709,14 @@ func (fs *FileSync) DownloadFileWithInfoRetry(ctx context.Context, fileInfo *Fil
 	// For binary files, extract if it's a 7z archive
 	if fileInfo.FileType == "binary" && strings.HasSuffix(strings.ToLower(fileInfo.Name), ".7z") {
 		debug.Info("Extracting 7z binary archive: %s", finalPath)
+		console.Status("Extracting binary archive %s...", fileInfo.Name)
 		if err := fs.ExtractBinary7z(finalPath, targetDir); err != nil {
 			debug.Error("Failed to extract binary archive %s: %v", fileInfo.Name, err)
+			console.Error("Failed to extract binary archive %s: %v", fileInfo.Name, err)
 			return fmt.Errorf("failed to extract binary archive: %w", err)
 		}
 		debug.Info("Successfully extracted binary archive %s", fileInfo.Name)
+		console.Success("Binary archive %s extracted successfully", fileInfo.Name)
 	}
 
 	debug.Info("Successfully downloaded %s (%d bytes)", fileInfo.Name, size)

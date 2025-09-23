@@ -13,6 +13,7 @@ import (
 
 	"github.com/ZerkerEOD/krakenhashes/agent/internal/config"
 	filesync "github.com/ZerkerEOD/krakenhashes/agent/internal/sync"
+	"github.com/ZerkerEOD/krakenhashes/agent/pkg/console"
 	"github.com/ZerkerEOD/krakenhashes/agent/pkg/debug"
 )
 
@@ -132,7 +133,7 @@ func (jm *JobManager) ProcessJobAssignment(ctx context.Context, assignmentData [
 		return fmt.Errorf("failed to unmarshal job assignment: %w", err)
 	}
 
-	log.Printf("Processing job assignment: Task ID %s, Job ID %s", assignment.TaskID, assignment.JobExecutionID)
+	// Processing is already shown by "Task received" message
 	debug.Info("Hashlist ID: %d, Hashlist Path: %s", assignment.HashlistID, assignment.HashlistPath)
 	debug.Info("Wordlist paths: %v", assignment.WordlistPaths)
 	debug.Info("Rule paths: %v", assignment.RulePaths)
@@ -161,7 +162,7 @@ func (jm *JobManager) ProcessJobAssignment(ctx context.Context, assignmentData [
 	// Run benchmark if needed
 	err = jm.ensureBenchmark(ctx, &assignment)
 	if err != nil {
-		log.Printf("Warning: Benchmark failed for task %s: %v", assignment.TaskID, err)
+		console.Warning("Benchmark failed for task %s: %v", assignment.TaskID, err)
 		// Continue without benchmark - use estimated values
 	}
 
@@ -186,7 +187,7 @@ func (jm *JobManager) ProcessJobAssignment(ctx context.Context, assignmentData [
 	// Start progress monitoring
 	go jm.monitorJobProgress(ctx, jobExecution)
 
-	log.Printf("Job assignment started: Task ID %s", assignment.TaskID)
+	// Job start is already shown by "Starting hashcat execution" message
 	return nil
 }
 
@@ -347,7 +348,7 @@ func (jm *JobManager) ensureRuleChunks(ctx context.Context, assignment *JobTaskA
 func (jm *JobManager) ensureBenchmark(ctx context.Context, assignment *JobTaskAssignment) error {
 	// We no longer run benchmarks here - the backend will request speed tests
 	// through the WebSocket benchmark request message when needed
-	log.Printf("Skipping local benchmark - speed tests are now requested by backend")
+	debug.Info("Skipping local benchmark - speed tests are now requested by backend")
 	return nil
 }
 
@@ -369,17 +370,45 @@ func (jm *JobManager) monitorJobProgress(ctx context.Context, jobExecution *JobE
 		case progress, ok := <-jobExecution.Process.ProgressChannel:
 			if !ok {
 				// Channel closed, job finished
-				log.Printf("Job progress monitoring ended for task %s", jobExecution.Assignment.TaskID)
+				debug.Info("Job progress monitoring ended for task %s", jobExecution.Assignment.TaskID)
 				return
 			}
 
 			if progress != nil {
 				jobExecution.LastProgress = progress
-				
+
+				// Show console progress for running tasks
+				if progress.Status == "" || progress.Status == "running" {
+					// Calculate total keyspace
+					totalKeyspace := jobExecution.Assignment.KeyspaceEnd - jobExecution.Assignment.KeyspaceStart
+
+					// Format and display task progress
+					taskProgress := console.TaskProgress{
+						TaskID:            progress.TaskID,
+						ProgressPercent:   progress.ProgressPercent,
+						HashRate:          progress.HashRate,
+						TimeRemaining:     0,
+						Status:            "running",
+						KeyspaceProcessed: progress.KeyspaceProcessed,
+						TotalKeyspace:     totalKeyspace,
+					}
+					if progress.TimeRemaining != nil {
+						taskProgress.TimeRemaining = *progress.TimeRemaining
+					}
+					console.Progress(console.FormatTaskProgress(taskProgress))
+				} else if progress.Status == "completed" {
+					console.Success("Task %s completed successfully", progress.TaskID)
+					if progress.CrackedCount > 0 {
+						console.Success("Found %d cracked hashes", progress.CrackedCount)
+					}
+				} else if progress.Status == "failed" {
+					console.Error("Task %s failed: %s", progress.TaskID, progress.ErrorMessage)
+				}
+
 				// Check if this is a failure due to "already running" error
 				if progress.Status == "failed" && jobExecution.Process.AlreadyRunningError && retryCount < MaxHashcatRetries {
 					retryCount++
-					log.Printf("Task %s failed with 'already running' error, attempting retry %d/%d", 
+					debug.Info("Task %s failed with 'already running' error, attempting retry %d/%d",
 						progress.TaskID, retryCount, MaxHashcatRetries)
 					
 					// Remove from active jobs
@@ -398,7 +427,7 @@ func (jm *JobManager) monitorJobProgress(ctx context.Context, jobExecution *JobE
 					// Attempt to restart the job
 					newProcess, err := jm.executor.ExecuteTask(ctx, jobExecution.Assignment)
 					if err != nil {
-						log.Printf("Failed to restart task %s on retry %d: %v", 
+						console.Error("Failed to restart task %s on retry %d: %v",
 							jobExecution.Assignment.TaskID, retryCount, err)
 						// Send final error to backend
 						if jm.progressCallback != nil {
@@ -429,15 +458,9 @@ func (jm *JobManager) monitorJobProgress(ctx context.Context, jobExecution *JobE
 					jm.progressCallback(progress)
 				}
 
-				log.Printf("Progress update for task %s: %d/%d keyspace, %d H/s", 
-					progress.TaskID, 
-					progress.KeyspaceProcessed, 
-					jobExecution.Assignment.KeyspaceEnd - jobExecution.Assignment.KeyspaceStart,
-					progress.HashRate)
-
-				// Log any cracked hashes
+				// Log any cracked hashes with console output
 				if progress.CrackedCount > 0 {
-					log.Printf("Task %s cracked %d hashes in this update", progress.TaskID, progress.CrackedCount)
+					console.Info("Found %d cracked hashes", progress.CrackedCount)
 				}
 				
 				// If this was a final status (completed or failed), exit monitoring
@@ -459,7 +482,7 @@ func (jm *JobManager) StopJob(taskID string) error {
 		return fmt.Errorf("job %s not found", taskID)
 	}
 
-	log.Printf("Stopping job: Task ID %s", taskID)
+	// Stopping message is already shown by main.go shutdown
 	
 	err := jm.executor.StopTask(taskID)
 	if err != nil {
@@ -469,7 +492,7 @@ func (jm *JobManager) StopJob(taskID string) error {
 	// Update job status
 	jobExecution.Status = "stopped"
 	
-	log.Printf("Job stopped: Task ID %s", taskID)
+	debug.Info("Job stopped: Task ID %s", taskID)
 	return nil
 }
 
@@ -502,12 +525,12 @@ func (jm *JobManager) GetActiveJobs() map[string]*JobExecution {
 
 // ForceCleanup forces cleanup of all active jobs and hashcat processes
 func (jm *JobManager) ForceCleanup() error {
-	log.Printf("Forcing cleanup of all active jobs")
+	console.Status("Forcing cleanup of all active jobs")
 	
 	// Stop all active jobs
 	jm.mutex.Lock()
 	for taskID := range jm.activeJobs {
-		log.Printf("Stopping active job: %s", taskID)
+		debug.Info("Stopping active job: %s", taskID)
 	}
 	// Clear the active jobs map
 	jm.activeJobs = make(map[string]*JobExecution)
@@ -545,7 +568,7 @@ func (jm *JobManager) GetHashcatExecutor() *HashcatExecutor {
 
 // Shutdown gracefully shuts down the job manager
 func (jm *JobManager) Shutdown(ctx context.Context) error {
-	log.Println("Shutting down job manager...")
+	// Shutdown message is already shown by main.go
 
 	jm.mutex.RLock()
 	activeTaskIDs := make([]string, 0, len(jm.activeJobs))
@@ -558,7 +581,7 @@ func (jm *JobManager) Shutdown(ctx context.Context) error {
 	for _, taskID := range activeTaskIDs {
 		err := jm.StopJob(taskID)
 		if err != nil {
-			log.Printf("Error stopping job %s during shutdown: %v", taskID, err)
+			debug.Error("Error stopping job %s during shutdown: %v", taskID, err)
 		}
 	}
 
@@ -580,11 +603,11 @@ func (jm *JobManager) Shutdown(ctx context.Context) error {
 			jm.mutex.RUnlock()
 
 			if activeCount == 0 {
-				log.Println("Job manager shutdown completed")
+				// Shutdown completion is shown by main.go
 				return nil
 			}
 
-			log.Printf("Waiting for %d jobs to stop...", activeCount)
+			debug.Info("Waiting for %d jobs to stop...", activeCount)
 		}
 	}
 }

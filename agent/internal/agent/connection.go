@@ -26,6 +26,7 @@ import (
 	"github.com/ZerkerEOD/krakenhashes/agent/internal/jobs"
 	filesync "github.com/ZerkerEOD/krakenhashes/agent/internal/sync"
 	"github.com/ZerkerEOD/krakenhashes/agent/internal/version"
+	"github.com/ZerkerEOD/krakenhashes/agent/pkg/console"
 	"github.com/ZerkerEOD/krakenhashes/agent/pkg/debug"
 	"github.com/gorilla/websocket"
 )
@@ -804,6 +805,7 @@ func (c *Connection) connect() error {
 
 	c.ws = ws
 	debug.Info("Successfully established WebSocket connection")
+	console.Success("WebSocket connection established")
 	c.isConnected.Store(true)
 	
 	// Device detection is done at agent startup, not after connection
@@ -830,6 +832,11 @@ func (c *Connection) maintainConnection() {
 			if !c.isConnected.Load() {
 				debug.Info("Connection state: disconnected")
 				debug.Info("Reconnection attempt %d - Waiting %v before retry", attempt, backoff)
+				if attempt == 1 {
+					console.Warning("Connection lost, reconnecting...")
+				} else if attempt % 5 == 0 {
+					console.Warning("Still trying to reconnect (attempt %d)...", attempt)
+				}
 				time.Sleep(backoff)
 
 				if err := c.connect(); err != nil {
@@ -843,6 +850,7 @@ func (c *Connection) maintainConnection() {
 					attempt++
 				} else {
 					debug.Info("Reconnection successful after %d attempts - Resetting backoff", attempt)
+					console.Success("Reconnected to backend successfully")
 					backoff = 1 * time.Second
 					attempt = 1
 					
@@ -992,6 +1000,11 @@ func (c *Connection) readPump() {
 				continue
 			}
 
+			// Show console message about file sync
+			if len(commandPayload.Files) > 0 {
+				console.Status("Starting file synchronization (%d files)...", len(commandPayload.Files))
+			}
+
 			// Initialize file sync if not already done
 			if c.fileSync == nil {
 				// Get credentials from the same place we use for WebSocket connection
@@ -1078,6 +1091,16 @@ func (c *Connection) readPump() {
 		case WSTypeTaskAssignment:
 			// Server sent a job task assignment
 			debug.Info("Received task assignment")
+
+			// Try to extract task ID for console message
+			var taskInfo struct {
+				TaskID string `json:"task_id"`
+			}
+			if err := json.Unmarshal(msg.Payload, &taskInfo); err == nil && taskInfo.TaskID != "" {
+				console.Status("Task received: %s", taskInfo.TaskID)
+			} else {
+				console.Status("Task received")
+			}
 
 			if c.jobManager == nil {
 				debug.Error("Job manager not initialized, cannot process task assignment")
@@ -2274,6 +2297,7 @@ func (c *Connection) sendSyncCompleted() {
 	select {
 	case c.outbound <- &message:
 		debug.Info("Sent sync completed message with %d files synced", filesDownloaded)
+		console.Success("File synchronization complete (%d files downloaded)", filesDownloaded)
 	default:
 		debug.Warning("Failed to send sync completed message: outbound channel full")
 	}
@@ -2357,13 +2381,16 @@ func (c *Connection) checkAndExtractBinaryArchives() error {
 			for _, archivePath := range archiveFiles {
 				archiveFilename := filepath.Base(archivePath)
 				debug.Info("Extracting binary archive %s during pre-sync check", archiveFilename)
+				console.Status("Extracting binary archive %s...", archiveFilename)
 
 				if err := c.fileSync.ExtractBinary7z(archivePath, binaryIDDir); err != nil {
 					debug.Error("Failed to extract binary archive %s: %v", archiveFilename, err)
+					console.Error("Failed to extract binary archive %s: %v", archiveFilename, err)
 					continue
 				}
 
 				debug.Info("Successfully extracted binary archive %s during pre-sync check", archiveFilename)
+				console.Success("Binary archive %s extracted successfully", archiveFilename)
 			}
 		}
 	}

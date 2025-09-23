@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ZerkerEOD/krakenhashes/agent/pkg/console"
 	"github.com/ZerkerEOD/krakenhashes/agent/pkg/debug"
 )
 
@@ -173,21 +174,26 @@ func (dm *DownloadManager) downloadWorker(ctx context.Context, key string, task 
 	// Update status to downloading
 	dm.updateTaskStatus(key, DownloadStatusDownloading, nil)
 
-	// Send progress update
-	dm.sendProgress(task.FileInfo.Name, 0, 0, 0, DownloadStatusDownloading, nil)
+	// Send initial progress update
+	dm.sendProgress(task.FileInfo.Name, 0, task.FileInfo.Size, 0, DownloadStatusDownloading, nil)
+
+	// Show console status for this download
+	console.Status("Downloading %s (%s)...", task.FileInfo.Name, console.FormatBytes(task.FileInfo.Size))
 
 	// Perform the download using existing FileSync logic
 	err := dm.fileSync.DownloadFileWithInfoRetry(ctx, &task.FileInfo, 0)
 
 	if err != nil {
 		dm.updateTaskStatus(key, DownloadStatusFailed, err)
-		dm.sendProgress(task.FileInfo.Name, 0, 0, 0, DownloadStatusFailed, err)
+		dm.sendProgress(task.FileInfo.Name, 0, task.FileInfo.Size, 0, DownloadStatusFailed, err)
 		debug.Error("Failed to download %s: %v", key, err)
+		console.Error("Failed to download %s: %v", task.FileInfo.Name, err)
 	} else {
 		task.CompletedAt = time.Now()
 		dm.updateTaskStatus(key, DownloadStatusCompleted, nil)
-		dm.sendProgress(task.FileInfo.Name, 100, 100, 100, DownloadStatusCompleted, nil)
+		dm.sendProgress(task.FileInfo.Name, task.FileInfo.Size, task.FileInfo.Size, 100, DownloadStatusCompleted, nil)
 		debug.Info("Successfully downloaded %s", key)
+		// Success message will be shown by file sync completion
 	}
 }
 

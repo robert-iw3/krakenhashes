@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 	
+	"github.com/ZerkerEOD/krakenhashes/agent/pkg/console"
 	"github.com/ZerkerEOD/krakenhashes/agent/pkg/debug"
 )
 
@@ -339,6 +340,10 @@ func (e *HashcatExecutor) executeTaskInternal(ctx context.Context, assignment *J
 
 	// Store process
 	e.activeProcesses[assignment.TaskID] = process
+
+	// Show console message about starting execution
+	console.Status("Starting hashcat execution for task %s", assignment.TaskID)
+	debug.Info("Starting hashcat execution for task %s", assignment.TaskID)
 
 	// Start the process in a goroutine
 	go e.runHashcatProcess(processCtx, process, stdoutPipe, stderrPipe)

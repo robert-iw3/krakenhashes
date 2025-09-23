@@ -22,6 +22,7 @@ import (
 	"github.com/ZerkerEOD/krakenhashes/agent/internal/auth"
 	"github.com/ZerkerEOD/krakenhashes/agent/internal/config"
 	"github.com/ZerkerEOD/krakenhashes/agent/internal/version"
+	"github.com/ZerkerEOD/krakenhashes/agent/pkg/console"
 	"github.com/ZerkerEOD/krakenhashes/agent/pkg/debug"
 )
 
@@ -288,10 +289,13 @@ func downloadCACertificate(urlConfig *config.URLConfig) error {
 func sendRegistrationRequest(urlConfig *config.URLConfig, req *RegistrationRequest) (*http.Response, error) {
 	// Download CA certificate first
 	debug.Info("Downloading CA certificate before registration")
+	console.Status("Downloading CA certificate...")
 	if err := downloadCACertificate(urlConfig); err != nil {
 		debug.Error("Failed to download CA certificate: %v", err)
+		console.Error("Failed to download CA certificate: %v", err)
 		return nil, fmt.Errorf("failed to download CA certificate: %w", err)
 	}
+	console.Success("CA certificate downloaded")
 
 	// Now load the downloaded CA certificate
 	debug.Info("Loading CA certificate for registration request")
@@ -408,22 +412,28 @@ func RegisterAgent(claimCode string, urlConfig *config.URLConfig) error {
 
 	// Store credentials and certificates
 	debug.Info("Storing agent credentials and certificates")
+	console.Status("Storing credentials...")
 	if err := storeCredentials(regResp.AgentID, regResp.APIKey, []byte(regResp.Certificate), []byte(regResp.PrivateKey), []byte(regResp.CACertificate)); err != nil {
 		debug.Error("Failed to store agent credentials: %v", err)
+		console.Error("Failed to store credentials: %v", err)
 		return fmt.Errorf("failed to store credentials: %v", err)
 	}
+	console.Success("Credentials stored successfully")
 
 	// Initialize data directories (just create them, don't populate yet)
 	debug.Info("Initializing data directories")
+	console.Status("Initializing data directories...")
 	_, err = config.GetDataDirs()
 	if err != nil {
 		debug.Error("Failed to initialize data directories: %v", err)
+		console.Error("Failed to initialize data directories: %v", err)
 		return fmt.Errorf("failed to initialize data directories: %w", err)
 	}
 
 	// File synchronization will be handled by the WebSocket connection
 	// The backend will request the agent's file list and send commands to download missing files
 	debug.Info("File synchronization will be handled by the WebSocket connection")
+	console.Info("File synchronization will occur after connection is established")
 
 	debug.Info("Agent registration completed successfully")
 	return nil
