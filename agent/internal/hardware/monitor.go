@@ -52,6 +52,11 @@ func (m *Monitor) DetectDevices() (*types.DeviceDetectionResult, error) {
 	return result, nil
 }
 
+// HasBinary checks if any hashcat binary is available
+func (m *Monitor) HasBinary() bool {
+	return m.hashcatDetector.HasHashcatBinary()
+}
+
 // GetDevices returns the currently detected devices
 func (m *Monitor) GetDevices() []types.Device {
 	m.mu.RLock()

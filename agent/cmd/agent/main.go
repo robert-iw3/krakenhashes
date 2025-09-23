@@ -671,16 +671,11 @@ func main() {
 			continue
 		}
 		debug.Info("Connection attempt %d successful", i+1)
-		
-		// Detect and send device information at startup
-		// This replaces the legacy hardware info and prevents running hashcat -I during jobs
-		debug.Info("Detecting compute devices at startup...")
-		if err := conn.DetectAndSendDevices(); err != nil {
-			debug.Error("Failed to detect devices at startup: %v", err)
-			// Non-fatal error - continue with agent startup
-		} else {
-			debug.Info("Successfully detected and sent device information to server")
-		}
+
+		// Try to detect and send device information at startup
+		// This will only work if hashcat binaries are already present
+		debug.Info("Checking for device detection at startup...")
+		conn.TryDetectDevicesIfNeeded()
 		
 		// Now set up the progress callback with the connection
 		progressCallback = func(progress *jobs.JobProgress) {

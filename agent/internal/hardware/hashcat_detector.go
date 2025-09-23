@@ -131,6 +131,12 @@ func (d *HashcatDetector) findLatestHashcatBinary() (string, error) {
 	return binaryPath, nil
 }
 
+// HasHashcatBinary checks if any hashcat binary is available
+func (d *HashcatDetector) HasHashcatBinary() bool {
+	_, err := d.findLatestHashcatBinary()
+	return err == nil
+}
+
 // ParseHashcatOutput parses the output of hashcat -I command (exported for testing)
 func (d *HashcatDetector) ParseHashcatOutput(output string) ([]types.Device, error) {
 	var devices []types.Device

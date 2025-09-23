@@ -375,6 +375,10 @@ type Connection struct {
 	
 	// Agent ID for buffer identification
 	agentID int
+
+	// Device detection tracking
+	devicesDetected bool
+	deviceMutex     sync.Mutex
 }
 
 // JobManager interface defines the methods required for job management
@@ -1060,16 +1064,14 @@ func (c *Connection) readPump() {
 			}
 
 			debug.Info("Queued %d files for download", len(commandPayload.Files))
-			
+
 			// If binaries were downloaded, trigger device detection after downloads complete
 			if hasBinaries && c.downloadManager != nil {
 				go func() {
 					// Wait for download manager to complete all downloads
 					c.downloadManager.Wait()
-					debug.Info("Binary downloads complete, triggering device detection")
-					if err := c.DetectAndSendDevices(); err != nil {
-						debug.Error("Failed to detect devices after binary download: %v", err)
-					}
+					debug.Info("Binary downloads complete, checking if device detection is needed")
+					c.TryDetectDevicesIfNeeded()
 				}()
 			}
 
@@ -2420,8 +2422,38 @@ func (c *Connection) DetectAndSendDevices() error {
 	}
 	
 	debug.Info("Successfully sent device detection result with %d devices", len(result.Devices))
-	
+
+	// Mark devices as detected
+	c.deviceMutex.Lock()
+	c.devicesDetected = true
+	c.deviceMutex.Unlock()
+
 	return nil
+}
+
+// TryDetectDevicesIfNeeded attempts to detect devices if they haven't been detected yet and a binary is available
+func (c *Connection) TryDetectDevicesIfNeeded() {
+	// Check if we've already detected devices
+	c.deviceMutex.Lock()
+	alreadyDetected := c.devicesDetected
+	c.deviceMutex.Unlock()
+
+	if alreadyDetected {
+		debug.Info("Devices already detected, skipping detection")
+		return
+	}
+
+	// Check if hashcat binary is available
+	if !c.hwMonitor.HasBinary() {
+		debug.Info("No hashcat binary available yet, skipping device detection")
+		return
+	}
+
+	// Attempt device detection
+	debug.Info("Hashcat binary available, attempting device detection")
+	if err := c.DetectAndSendDevices(); err != nil {
+		debug.Error("Failed to detect devices: %v", err)
+	}
 }
 
 // shouldBufferMessage determines if a message should be buffered
