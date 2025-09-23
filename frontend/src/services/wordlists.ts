@@ -76,5 +76,9 @@ export const toggleWordlistStatus = (id: string, isEnabled: boolean) =>
   api.put<Wordlist>(`/api/wordlists/${id}/status`, { is_enabled: isEnabled });
 
 // Download a wordlist
-export const downloadWordlist = (id: string) => 
-  api.get(`/api/wordlists/${id}/download`, { responseType: 'blob' }); 
+export const downloadWordlist = (id: string) =>
+  api.get(`/api/wordlists/${id}/download`, { responseType: 'blob' });
+
+// Refresh wordlist metadata (MD5, word count, file size)
+export const refreshWordlist = (id: string) =>
+  api.post(`/api/wordlists/${id}/refresh`, {}, { withCredentials: true }); 

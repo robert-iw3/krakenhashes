@@ -234,6 +234,23 @@ export default function WordlistsManagement() {
     setOpenEditDialog(true);
   };
 
+  // Handle refresh wordlist
+  const handleRefreshWordlist = async (id: string) => {
+    try {
+      setLoading(true);
+      const response = await wordlistService.refreshWordlist(id);
+      enqueueSnackbar('Wordlist metadata refreshed successfully', { variant: 'success' });
+      // Refresh the wordlist data
+      fetchWordlists();
+    } catch (err: any) {
+      console.error('Error refreshing wordlist:', err);
+      const errorMessage = err.response?.data?.error || 'Failed to refresh wordlist metadata';
+      enqueueSnackbar(errorMessage, { variant: 'error' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Handle save edit
   const handleSaveEdit = async () => {
     if (!currentWordlist) return;
@@ -511,6 +528,16 @@ export default function WordlistsManagement() {
                         {new Date(wordlist.updated_at).toLocaleDateString()}
                       </TableCell>
                       <TableCell align="right">
+                        {wordlist.is_potfile && (
+                          <Tooltip title="Refresh Metadata">
+                            <IconButton
+                              onClick={() => handleRefreshWordlist(wordlist.id)}
+                              color="primary"
+                            >
+                              <RefreshIcon />
+                            </IconButton>
+                          </Tooltip>
+                        )}
                         <Tooltip title="Download">
                           <IconButton
                             onClick={() => handleDownload(wordlist.id, wordlist.name)}

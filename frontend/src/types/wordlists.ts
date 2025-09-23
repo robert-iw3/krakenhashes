@@ -34,6 +34,7 @@ export interface Wordlist {
   last_verified_at?: string;
   tags?: string[];
   is_enabled: boolean;
+  is_potfile?: boolean;
 }
 
 export interface WordlistUploadResponse {

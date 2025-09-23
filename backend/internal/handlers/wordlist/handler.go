@@ -25,13 +25,20 @@ import (
 
 // Handler handles wordlist HTTP requests
 type Handler struct {
-	manager wordlist.Manager
+	manager        wordlist.Manager
+	potfileService PotfileService
+}
+
+// PotfileService interface for potfile operations
+type PotfileService interface {
+	UpdatePotfileMetadata(ctx context.Context) error
 }
 
 // NewHandler creates a new wordlist handler
-func NewHandler(manager wordlist.Manager) *Handler {
+func NewHandler(manager wordlist.Manager, potfileService PotfileService) *Handler {
 	return &Handler{
-		manager: manager,
+		manager:        manager,
+		potfileService: potfileService,
 	}
 }
 
@@ -709,6 +716,107 @@ func (h *Handler) HandleDownloadWordlist(w http.ResponseWriter, r *http.Request)
 	
 	// Serve file
 	http.ServeFile(w, r, filePath)
-	
+
 	debug.Info("File served successfully")
+}
+
+// HandleRefreshWordlist handles requests to refresh wordlist metadata (MD5, word count, file size)
+func (h *Handler) HandleRefreshWordlist(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	// Get wordlist ID from URL
+	vars := mux.Vars(r)
+	id, err := strconv.Atoi(vars["id"])
+	if err != nil {
+		httputil.RespondWithError(w, http.StatusBadRequest, "Invalid wordlist ID")
+		return
+	}
+
+	debug.Info("Refreshing wordlist ID: %d", id)
+
+	// Get wordlist to check if it's a potfile
+	wordlist, err := h.manager.GetWordlist(ctx, id)
+	if err != nil {
+		debug.Error("Failed to get wordlist %d: %v", id, err)
+		httputil.RespondWithError(w, http.StatusInternalServerError, "Failed to get wordlist")
+		return
+	}
+
+	if wordlist == nil {
+		httputil.RespondWithError(w, http.StatusNotFound, "Wordlist not found")
+		return
+	}
+
+	// Check if this is the potfile
+	if wordlist.IsPotfile {
+		debug.Info("Wordlist %d is the potfile, using PotfileService to update metadata", id)
+
+		// Use the potfile service to update metadata
+		if h.potfileService != nil {
+			if err := h.potfileService.UpdatePotfileMetadata(ctx); err != nil {
+				debug.Error("Failed to update potfile metadata: %v", err)
+				httputil.RespondWithError(w, http.StatusInternalServerError, "Failed to refresh potfile metadata")
+				return
+			}
+			debug.Info("Successfully refreshed potfile metadata using PotfileService")
+		} else {
+			debug.Error("PotfileService is not available")
+			httputil.RespondWithError(w, http.StatusInternalServerError, "Potfile service not available")
+			return
+		}
+	} else {
+		// For regular wordlists, recalculate metadata directly
+		debug.Info("Refreshing metadata for regular wordlist %d", id)
+
+		// Get file path
+		filePath := h.manager.GetWordlistPath(wordlist.FileName, wordlist.WordlistType)
+
+		// Check if file exists
+		fileInfo, err := os.Stat(filePath)
+		if err != nil {
+			debug.Error("Failed to stat wordlist file at %s: %v", filePath, err)
+			httputil.RespondWithError(w, http.StatusNotFound, "Wordlist file not found")
+			return
+		}
+
+		// Calculate MD5 hash
+		md5Hash, err := h.manager.CalculateFileMD5(filePath)
+		if err != nil {
+			debug.Error("Failed to calculate MD5 for wordlist %d: %v", id, err)
+			httputil.RespondWithError(w, http.StatusInternalServerError, "Failed to calculate MD5 hash")
+			return
+		}
+
+		// Count words in file
+		wordCount, err := h.manager.CountWordsInFile(filePath)
+		if err != nil {
+			debug.Error("Failed to count words for wordlist %d: %v", id, err)
+			httputil.RespondWithError(w, http.StatusInternalServerError, "Failed to count words")
+			return
+		}
+
+		// Update wordlist metadata in database
+		if err := h.manager.UpdateWordlistComplete(ctx, id, md5Hash, fileInfo.Size(), wordCount); err != nil {
+			debug.Error("Failed to update wordlist metadata for ID %d: %v", id, err)
+			httputil.RespondWithError(w, http.StatusInternalServerError, "Failed to update wordlist metadata")
+			return
+		}
+
+		debug.Info("Successfully refreshed metadata for wordlist %d - MD5: %s, Size: %d, Words: %d",
+			id, md5Hash, fileInfo.Size(), wordCount)
+	}
+
+	// Get updated wordlist
+	updatedWordlist, err := h.manager.GetWordlist(ctx, id)
+	if err != nil {
+		debug.Error("Failed to get updated wordlist %d: %v", id, err)
+		httputil.RespondWithError(w, http.StatusInternalServerError, "Failed to get updated wordlist")
+		return
+	}
+
+	httputil.RespondWithJSON(w, http.StatusOK, map[string]interface{}{
+		"success":  true,
+		"message":  "Wordlist metadata refreshed successfully",
+		"wordlist": updatedWordlist,
+	})
 }

@@ -21,7 +21,7 @@ import (
 )
 
 // SetupWordlistRoutes configures all wordlist management related routes
-func SetupWordlistRoutes(r *mux.Router, sqlDB *sql.DB, cfg *config.Config, agentService *services.AgentService, presetJobService services.AdminPresetJobService) {
+func SetupWordlistRoutes(r *mux.Router, sqlDB *sql.DB, cfg *config.Config, agentService *services.AgentService, presetJobService services.AdminPresetJobService, potfileService *services.PotfileService) {
 	debug.Info("Setting up wordlist management routes")
 
 	// Create DB wrapper
@@ -42,7 +42,7 @@ func SetupWordlistRoutes(r *mux.Router, sqlDB *sql.DB, cfg *config.Config, agent
 	)
 
 	// Create handler
-	handler := wordlisthandler.NewHandler(manager)
+	handler := wordlisthandler.NewHandler(manager, potfileService)
 
 	// User routes (accessible to all authenticated users)
 	userRouter := r.PathPrefix("/wordlists").Subrouter()
@@ -155,6 +155,9 @@ func SetupWordlistRoutes(r *mux.Router, sqlDB *sql.DB, cfg *config.Config, agent
 
 	// Register verify endpoint with the custom handler
 	userRouter.Handle("/{id:[0-9]+}/verify", verifyHandler).Methods(http.MethodPost, http.MethodOptions)
+
+	// Add refresh endpoint for updating wordlist metadata
+	userRouter.HandleFunc("/{id:[0-9]+}/refresh", handler.HandleRefreshWordlist).Methods(http.MethodPost)
 
 	userRouter.HandleFunc("/{id:[0-9]+}/tags", handler.HandleAddWordlistTag).Methods(http.MethodPost)
 	userRouter.HandleFunc("/{id:[0-9]+}/tags/{tag}", handler.HandleDeleteWordlistTag).Methods(http.MethodDelete)

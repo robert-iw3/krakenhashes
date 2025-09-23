@@ -230,7 +230,7 @@ func SetupRoutes(r *mux.Router, sqlDB *sql.DB, tlsProvider tls.Provider, agentSe
 	SetupBinaryRoutes(jwtRouter, sqlDB, appConfig, agentService)
 
 	// Setup wordlist and rule routes
-	SetupWordlistRoutes(jwtRouter, sqlDB, appConfig, agentService, presetJobService)
+	SetupWordlistRoutes(jwtRouter, sqlDB, appConfig, agentService, presetJobService, potfileService)
 	SetupRuleRoutes(jwtRouter, sqlDB, appConfig, agentService, presetJobService)
 
 	// Setup file download routes for agents

@@ -193,7 +193,7 @@ func (s *PotfileService) InitializePotfile(ctx context.Context) error {
 	}
 
 	// Ensure MD5 hash is up to date after initialization
-	if err := s.updatePotfileMetadata(ctx); err != nil {
+	if err := s.UpdatePotfileMetadata(ctx); err != nil {
 		debug.Warning("Failed to update potfile metadata after initialization: %v", err)
 		// Don't fail initialization if metadata update fails
 	}
@@ -270,7 +270,7 @@ func (s *PotfileService) ProcessStagedEntries(ctx context.Context) {
 		debug.Info("Added %d new unique entries to pot-file", len(newEntries))
 		
 		// Update MD5 hash and file size in the database
-		if err := s.updatePotfileMetadata(ctx); err != nil {
+		if err := s.UpdatePotfileMetadata(ctx); err != nil {
 			debug.Error("Failed to update potfile metadata: %v", err)
 			// Don't return - this is not critical for the operation
 		}
@@ -792,8 +792,8 @@ func (s *PotfileService) monitorForBinaryAndCreatePresetJob(ctx context.Context,
 	}()
 }
 
-// updatePotfileMetadata updates the MD5 hash and file size of the potfile in the database
-func (s *PotfileService) updatePotfileMetadata(ctx context.Context) error {
+// UpdatePotfileMetadata updates the MD5 hash and file size of the potfile in the database
+func (s *PotfileService) UpdatePotfileMetadata(ctx context.Context) error {
 	// Calculate the current MD5 hash of the potfile
 	md5Hash, err := s.calculatePotfileMD5()
 	if err != nil {
