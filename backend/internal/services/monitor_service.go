@@ -23,6 +23,7 @@ func NewMonitorService(
 	ruleManager rule.Manager,
 	cfg *config.Config,
 	systemUserID uuid.UUID,
+	jobUpdateHandler monitor.JobUpdateHandler,
 ) *MonitorService {
 	// Create directory monitor
 	directoryMonitor := monitor.NewDirectoryMonitor(
@@ -30,8 +31,9 @@ func NewMonitorService(
 		ruleManager,
 		filepath.Join(cfg.DataDir, "wordlists"),
 		filepath.Join(cfg.DataDir, "rules"),
-		time.Minute*5, // Check every 5 minutes
+		time.Second*30, // Check every 30 seconds
 		systemUserID,  // This will be the system user (uuid.Nil)
+		jobUpdateHandler,
 	)
 
 	return &MonitorService{

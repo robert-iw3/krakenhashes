@@ -283,12 +283,20 @@ func main() {
 	systemUserID := uuid.Nil
 	debug.Info("Using system user ID for monitor service: %s", systemUserID.String())
 
+	// Initialize job update service
+	jobUpdateService := services.NewJobUpdateService(
+		presetJobRepo,
+		jobExecutionRepo,
+		jobTaskRepo,
+	)
+
 	// Initialize monitor service
 	monitorService := services.NewMonitorService(
 		wordlistManager,
 		ruleManager,
 		appConfig,
 		systemUserID,
+		jobUpdateService,
 	)
 
 	// Initialize and start the Retention Purge Scheduler
@@ -327,6 +335,7 @@ func main() {
 		presetJobRepo,
 		wordlistStore,
 		hashRepo,
+		jobUpdateService,
 	)
 	
 	// Start pot-file service

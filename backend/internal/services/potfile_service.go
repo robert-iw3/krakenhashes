@@ -37,6 +37,7 @@ type PotfileService struct {
 	presetJobRepo      repository.PresetJobRepository
 	wordlistStore      *wordlist.Store
 	hashRepo           *repository.HashRepository
+	jobUpdateService   *JobUpdateService
 	processingMutex    sync.Mutex
 	stopChan           chan struct{}
 	wg                 sync.WaitGroup
@@ -52,9 +53,10 @@ func NewPotfileService(
 	presetJobRepo repository.PresetJobRepository,
 	wordlistStore *wordlist.Store,
 	hashRepo *repository.HashRepository,
+	jobUpdateService *JobUpdateService,
 ) *PotfileService {
 	potfilePath := filepath.Join(dataDir, "wordlists", "custom", "potfile.txt")
-	
+
 	return &PotfileService{
 		db:                 database,
 		dataDir:            dataDir,
@@ -63,6 +65,7 @@ func NewPotfileService(
 		presetJobRepo:      presetJobRepo,
 		wordlistStore:      wordlistStore,
 		hashRepo:           hashRepo,
+		jobUpdateService:   jobUpdateService,
 		stopChan:           make(chan struct{}),
 		batchInterval:      60 * time.Second, // Default, will be updated from settings
 		maxBatchSize:       1000,              // Default, will be updated from settings
@@ -263,16 +266,39 @@ func (s *PotfileService) ProcessStagedEntries(ctx context.Context) {
 
 	// Append new entries to pot-file
 	if len(newEntries) > 0 {
+		// Get old line count before updating
+		oldLineCount, _ := s.countPotfileLines()
+
 		if err := s.appendToPotfile(newEntries); err != nil {
 			debug.Error("Failed to append to pot-file: %v", err)
 			return
 		}
 		debug.Info("Added %d new unique entries to pot-file", len(newEntries))
-		
+
 		// Update MD5 hash and file size in the database
 		if err := s.UpdatePotfileMetadata(ctx); err != nil {
 			debug.Error("Failed to update potfile metadata: %v", err)
 			// Don't return - this is not critical for the operation
+		}
+
+		// Get new line count after updating
+		newLineCount, _ := s.countPotfileLines()
+
+		// Trigger job updates if we have the service and the count changed
+		if s.jobUpdateService != nil && oldLineCount != newLineCount {
+			// Get the potfile wordlist ID from system settings
+			wordlistIDSetting, err := s.systemSettingsRepo.GetSetting(ctx, "potfile_wordlist_id")
+			if err == nil && wordlistIDSetting != nil && wordlistIDSetting.Value != nil && *wordlistIDSetting.Value != "" {
+				wordlistID, err := strconv.Atoi(*wordlistIDSetting.Value)
+				if err == nil {
+					debug.Info("Triggering job updates for potfile wordlist %d (old: %d, new: %d)",
+						wordlistID, oldLineCount, newLineCount)
+					if err := s.jobUpdateService.HandleWordlistUpdate(ctx, wordlistID, oldLineCount, newLineCount); err != nil {
+						debug.Error("Failed to update jobs for potfile changes: %v", err)
+						// Don't return - this is not critical for the operation
+					}
+				}
+			}
 		}
 	}
 
@@ -818,12 +844,19 @@ func (s *PotfileService) UpdatePotfileMetadata(ctx context.Context) error {
 	if err != nil || wordlistIDSetting == nil || wordlistIDSetting.Value == nil || *wordlistIDSetting.Value == "" {
 		return fmt.Errorf("failed to get potfile wordlist ID: %w", err)
 	}
-	
+
 	wordlistID, err := strconv.Atoi(*wordlistIDSetting.Value)
 	if err != nil {
 		return fmt.Errorf("failed to parse potfile wordlist ID: %w", err)
 	}
-	
+
+	// Get the old word count before updating
+	oldWordlist, _ := s.wordlistStore.GetWordlist(ctx, wordlistID)
+	oldLineCount := int64(0)
+	if oldWordlist != nil {
+		oldLineCount = oldWordlist.WordCount
+	}
+
 	// Update the wordlist entry in the database with the new MD5, file size, and word count
 	if err := s.wordlistStore.UpdateWordlistComplete(ctx, wordlistID, md5Hash, fileSize, lineCount); err != nil {
 		return fmt.Errorf("failed to update potfile wordlist info: %w", err)
@@ -842,6 +875,16 @@ func (s *PotfileService) UpdatePotfileMetadata(ctx context.Context) error {
 			}
 		}
 	}
-	
+
+	// Trigger job updates if word count changed and we have the job update service
+	if s.jobUpdateService != nil && oldLineCount != lineCount {
+		debug.Info("Triggering job updates for potfile wordlist %d (old: %d, new: %d)",
+			wordlistID, oldLineCount, lineCount)
+		if err := s.jobUpdateService.HandleWordlistUpdate(ctx, wordlistID, oldLineCount, lineCount); err != nil {
+			debug.Error("Failed to update jobs for potfile changes: %v", err)
+			// Don't fail the operation
+		}
+	}
+
 	return nil
 }

@@ -19,16 +19,26 @@ import (
 	"github.com/google/uuid"
 )
 
+// JobUpdateHandler defines the interface for handling job updates when files change
+type JobUpdateHandler interface {
+	StartUpdate(ctx context.Context)
+	FinishUpdate(ctx context.Context)
+	IsUpdating() bool
+	HandleWordlistUpdate(ctx context.Context, wordlistID int, oldLines, newLines int64) error
+	HandleRuleUpdate(ctx context.Context, ruleID int, oldCount, newCount int) error
+}
+
 // DirectoryMonitor watches directories for file changes
 type DirectoryMonitor struct {
-	wordlistManager wordlist.Manager
-	ruleManager     rule.Manager
-	wordlistDir     string
-	ruleDir         string
-	interval        time.Duration
-	systemUserID    uuid.UUID
-	stopChan        chan struct{}
-	wg              sync.WaitGroup
+	wordlistManager  wordlist.Manager
+	ruleManager      rule.Manager
+	jobUpdateHandler JobUpdateHandler
+	wordlistDir      string
+	ruleDir          string
+	interval         time.Duration
+	systemUserID     uuid.UUID
+	stopChan         chan struct{}
+	wg               sync.WaitGroup
 
 	// Worker pool control
 	maxWorkers int
@@ -46,20 +56,22 @@ func NewDirectoryMonitor(
 	wordlistDir, ruleDir string,
 	interval time.Duration,
 	systemUserID uuid.UUID,
+	jobUpdateHandler JobUpdateHandler,
 ) *DirectoryMonitor {
 	// Default to 4 concurrent workers
 	maxWorkers := 4
 
 	return &DirectoryMonitor{
-		wordlistManager: wordlistManager,
-		ruleManager:     ruleManager,
-		wordlistDir:     wordlistDir,
-		ruleDir:         ruleDir,
-		interval:        interval,
-		systemUserID:    systemUserID,
-		stopChan:        make(chan struct{}),
-		maxWorkers:      maxWorkers,
-		workerSem:       make(chan struct{}, maxWorkers),
+		wordlistManager:  wordlistManager,
+		ruleManager:      ruleManager,
+		jobUpdateHandler: jobUpdateHandler,
+		wordlistDir:      wordlistDir,
+		ruleDir:          ruleDir,
+		interval:         interval,
+		systemUserID:     systemUserID,
+		stopChan:         make(chan struct{}),
+		maxWorkers:       maxWorkers,
+		workerSem:        make(chan struct{}, maxWorkers),
 	}
 }
 
@@ -450,6 +462,13 @@ func (m *DirectoryMonitor) updateExistingWordlist(ctx context.Context, fullPath,
 			return
 		}
 
+		// Get the old word count before updating
+		oldWordlist, err := m.wordlistManager.GetWordlist(ctx, wordlistID)
+		oldLines := int64(0)
+		if err == nil && oldWordlist != nil {
+			oldLines = oldWordlist.WordCount
+		}
+
 		// Verify wordlist with updated count
 		verifyReq := &models.WordlistVerifyRequest{
 			Status:    "verified",
@@ -459,6 +478,17 @@ func (m *DirectoryMonitor) updateExistingWordlist(ctx context.Context, fullPath,
 			debug.Error("Failed to verify updated wordlist %s: %v", relPath, err)
 			m.fileStatuses.Store(relPath, "error verifying: "+err.Error())
 			return
+		}
+
+		// Notify job update handler about the wordlist change
+		if m.jobUpdateHandler != nil && !m.jobUpdateHandler.IsUpdating() {
+			m.jobUpdateHandler.StartUpdate(ctx)
+			defer m.jobUpdateHandler.FinishUpdate(ctx)
+
+			newLines := int64(wordCount)
+			if err := m.jobUpdateHandler.HandleWordlistUpdate(ctx, wordlistID, oldLines, newLines); err != nil {
+				debug.Error("Failed to update jobs for wordlist change: %v", err)
+			}
 		}
 
 		m.fileStatuses.Store(relPath, "completed")
@@ -738,6 +768,13 @@ func (m *DirectoryMonitor) updateExistingRule(ctx context.Context, fullPath, rel
 			return
 		}
 
+		// Get the old rule count before updating
+		oldRule, err := m.ruleManager.GetRule(ctx, ruleID)
+		oldCount := 0
+		if err == nil && oldRule != nil {
+			oldCount = int(oldRule.RuleCount)
+		}
+
 		// Verify rule with updated count
 		verifyReq := &models.RuleVerifyRequest{
 			Status:    "verified",
@@ -747,6 +784,17 @@ func (m *DirectoryMonitor) updateExistingRule(ctx context.Context, fullPath, rel
 			debug.Error("Failed to verify updated rule %s: %v", relPath, err)
 			m.fileStatuses.Store(relPath, "error verifying: "+err.Error())
 			return
+		}
+
+		// Notify job update handler about the rule change
+		if m.jobUpdateHandler != nil && !m.jobUpdateHandler.IsUpdating() {
+			m.jobUpdateHandler.StartUpdate(ctx)
+			defer m.jobUpdateHandler.FinishUpdate(ctx)
+
+			newCount := int(ruleCount)
+			if err := m.jobUpdateHandler.HandleRuleUpdate(ctx, ruleID, oldCount, newCount); err != nil {
+				debug.Error("Failed to update jobs for rule change: %v", err)
+			}
 		}
 
 		m.fileStatuses.Store(relPath, "completed")

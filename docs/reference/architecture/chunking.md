@@ -92,6 +92,22 @@ The progress bar always shows:
 - Gray: Remaining keyspace
 - Percentage: Based on effective keyspace
 
+## Dynamic Updates During Execution
+
+When wordlists, rules, or potfiles are modified while jobs are running, the chunking system adapts:
+
+### Automatic Recalculation
+- **Keyspace Updates**: Effective keyspace recalculates based on current file state
+- **Forward-Only**: Only undispatched chunks are affected by changes
+- **No Interruption**: Active chunks continue with their original parameters
+
+### Update Scenarios
+1. **Wordlist Growth**: New words available for future chunks (if not using rule splitting)
+2. **Rule Changes**: Multiplication factor adjusts for remaining work
+3. **Potfile Updates**: Manual refresh triggers keyspace recalculation
+
+For detailed information about how file updates affect running jobs, see the [Job Update System documentation](./job-update-system.md).
+
 ## Configuration
 
 Administrators can tune chunking behavior via system settings:
