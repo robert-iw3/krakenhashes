@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/binary"
@@ -144,8 +145,8 @@ func SetupUserRoutes(router *mux.Router, database *db.DB, dataDir string, binary
 		}
 
 		err := database.QueryRow(`
-			SELECT id, username, email, role 
-			FROM users 
+			SELECT id, username, email, role
+			FROM users
 			WHERE id = $1
 		`, userID).Scan(&profile.ID, &profile.Username, &profile.Email, &profile.Role)
 
@@ -158,6 +159,101 @@ func SetupUserRoutes(router *mux.Router, database *db.DB, dataDir string, binary
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(profile)
 	}).Methods("GET")
+
+	// Update user profile
+	router.HandleFunc("/user/profile", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		// Get user ID from context (set by RequireAuth middleware)
+		userID := r.Context().Value("user_id").(string)
+		if userID == "" {
+			debug.Warning("No user ID found in context")
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		// Parse request
+		var req struct {
+			Email           string `json:"email,omitempty"`
+			CurrentPassword string `json:"currentPassword,omitempty"`
+			NewPassword     string `json:"newPassword,omitempty"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			debug.Error("Failed to parse profile update request: %v", err)
+			http.Error(w, "Invalid request", http.StatusBadRequest)
+			return
+		}
+
+		// If any changes are being made, require current password
+		if req.Email != "" || req.NewPassword != "" {
+			if req.CurrentPassword == "" {
+				http.Error(w, "Current password is required", http.StatusBadRequest)
+				return
+			}
+
+			// Get current password hash
+			var currentHash string
+			err := database.QueryRow("SELECT password_hash FROM users WHERE id = $1", userID).Scan(&currentHash)
+			if err != nil {
+				debug.Error("Failed to get user password: %v", err)
+				http.Error(w, "User not found", http.StatusNotFound)
+				return
+			}
+
+			// Verify current password
+			if err := bcrypt.CompareHashAndPassword([]byte(currentHash), []byte(req.CurrentPassword)); err != nil {
+				http.Error(w, "Current password is incorrect", http.StatusUnauthorized)
+				return
+			}
+		}
+
+		// Update email if provided
+		if req.Email != "" {
+			// Basic email validation
+			if !strings.Contains(req.Email, "@") {
+				http.Error(w, "Invalid email address", http.StatusBadRequest)
+				return
+			}
+
+			_, err := database.Exec("UPDATE users SET email = $1, updated_at = NOW() WHERE id = $2", req.Email, userID)
+			if err != nil {
+				debug.Error("Failed to update email: %v", err)
+				http.Error(w, "Failed to update email", http.StatusInternalServerError)
+				return
+			}
+		}
+
+		// Update password if provided
+		if req.NewPassword != "" {
+			// Validate new password (basic validation)
+			if len(req.NewPassword) < 8 {
+				http.Error(w, "Password must be at least 8 characters long", http.StatusBadRequest)
+				return
+			}
+
+			// Hash new password
+			newHash, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
+			if err != nil {
+				debug.Error("Failed to hash password: %v", err)
+				http.Error(w, "Internal server error", http.StatusInternalServerError)
+				return
+			}
+
+			// Update password
+			_, err = database.Exec("UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2", newHash, userID)
+			if err != nil {
+				debug.Error("Failed to update password: %v", err)
+				http.Error(w, "Failed to update password", http.StatusInternalServerError)
+				return
+			}
+		}
+
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{"message": "Profile updated successfully"})
+	}).Methods("PUT", "OPTIONS")
 
 	// Notification preferences
 	notificationHandler := user.NewNotificationPreferencesHandler(database.DB)
