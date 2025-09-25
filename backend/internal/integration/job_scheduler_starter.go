@@ -32,8 +32,8 @@ func (s *JobSchedulerStarter) Start(ctx context.Context) error {
 	s.ctx, s.cancel = context.WithCancel(ctx)
 	s.started = true
 
-	// Get scheduling interval from settings (default 10 seconds)
-	interval := 10 * time.Second
+	// Get scheduling interval from settings (default 3 seconds)
+	interval := 3 * time.Second
 	s.scheduleTicker = time.NewTicker(interval)
 
 	debug.Log("Starting job scheduler with interval", map[string]interface{}{
