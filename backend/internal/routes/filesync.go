@@ -8,15 +8,18 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/config"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/db"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/auth/api"
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/models"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/repository"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/services"
 	"github.com/ZerkerEOD/krakenhashes/backend/pkg/debug"
+	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 )
 
@@ -24,9 +27,14 @@ import (
 func SetupFileDownloadRoutes(r *mux.Router, sqlDB *sql.DB, cfg *config.Config, agentService *services.AgentService) *http.ServeMux {
 	debug.Info("Setting up file download routes for agents")
 
-	// Create file repository
+	// Create repositories
 	dbWrapper := &db.DB{DB: sqlDB}
 	fileRepo := repository.NewFileRepository(dbWrapper, cfg.DataDir)
+	jobTaskRepo := repository.NewJobTaskRepository(dbWrapper)
+
+	// Create rule split manager for chunk recreation
+	ruleSplitDir := filepath.Join(cfg.DataDir, "temp", "rule_chunks")
+	ruleSplitManager := services.NewRuleSplitManager(ruleSplitDir, fileRepo)
 
 	// Create file download handlers
 	fileRouter := r.PathPrefix("/api/files").Subrouter()
@@ -67,6 +75,19 @@ func SetupFileDownloadRoutes(r *mux.Router, sqlDB *sql.DB, cfg *config.Config, a
 				} else {
 					// Direct chunk file without job ID
 					filePath = filepath.Join(cfg.DataDir, "temp", "rule_chunks", filename)
+				}
+
+				// Check if chunk file exists, if not, try to recreate it
+				if _, err := os.Stat(filePath); os.IsNotExist(err) {
+					debug.Info("Rule chunk not found, attempting to recreate: %s", filePath)
+
+					ctx := r.Context()
+					if recreateErr := recreateMissingChunk(ctx, filePath, jobTaskRepo, ruleSplitManager, fileRepo, sqlDB, cfg.DataDir); recreateErr != nil {
+						debug.Error("Failed to recreate missing chunk %s: %v", filePath, recreateErr)
+						http.Error(w, fmt.Sprintf("Chunk file not found and recreation failed: %v", recreateErr), http.StatusNotFound)
+						return
+					}
+					debug.Info("Successfully recreated missing chunk: %s", filePath)
 				}
 			} else {
 				filePath = filepath.Join(cfg.DataDir, "rules", category, filename)
@@ -201,6 +222,19 @@ func SetupFileDownloadRoutes(r *mux.Router, sqlDB *sql.DB, cfg *config.Config, a
 				} else {
 					baseName := parts[len(parts)-1]
 					filePath = filepath.Join(cfg.DataDir, "temp", "rule_chunks", baseName)
+				}
+
+				// Check if chunk file exists, if not, try to recreate it
+				if _, err := os.Stat(filePath); os.IsNotExist(err) {
+					debug.Info("Rule chunk not found (legacy route), attempting to recreate: %s", filePath)
+
+					ctx := r.Context()
+					if recreateErr := recreateMissingChunk(ctx, filePath, jobTaskRepo, ruleSplitManager, fileRepo, sqlDB, cfg.DataDir); recreateErr != nil {
+						debug.Error("Failed to recreate missing chunk %s: %v", filePath, recreateErr)
+						http.Error(w, fmt.Sprintf("Chunk file not found and recreation failed: %v", recreateErr), http.StatusNotFound)
+						return
+					}
+					debug.Info("Successfully recreated missing chunk (legacy route): %s", filePath)
 				}
 			} else {
 				baseName := parts[len(parts)-1]
@@ -341,5 +375,133 @@ func SetupFileDownloadRoutes(r *mux.Router, sqlDB *sql.DB, cfg *config.Config, a
 	}).Methods(http.MethodGet)
 
 	debug.Info("Registered file download routes for agents (including hashlists)")
+	return nil
+}
+
+// recreateMissingChunk attempts to recreate a missing rule chunk file
+func recreateMissingChunk(ctx context.Context, chunkPath string, jobTaskRepo *repository.JobTaskRepository,
+	ruleSplitManager *services.RuleSplitManager, fileRepo *repository.FileRepository, sqlDB *sql.DB, dataDir string) error {
+
+	debug.Info("Attempting to recreate missing chunk: %s", chunkPath)
+
+	// Extract job ID and chunk info from the path
+	// Expected formats:
+	// - temp/rule_chunks/job_<uuid>/chunk_<n>.rule
+	// - temp/rule_chunks/job_<uuid>/chunk_<start>_<end>.rule
+
+	re := regexp.MustCompile(`job_([a-f0-9-]+)/chunk_(\d+)(?:_(\d+))?\.rule`)
+	matches := re.FindStringSubmatch(chunkPath)
+
+	if len(matches) < 3 {
+		return fmt.Errorf("cannot parse job ID and chunk info from path: %s", chunkPath)
+	}
+
+	jobIDStr := matches[1]
+	jobID, err := uuid.Parse(jobIDStr)
+	if err != nil {
+		return fmt.Errorf("invalid job ID in path: %s", jobIDStr)
+	}
+
+	// Look for tasks with this chunk path to get the rule indices
+	tasks, err := jobTaskRepo.GetTasksByJobExecution(ctx, jobID)
+	if err != nil {
+		return fmt.Errorf("failed to get tasks for job %s: %w", jobID, err)
+	}
+
+	// Find the task with this chunk path
+	var targetTask *models.JobTask
+	chunkFileName := filepath.Base(chunkPath)
+
+	for _, task := range tasks {
+		if task.RuleChunkPath != nil && strings.Contains(*task.RuleChunkPath, chunkFileName) {
+			targetTask = &task
+			break
+		}
+	}
+
+	if targetTask == nil {
+		return fmt.Errorf("no task found with chunk path containing: %s", chunkFileName)
+	}
+
+	// Check if this task has rule indices for recreation
+	if targetTask.RuleStartIndex == nil || targetTask.RuleEndIndex == nil {
+		return fmt.Errorf("task %s has no rule indices for chunk recreation", targetTask.ID)
+	}
+
+	// Get the preset job to find the original rule file
+	dbWrapper := &db.DB{DB: sqlDB}
+	jobExecRepo := repository.NewJobExecutionRepository(dbWrapper)
+	jobExec, err := jobExecRepo.GetByID(ctx, jobID)
+	if err != nil {
+		return fmt.Errorf("failed to get job execution: %w", err)
+	}
+
+	if jobExec.PresetJobID == nil {
+		return fmt.Errorf("job %s has no preset job ID for rule file lookup", jobID)
+	}
+
+	// Get preset job
+	presetJobRepo := repository.NewPresetJobRepository(sqlDB)
+	presetJob, err := presetJobRepo.GetByID(ctx, *jobExec.PresetJobID)
+	if err != nil {
+		return fmt.Errorf("failed to get preset job: %w", err)
+	}
+
+	// Get rule files from preset job
+	if len(presetJob.RuleIDs) == 0 {
+		return fmt.Errorf("preset job has no rule files")
+	}
+
+	// Get the rule file path (assuming first rule for now)
+	rules, err := fileRepo.GetRules(ctx, "")
+	if err != nil {
+		return fmt.Errorf("failed to get rules: %w", err)
+	}
+
+	var ruleFilePath string
+	// Find the rule file path based on the rule IDs from the preset job
+	// presetJob.RuleIDs contains string IDs, rules have int IDs
+	for _, rule := range rules {
+		for _, ruleIDStr := range presetJob.RuleIDs {
+			// Convert string ID to int for comparison
+			if fmt.Sprintf("%d", rule.ID) == ruleIDStr {
+				// Construct the full path from the rule info
+				ruleFilePath = filepath.Join(dataDir, "rules", rule.Category, rule.Name)
+				break
+			}
+		}
+		if ruleFilePath != "" {
+			break
+		}
+	}
+
+	if ruleFilePath == "" {
+		return fmt.Errorf("could not find rule file path for preset job rules")
+	}
+
+	debug.Info("Recreating chunk from rule file %s (indices %d-%d)",
+		ruleFilePath, *targetTask.RuleStartIndex, *targetTask.RuleEndIndex)
+
+	// Recreate the chunk using the rule split manager
+	numRules := *targetTask.RuleEndIndex - *targetTask.RuleStartIndex
+	chunk, err := ruleSplitManager.CreateSingleRuleChunk(ctx, jobID, ruleFilePath,
+		*targetTask.RuleStartIndex, numRules)
+	if err != nil {
+		return fmt.Errorf("failed to recreate chunk: %w", err)
+	}
+
+	debug.Info("Successfully recreated chunk at: %s", chunk.Path)
+
+	// Verify the recreated chunk path matches what we expected
+	if !strings.Contains(chunk.Path, chunkFileName) {
+		// The chunk was created but with a different name, try to rename it
+		expectedPath := filepath.Join(filepath.Dir(chunk.Path), chunkFileName)
+		if err := os.Rename(chunk.Path, expectedPath); err != nil {
+			debug.Error("Created chunk at %s but could not rename to expected %s: %v",
+				chunk.Path, expectedPath, err)
+			// Still return the created chunk path
+		}
+	}
+
 	return nil
 }
