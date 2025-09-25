@@ -1166,10 +1166,19 @@ func (c *Connection) readPump() {
 				continue
 			}
 
+			// Display user-visible notification about task being stopped
+			if stopPayload.Reason != "" {
+				console.Warning("Task stopped by server: %s (Reason: %s)", stopPayload.TaskID, stopPayload.Reason)
+			} else {
+				console.Warning("Task stopped by server: %s", stopPayload.TaskID)
+			}
+
 			if err := c.jobManager.StopJob(stopPayload.TaskID); err != nil {
 				debug.Error("Failed to stop job %s: %v", stopPayload.TaskID, err)
+				console.Error("Failed to stop task %s: %v", stopPayload.TaskID, err)
 			} else {
 				debug.Info("Successfully stopped job %s", stopPayload.TaskID)
+				console.Success("Task %s stopped successfully", stopPayload.TaskID)
 			}
 			
 		case WSTypeForceCleanup:

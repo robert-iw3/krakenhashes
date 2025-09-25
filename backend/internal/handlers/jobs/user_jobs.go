@@ -1,6 +1,7 @@
 package jobs
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -31,6 +32,17 @@ type UserJobsHandler struct {
 	binaryStore         binary.Store
 	jobExecutionService *services.JobExecutionService
 	systemSettingsRepo  *repository.SystemSettingsRepository
+	wsHandler           WSHandler
+}
+
+// WSHandler interface for WebSocket operations
+type WSHandler interface {
+	SendMessage(agentID int, msg interface{}) error
+}
+
+// SetWSHandler sets the WebSocket handler after creation
+func (h *UserJobsHandler) SetWSHandler(wsHandler WSHandler) {
+	h.wsHandler = wsHandler
 }
 
 // NewUserJobsHandler creates a new user jobs handler
@@ -59,6 +71,7 @@ func NewUserJobsHandler(
 		binaryStore:         binaryStore,
 		jobExecutionService: jobExecutionService,
 		systemSettingsRepo:  systemSettingsRepo,
+		wsHandler:           nil, // Will be set later via SetWSHandler
 	}
 }
 
@@ -1000,6 +1013,59 @@ func (h *UserJobsHandler) RetryTask(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// stopAgentTasks sends stop signals to all agents working on tasks for a job
+func (h *UserJobsHandler) stopAgentTasks(ctx context.Context, jobID uuid.UUID) error {
+	// Get all tasks for this job
+	tasks, err := h.jobTaskRepo.GetTasksByJobExecution(ctx, jobID)
+	if err != nil {
+		debug.Error("Failed to get tasks for job %s: %v", jobID, err)
+		return err
+	}
+
+	// Send stop signals to agents working on active tasks
+	stoppedCount := 0
+	for _, task := range tasks {
+		// Only send stop signals for running or assigned tasks
+		if task.AgentID != nil && (task.Status == models.JobTaskStatusRunning || task.Status == models.JobTaskStatusAssigned) {
+			// Create stop message payload
+			stopPayload := map[string]string{
+				"task_id": task.ID.String(),
+			}
+			payloadJSON, err := json.Marshal(stopPayload)
+			if err != nil {
+				debug.Error("Failed to marshal stop payload for task %s: %v", task.ID, err)
+				continue
+			}
+
+			// Create the WebSocket message
+			stopMsg := map[string]interface{}{
+				"type":    "job_stop",
+				"payload": json.RawMessage(payloadJSON),
+			}
+
+			// Send stop signal to the agent
+			if h.wsHandler != nil {
+				if err := h.wsHandler.SendMessage(*task.AgentID, stopMsg); err != nil {
+					debug.Error("Failed to send stop signal to agent %d for task %s: %v", *task.AgentID, task.ID, err)
+				} else {
+					debug.Info("Sent stop signal to agent %d for task %s", *task.AgentID, task.ID)
+					stoppedCount++
+				}
+			} else {
+				debug.Warning("WebSocket handler not available, cannot send stop signal to agent %d", *task.AgentID)
+			}
+
+			// Update task status to cancelled
+			if err := h.jobTaskRepo.UpdateStatus(ctx, task.ID, models.JobTaskStatusCancelled); err != nil {
+				debug.Error("Failed to update task %s status to cancelled: %v", task.ID, err)
+			}
+		}
+	}
+
+	debug.Info("Sent stop signals for %d tasks of job %s", stoppedCount, jobID)
+	return nil
+}
+
 // DeleteJob handles DELETE /api/jobs/{id}
 func (h *UserJobsHandler) DeleteJob(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -1011,19 +1077,20 @@ func (h *UserJobsHandler) DeleteJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Implement job deletion with proper cleanup
-	// This should:
-	// 1. Stop all running tasks
-	// 2. Delete task records
-	// 3. Delete job execution record
-	// 4. Notify agents to stop work
+	// Stop all agents working on this job's tasks
+	if err := h.stopAgentTasks(ctx, jobID); err != nil {
+		debug.Error("Failed to stop agent tasks for job %s: %v", jobID, err)
+		// Continue with deletion even if we couldn't stop all tasks
+	}
 
+	// Delete job execution record (cascade deletes tasks)
 	if err := h.jobExecRepo.Delete(ctx, jobID); err != nil {
 		debug.Error("Failed to delete job %s: %v", jobID, err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
+	debug.Info("Successfully deleted job %s", jobID)
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{
 		"message": "Job deleted successfully",

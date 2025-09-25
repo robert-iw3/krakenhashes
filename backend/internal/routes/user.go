@@ -22,6 +22,10 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// UserJobsHandlerInstance is a global reference to the user jobs handler
+// This is a temporary solution to allow setting the WebSocket handler after initialization
+var UserJobsHandlerInstance *jobs.UserJobsHandler
+
 // CreateJobsHandler creates and returns the jobs handler
 func CreateJobsHandler(database *db.DB, dataDir string, binaryManager binary.Manager) *jobs.UserJobsHandler {
 	// Create repositories
@@ -92,6 +96,9 @@ func SetupUserRoutes(router *mux.Router, database *db.DB, dataDir string, binary
 
 	// Create handlers
 	jobsHandler := CreateJobsHandler(database, dataDir, binaryManager)
+
+	// Store the handler globally so we can set the WebSocket handler later
+	UserJobsHandlerInstance = jobsHandler
 	dbWrapper := &db.DB{DB: database.DB}
 	userHandler := user.NewHandler(dbWrapper)
 	agentHandler := agent.NewAgentHandler(agentService)

@@ -4,6 +4,8 @@ import (
 	"context"
 	cryptotls "crypto/tls"
 	"database/sql"
+	"encoding/json"
+	"fmt"
 
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/binary"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/config"
@@ -24,6 +26,35 @@ import (
 // JobIntegrationManager is a global reference to the job integration manager
 // This is a temporary solution until we refactor main to properly manage lifecycle
 var JobIntegrationManager *integration.JobIntegrationManager
+
+// WSHandler is a global reference to the WebSocket handler for access by other handlers
+// This is a temporary solution until we refactor to use proper dependency injection
+var WSHandler *wshandler.Handler
+
+// wsHandlerAdapter adapts the WebSocket handler to the WSHandler interface
+type wsHandlerAdapter struct {
+	handler *wshandler.Handler
+}
+
+// SendMessage implements the WSHandler interface
+func (a *wsHandlerAdapter) SendMessage(agentID int, msg interface{}) error {
+	// Convert the interface{} to *wsservice.Message
+	wsMsg, ok := msg.(*wsservice.Message)
+	if !ok {
+		// Try to convert a map to Message
+		if msgMap, ok := msg.(map[string]interface{}); ok {
+			msgType, _ := msgMap["type"].(string)
+			payload, _ := msgMap["payload"].(json.RawMessage)
+			wsMsg = &wsservice.Message{
+				Type:    wsservice.MessageType(msgType),
+				Payload: payload,
+			}
+		} else {
+			return fmt.Errorf("invalid message type: expected *wsservice.Message or map[string]interface{}")
+		}
+	}
+	return a.handler.SendMessage(agentID, wsMsg)
+}
 
 // SetupWebSocketWithJobRoutes configures WebSocket routes with job execution integration
 func SetupWebSocketWithJobRoutes(
@@ -119,6 +150,17 @@ func SetupWebSocketWithJobRoutes(
 
 	// Create WebSocket handler
 	wsHandler := wshandler.NewHandler(wsService, agentService, systemSettingsRepo, jobTaskRepo, jobExecutionRepo, agentTLSConfig)
+
+	// Store WebSocket handler globally for access by other handlers
+	WSHandler = wsHandler
+
+	// Set the WebSocket handler in the UserJobsHandler if it was already created
+	if UserJobsHandlerInstance != nil {
+		debug.Info("Setting WebSocket handler in UserJobsHandler")
+		// Create an adapter that implements the WSHandler interface
+		adapter := &wsHandlerAdapter{handler: wsHandler}
+		UserJobsHandlerInstance.SetWSHandler(adapter)
+	}
 
 	// Create job integration manager
 	jobIntegration := integration.NewJobIntegrationManager(
