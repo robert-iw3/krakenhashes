@@ -465,8 +465,16 @@ func recreateMissingChunk(ctx context.Context, chunkPath string, jobTaskRepo *re
 		for _, ruleIDStr := range presetJob.RuleIDs {
 			// Convert string ID to int for comparison
 			if fmt.Sprintf("%d", rule.ID) == ruleIDStr {
-				// Construct the full path from the rule info
-				ruleFilePath = filepath.Join(dataDir, "rules", rule.Category, rule.Name)
+				// Use the same path construction as resolveRulePath in job_execution_service.go
+				// rule.Name already contains the relative path from rules directory
+				// e.g., "hashcat/00-primary-merged.rule"
+				ruleFilePath = filepath.Join(dataDir, "rules", rule.Name)
+
+				debug.Log("Resolved rule file path for chunk recreation", map[string]interface{}{
+					"rule_id":     rule.ID,
+					"rule_name":   rule.Name,
+					"constructed_path": ruleFilePath,
+				})
 				break
 			}
 		}
@@ -476,7 +484,25 @@ func recreateMissingChunk(ctx context.Context, chunkPath string, jobTaskRepo *re
 	}
 
 	if ruleFilePath == "" {
+		debug.Log("Could not find rule file path for preset job rules", map[string]interface{}{
+			"preset_job_id": *jobExec.PresetJobID,
+			"rule_ids":      presetJob.RuleIDs,
+			"available_rules": len(rules),
+			"error": "rule not found in database",
+		})
 		return fmt.Errorf("could not find rule file path for preset job rules")
+	}
+
+	// Defensive check: verify the rule file exists before attempting to recreate
+	if _, err := os.Stat(ruleFilePath); err != nil {
+		if os.IsNotExist(err) {
+			debug.Log("Rule file does not exist at resolved path", map[string]interface{}{
+				"rule_path": ruleFilePath,
+				"error":     err.Error(),
+			})
+			return fmt.Errorf("rule file not found at path %s: %w", ruleFilePath, err)
+		}
+		return fmt.Errorf("failed to check rule file existence: %w", err)
 	}
 
 	debug.Info("Recreating chunk from rule file %s (indices %d-%d)",
