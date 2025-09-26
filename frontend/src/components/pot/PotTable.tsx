@@ -295,20 +295,26 @@ export default function PotTable({ title, fetchData, filterParam, filterValue, c
         </Box>
         
         <TableContainer>
-          <Table size="small" aria-label="cracked hashes table">
+          <Table size="small" aria-label="cracked hashes table" sx={{ tableLayout: 'fixed' }}>
             <TableHead>
               <TableRow>
-                <TableCell>Original Hash</TableCell>
-                <TableCell>Password</TableCell>
-                <TableCell>Username</TableCell>
-                <TableCell>Hash Type</TableCell>
-                <TableCell align="center">Actions</TableCell>
+                <TableCell sx={{ width: '60%' }}>Original Hash</TableCell>
+                <TableCell sx={{ width: '15%' }}>Password</TableCell>
+                <TableCell sx={{ width: '15%' }}>Username</TableCell>
+                <TableCell sx={{ width: '5%' }}>Hash Type</TableCell>
+                <TableCell sx={{ width: '5%' }} align="center">Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {filteredData.map((hash) => (
                 <TableRow key={hash.id} hover>
-                  <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.875rem' }}>
+                  <TableCell sx={{
+                    fontFamily: 'monospace',
+                    fontSize: '0.875rem',
+                    overflow: 'auto',
+                    whiteSpace: 'nowrap',
+                    maxWidth: 0
+                  }}>
                     {hash.original_hash}
                   </TableCell>
                   <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.875rem' }}>

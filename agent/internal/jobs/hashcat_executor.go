@@ -134,13 +134,16 @@ type HashcatProcess struct {
 	PotFile         string
 	OutputFile      string
 	StdinPipe       io.WriteCloser
-	
+
 	// Process state
 	IsRunning       bool
 	StartTime       time.Time
 	LastProgress    *JobProgress
 	LastCheckpoint  time.Time
-	
+
+	// Hashlist tracking for crack parsing
+	HashlistContent []string  // Store the hashes we're cracking
+
 	// Error tracking
 	AlreadyRunningError bool
 	mutex              sync.Mutex
@@ -323,6 +326,15 @@ func (e *HashcatExecutor) executeTaskInternal(ctx context.Context, assignment *J
 		return nil, fmt.Errorf("failed to create stderr pipe: %w", err)
 	}
 
+	// Load the hashlist content for crack parsing
+	hashlistPath := filepath.Join(e.dataDirectory, assignment.HashlistPath)
+	hashlistContent, err := e.loadHashlist(hashlistPath)
+	if err != nil {
+		debug.Warning("Failed to load hashlist for crack parsing: %v", err)
+		// Continue anyway - we'll fall back to old parsing if needed
+		hashlistContent = []string{}
+	}
+
 	// Create process structure
 	process := &HashcatProcess{
 		TaskID:          assignment.TaskID,
@@ -336,6 +348,7 @@ func (e *HashcatExecutor) executeTaskInternal(ctx context.Context, assignment *J
 		StdinPipe:       stdinPipe,
 		IsRunning:       false,
 		StartTime:       time.Now(),
+		HashlistContent: hashlistContent,
 	}
 
 	// Store process
@@ -575,26 +588,16 @@ func (e *HashcatExecutor) runHashcatProcess(ctx context.Context, process *Hashca
 				
 				// Process crack part first
 				if len(crackPart) > 0 {
-					parts := strings.Split(crackPart, ":")
-					if len(parts) >= 2 {
-						var cracked CrackedHash
-						cracked.Hash = parts[0]
-						cracked.Plain = parts[1]
-						if len(parts) > 2 {
-							cracked.CrackPos = parts[2]
+					cracked := e.parseCrackedHash(crackPart, process.HashlistContent)
+					if cracked != nil {
+						progress := &JobProgress{
+							TaskID:        process.TaskID,
+							CrackedCount:  1,
+							CrackedHashes: []CrackedHash{*cracked},
 						}
-						cracked.FullLine = crackPart
-						
-						if len(cracked.Hash) >= 16 && !strings.Contains(cracked.Hash, " ") {
-							progress := &JobProgress{
-								TaskID:        process.TaskID,
-								CrackedCount:  1,
-								CrackedHashes: []CrackedHash{cracked},
-							}
-							e.sendProgressUpdate(process, progress, "cracked")
-							debug.Info("[Hashcat cracked] Hash: %s, Plain: %s", 
-								cracked.Hash, cracked.Plain)
-						}
+						e.sendProgressUpdate(process, progress, "cracked")
+						debug.Info("[Hashcat cracked] Hash: %s, Plain: %s",
+							cracked.Hash, cracked.Plain)
 					}
 				}
 				
@@ -726,37 +729,20 @@ func (e *HashcatExecutor) runHashcatProcess(ctx context.Context, process *Hashca
 				}
 			} else if strings.Contains(line, ":") && !strings.HasPrefix(line, "{") && !strings.Contains(line, "Skipping") {
 				// This might be a cracked hash
-				// Format can be:
-				// - hash:plain (2 parts)
-				// - hash:plain:hex_plain (3 parts)
-				// - salt:hash:plain (3 parts for salted hashes)
-				parts := strings.Split(line, ":")
-				
-				if len(parts) >= 2 {
-					// Simple case: hash:plain
-					var cracked CrackedHash
-					cracked.Hash = parts[0]
-					cracked.Plain = parts[1]
-					if len(parts) > 2 {
-						cracked.CrackPos = parts[2]
+				// Try to parse using our hashlist knowledge for better accuracy
+				cracked := e.parseCrackedHash(line, process.HashlistContent)
+
+				if cracked != nil {
+					// Send crack update immediately
+					progress := &JobProgress{
+						TaskID:        process.TaskID,
+						CrackedCount:  1,
+						CrackedHashes: []CrackedHash{*cracked},
 					}
-					cracked.FullLine = line
-					
-					// Validate it looks like a hash (not a warning message)
-					if len(cracked.Hash) >= 16 && !strings.Contains(cracked.Hash, " ") {
-						// Send crack update immediately
-						progress := &JobProgress{
-							TaskID:        process.TaskID,
-							CrackedCount:  1,
-							CrackedHashes: []CrackedHash{cracked},
-						}
-						e.sendProgressUpdate(process, progress, "cracked")
-						
-						debug.Info("[Hashcat cracked] Hash: %s, Plain: %s", 
-							cracked.Hash, cracked.Plain)
-					} else {
-						debug.Debug("[Hashcat stdout] %s", line)
-					}
+					e.sendProgressUpdate(process, progress, "cracked")
+
+					debug.Info("[Hashcat cracked] Hash: %s, Plain: %s",
+						cracked.Hash, cracked.Plain)
 				} else {
 					debug.Debug("[Hashcat stdout] %s", line)
 				}
@@ -1469,4 +1455,90 @@ func (e *HashcatExecutor) resolveHashcatBinary(binaryPath string) (string, error
 	}
 	
 	return "", fmt.Errorf("hashcat binary not found: %s", binaryPath)
+}
+
+// loadHashlist loads the hashlist file and returns the hash values
+func (e *HashcatExecutor) loadHashlist(hashlistPath string) ([]string, error) {
+	file, err := os.Open(hashlistPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open hashlist file: %w", err)
+	}
+	defer file.Close()
+
+	var hashes []string
+	scanner := bufio.NewScanner(file)
+	// Increase buffer size for large hashes like NTLMv2
+	scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024)
+
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line != "" && !strings.HasPrefix(line, "#") {
+			// Store the full hash line
+			hashes = append(hashes, line)
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("error reading hashlist file: %w", err)
+	}
+
+	debug.Info("Loaded %d hashes from hashlist file", len(hashes))
+	return hashes, nil
+}
+
+// parseCrackedHash parses a cracked hash output line using hashlist knowledge
+func (e *HashcatExecutor) parseCrackedHash(line string, hashlistContent []string) *CrackedHash {
+	// First try to match against known hashes from the hashlist
+	// Use case-insensitive matching since hashcat may output different case than stored
+	lineLower := strings.ToLower(line)
+
+	for _, knownHash := range hashlistContent {
+		// Check if the line starts with this known hash (case-insensitive)
+		knownHashLower := strings.ToLower(knownHash)
+		if strings.HasPrefix(lineLower, knownHashLower) {
+			// The format should be: knownHash:password
+			// Everything after the known hash and colon is the password
+			expectedPrefixLower := knownHashLower + ":"
+			if strings.HasPrefix(lineLower, expectedPrefixLower) {
+				// Extract password from the original line (preserving case)
+				// Find where the password starts in the original line
+				passwordStart := len(knownHash) + 1  // +1 for the colon
+				if passwordStart <= len(line) {
+					password := line[passwordStart:]
+
+					// Create the cracked hash structure
+					cracked := &CrackedHash{
+						Hash:     knownHash,  // Use original hash from hashlist (lowercase as stored in DB)
+						Plain:    password,   // Password with original case
+						FullLine: line,       // Keep the full line for reference
+					}
+
+					debug.Debug("[Crack Parser] Matched hash: %s, Password: %s", knownHash, password)
+					return cracked
+				}
+			}
+		}
+	}
+
+	// Fallback: If no exact match found (shouldn't happen with proper hashlist),
+	// use the old simple parsing as a safety net
+	if strings.Contains(line, ":") {
+		parts := strings.SplitN(line, ":", 2)  // Split only on first colon
+		if len(parts) == 2 {
+			// For unknown formats, send the whole first part as hash
+			cracked := &CrackedHash{
+				Hash:     parts[0],
+				Plain:    parts[1],
+				FullLine: line,
+			}
+
+			// Only return if it looks like a valid hash
+			if len(cracked.Hash) >= 16 && !strings.Contains(cracked.Hash, " ") {
+				debug.Warning("[Crack Parser] Using fallback parsing for: %s", line)
+				return cracked
+			}
+		}
+	}
+
+	return nil
 }
