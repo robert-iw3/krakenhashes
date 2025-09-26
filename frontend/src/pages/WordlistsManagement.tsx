@@ -581,8 +581,8 @@ export default function WordlistsManagement() {
         <DialogContent>
           <FileUpload
             title="Upload a wordlist file"
-            description="Select a wordlist file to upload. Supported formats: .txt, .dict, .lst, .gz, .zip"
-            acceptedFileTypes=".txt,.dict,.lst,.gz,.zip"
+            description="Select a wordlist file to upload. Supported formats: .txt, .dict, .dic, .lst, .wordlist, .wl, .gz, .zip, .7z, .bz2"
+            acceptedFileTypes=".txt,.dict,.dic,.lst,.wordlist,.wl,.gz,.zip,.7z,.bz2,text/plain,application/*"
             onUpload={handleUploadWordlist}
             uploadButtonText="Upload Wordlist"
             additionalFields={

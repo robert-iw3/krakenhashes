@@ -1225,34 +1225,52 @@ func (s *JobSchedulingService) ProcessJobCompletion(ctx context.Context, jobExec
 	}
 
 	if incompleteTasks == 0 {
-		// NEW: For non-rule jobs only, verify entire keyspace is covered
-		if !job.UsesRuleSplitting && job.TotalKeyspace != nil {
-			// Get the highest keyspace_end value from all tasks
-			maxEnd, err := s.jobExecutionService.jobTaskRepo.GetMaxKeyspaceEnd(ctx, jobExecutionID)
-			if err != nil {
-				debug.Log("Error checking max keyspace end", map[string]interface{}{
+		// For non-rule-splitting jobs, verify all effective keyspace has been dispatched
+		if !job.UsesRuleSplitting && job.EffectiveKeyspace != nil {
+			// Check if all effective keyspace has been dispatched
+			if job.DispatchedKeyspace < *job.EffectiveKeyspace {
+				debug.Log("Job not complete - more effective keyspace to dispatch", map[string]interface{}{
 					"job_id": jobExecutionID,
-					"error": err.Error(),
+					"effective_keyspace": *job.EffectiveKeyspace,
+					"dispatched_keyspace": job.DispatchedKeyspace,
+					"remaining": *job.EffectiveKeyspace - job.DispatchedKeyspace,
+					"percentage": float64(job.DispatchedKeyspace) / float64(*job.EffectiveKeyspace) * 100,
 				})
-			} else if maxEnd < *job.TotalKeyspace {
-				debug.Log("Keyspace incomplete, not marking job complete", map[string]interface{}{
-					"job_id": jobExecutionID,
-					"max_end": maxEnd,
-					"total": *job.TotalKeyspace,
-					"percentage": float64(maxEnd) / float64(*job.TotalKeyspace) * 100,
-				})
-				return nil // Don't complete yet, more tasks needed
+				return nil // Don't complete yet, more work to dispatch
 			}
 		}
 
-		// All tasks are complete AND keyspace covered, mark job as completed
+		// Also check for regular jobs without multiplication
+		if job.MultiplicationFactor <= 1 && job.TotalKeyspace != nil {
+			// For jobs without rules, check against total keyspace
+			if job.DispatchedKeyspace < *job.TotalKeyspace {
+				debug.Log("Job not complete - more keyspace to dispatch", map[string]interface{}{
+					"job_id": jobExecutionID,
+					"total_keyspace": *job.TotalKeyspace,
+					"dispatched_keyspace": job.DispatchedKeyspace,
+					"remaining": *job.TotalKeyspace - job.DispatchedKeyspace,
+					"percentage": float64(job.DispatchedKeyspace) / float64(*job.TotalKeyspace) * 100,
+				})
+				return nil // Don't complete yet, more work to dispatch
+			}
+		}
+
+		// All tasks are complete AND all keyspace has been dispatched, mark job as completed
 		err = s.jobExecutionService.CompleteJobExecution(ctx, jobExecutionID)
 		if err != nil {
 			return fmt.Errorf("failed to complete job execution: %w", err)
 		}
 
-		debug.Log("Job execution completed", map[string]interface{}{
+		debug.Log("Job execution completed - all tasks done and keyspace fully dispatched", map[string]interface{}{
 			"job_execution_id": jobExecutionID,
+			"effective_keyspace": job.EffectiveKeyspace,
+			"dispatched_keyspace": job.DispatchedKeyspace,
+			"incomplete_tasks": incompleteTasks,
+		})
+	} else {
+		debug.Log("Job has incomplete tasks", map[string]interface{}{
+			"job_execution_id": jobExecutionID,
+			"incomplete_tasks": incompleteTasks,
 		})
 	}
 

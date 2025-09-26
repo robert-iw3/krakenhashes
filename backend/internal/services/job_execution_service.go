@@ -1107,16 +1107,60 @@ func (s *JobExecutionService) CreateJobTask(ctx context.Context, jobExecution *m
 
 	// Calculate effective keyspace for this task
 	var effectiveKeyspaceStart, effectiveKeyspaceEnd *int64
-	if jobExecution.MultiplicationFactor > 1 {
-		// For jobs with multiplication (e.g., combination attacks)
+
+	// Check if chunks are already in effective keyspace units
+	// This happens for non-rule-splitting jobs with multiplication factor
+	if jobExecution.MultiplicationFactor > 1 && !jobExecution.UsesRuleSplitting {
+		// For non-rule-splitting jobs with rules, the chunking service returns
+		// chunks in effective keyspace units, so we should NOT multiply again
+		effectiveKeyspaceStart = &keyspaceStart
+		effectiveKeyspaceEnd = &keyspaceEnd
+
+		debug.Log("Using keyspace values as effective (no multiplication)", map[string]interface{}{
+			"job_id": jobExecution.ID,
+			"uses_rule_splitting": jobExecution.UsesRuleSplitting,
+			"multiplication_factor": jobExecution.MultiplicationFactor,
+			"keyspace_start": keyspaceStart,
+			"keyspace_end": keyspaceEnd,
+		})
+	} else if jobExecution.MultiplicationFactor > 1 {
+		// For rule-splitting jobs, chunks are in base keyspace units
+		// So we DO need to multiply to get effective keyspace
 		start := keyspaceStart * int64(jobExecution.MultiplicationFactor)
 		end := keyspaceEnd * int64(jobExecution.MultiplicationFactor)
 		effectiveKeyspaceStart = &start
 		effectiveKeyspaceEnd = &end
+
+		debug.Log("Multiplying keyspace for rule-splitting job", map[string]interface{}{
+			"job_id": jobExecution.ID,
+			"uses_rule_splitting": jobExecution.UsesRuleSplitting,
+			"multiplication_factor": jobExecution.MultiplicationFactor,
+			"base_keyspace_start": keyspaceStart,
+			"base_keyspace_end": keyspaceEnd,
+			"effective_keyspace_start": start,
+			"effective_keyspace_end": end,
+		})
 	} else {
-		// For regular jobs, effective keyspace equals regular keyspace
+		// For regular jobs without multiplication, effective equals regular keyspace
 		effectiveKeyspaceStart = &keyspaceStart
 		effectiveKeyspaceEnd = &keyspaceEnd
+	}
+
+	// Data integrity check: validate that task's effective keyspace doesn't exceed job total
+	if jobExecution.EffectiveKeyspace != nil && effectiveKeyspaceEnd != nil &&
+	   *effectiveKeyspaceEnd > *jobExecution.EffectiveKeyspace {
+		debug.Error("Task effective_keyspace_end exceeds job total - potential double multiplication", map[string]interface{}{
+			"job_id": jobExecution.ID,
+			"task_effective_end": *effectiveKeyspaceEnd,
+			"job_effective_total": *jobExecution.EffectiveKeyspace,
+			"keyspace_start": keyspaceStart,
+			"keyspace_end": keyspaceEnd,
+			"multiplication_factor": jobExecution.MultiplicationFactor,
+			"uses_rule_splitting": jobExecution.UsesRuleSplitting,
+		})
+		// Return error to prevent bad task creation
+		return nil, fmt.Errorf("task effective keyspace end (%d) exceeds job total (%d) - potential keyspace calculation error",
+			*effectiveKeyspaceEnd, *jobExecution.EffectiveKeyspace)
 	}
 	
 	jobTask := &models.JobTask{

@@ -545,8 +545,8 @@ export default function RulesManagement() {
         <DialogContent>
           <FileUpload
             title="Upload a rule file"
-            description="Select a rule file to upload. Supported formats: .rule, .txt"
-            acceptedFileTypes=".rule,.txt"
+            description="Select a rule file to upload. Supported formats: .rule, .rules, .txt"
+            acceptedFileTypes=".rule,.rules,.txt,text/plain"
             onUpload={handleUploadRule}
             uploadButtonText="Upload Rule"
             additionalFields={
