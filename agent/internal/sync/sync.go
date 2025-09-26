@@ -355,9 +355,13 @@ func (fs *FileSync) ScanDirectory(fileType string) ([]FileInfo, error) {
 				relPath = d.Name() // Fallback to just the filename if we can't get relative path
 			}
 
+			// Normalize path separators to forward slashes for cross-platform compatibility
+			// This ensures Windows paths like "general\file.txt" become "general/file.txt"
+			normalizedPath := strings.ReplaceAll(relPath, "\\", "/")
+
 			// Add file info to list
 			files = append(files, FileInfo{
-				Name:     relPath,
+				Name:     normalizedPath,
 				MD5Hash:  hash,
 				Size:     info.Size(),
 				FileType: fileType,
