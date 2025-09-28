@@ -304,11 +304,14 @@ func (p *SelfSignedProvider) generateNewCertificates() error {
 			OrganizationalUnit: []string{p.config.CADetails.OrganizationalUnit},
 			CommonName:         p.config.CADetails.CommonName,
 		},
-		NotBefore:             time.Now(),
+		NotBefore:             time.Now().Add(-24 * time.Hour), // Valid from 24 hours ago to handle clock skew
 		NotAfter:              time.Now().AddDate(0, 0, p.config.Validity.CA),
 		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign | x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageAny}, // Allow any extended usage for CA
 		BasicConstraintsValid: true,
 		IsCA:                  true,
+		MaxPathLen:            2, // Allow up to 2 intermediate CAs
+		MaxPathLenZero:        false,
 		SubjectKeyId:          caSubjectKeyID,
 		AuthorityKeyId:        caSubjectKeyID, // Self-signed
 	}
@@ -391,12 +394,13 @@ func (p *SelfSignedProvider) generateNewCertificates() error {
 			OrganizationalUnit: []string{"KrakenHashes Server"},
 			CommonName:         "KrakenHashes Server",
 		},
-		NotBefore:             time.Now(),
+		NotBefore:             time.Now().Add(-24 * time.Hour), // Valid from 24 hours ago to handle clock skew
 		NotAfter:              time.Now().AddDate(0, 0, p.config.Validity.Server),
-		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment | x509.KeyUsageKeyAgreement,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
 		BasicConstraintsValid: true,
 		IsCA:                  false,
+		MaxPathLen:            -1, // Not a CA
 		DNSNames:              dnsNames,
 		IPAddresses:           ipAddresses,
 		SubjectKeyId:          serverSubjectKeyID,

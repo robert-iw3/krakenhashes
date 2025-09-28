@@ -42,6 +42,7 @@ import {
 } from '@mui/icons-material';
 import { Agent, ClaimVoucher, AgentDevice } from '../types/agent';
 import { api } from '../services/api';
+import AgentDownloads from '../components/agent/AgentDownloads';
 
 /**
  * AgentManagement component handles the display and management of KrakenHashes agents.
@@ -190,6 +191,9 @@ export default function AgentManagement() {
             {error}
           </Alert>
         )}
+
+        {/* Agent Downloads Section */}
+        <AgentDownloads />
 
         {/* Active Claim Vouchers Table */}
         <Typography variant="h5" sx={{ mt: 4, mb: 2 }}>
@@ -388,6 +392,7 @@ export default function AgentManagement() {
             )}
           </DialogActions>
         </Dialog>
+
     </Box>
   );
 } 

@@ -10,6 +10,7 @@ import (
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/handlers"
 	agenthandlers "github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/agent"
 	authhandler "github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/auth"
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/public"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/services"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/tls"
 	"github.com/ZerkerEOD/krakenhashes/backend/pkg/debug"
@@ -17,7 +18,7 @@ import (
 )
 
 // SetupPublicRoutes configures all public routes that don't require authentication
-func SetupPublicRoutes(apiRouter *mux.Router, database *db.DB, agentService *services.AgentService, appConfig *config.Config, tlsProvider tls.Provider) {
+func SetupPublicRoutes(apiRouter *mux.Router, database *db.DB, agentService *services.AgentService, binaryService *services.AgentBinaryService, appConfig *config.Config, tlsProvider tls.Provider) {
 	debug.Debug("Setting up public routes")
 
 	// Auth endpoints
@@ -81,4 +82,10 @@ func SetupPublicRoutes(apiRouter *mux.Router, database *db.DB, agentService *ser
 		json.NewEncoder(w).Encode(response)
 	}).Methods("GET")
 	debug.Info("Configured password policy endpoint: /password/policy")
+
+	// Agent download endpoints - publicly accessible
+	agentDownloadHandler := public.NewAgentDownloadHandler(binaryService)
+	apiRouter.HandleFunc("/public/agent/platforms", agentDownloadHandler.GetAvailablePlatforms).Methods("GET", "OPTIONS")
+	apiRouter.HandleFunc("/public/agent/download/{os}/{arch}", agentDownloadHandler.DownloadAgent).Methods("GET", "OPTIONS")
+	debug.Info("Configured agent download endpoints: /public/agent/platforms, /public/agent/download/{os}/{arch}")
 }

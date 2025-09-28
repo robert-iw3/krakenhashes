@@ -191,8 +191,15 @@ func SetupRoutes(r *mux.Router, sqlDB *sql.DB, tlsProvider tls.Provider, agentSe
 	adminJobsHandler := NewAdminJobsHandler(presetJobService, workflowService)
 	debug.Info("Initialized AdminJobsHandler")
 
+	// Initialize binary service for agent downloads
+	binaryService := services.NewAgentBinaryService(appConfig.DataDir)
+	if err := binaryService.Initialize(); err != nil {
+		debug.Error("Failed to initialize binary service: %v", err)
+	}
+	debug.Info("Initialized AgentBinaryService")
+
 	// Setup public routes
-	SetupPublicRoutes(apiRouter, database, agentService, appConfig, tlsProvider)
+	SetupPublicRoutes(apiRouter, database, agentService, binaryService, appConfig, tlsProvider)
 
 	// Setup JWT protected routes
 	jwtRouter := apiRouter.PathPrefix("").Subrouter()

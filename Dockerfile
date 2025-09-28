@@ -13,6 +13,18 @@ RUN VERSION=$(jq -r .frontend versions.json) && \
     echo "REACT_APP_VERSION=$VERSION" >> .env && \
     CI=false npm run build
 
+# Build stage for agents (all platforms)
+FROM golang:1.23.1-alpine AS agent-builder
+WORKDIR /app/agent
+RUN apk add --no-cache make jq
+
+# Copy the entire agent directory and versions.json
+COPY agent/ ./
+COPY versions.json ../versions.json
+
+# Build agents for all platforms
+RUN make clean && make build-all
+
 # Build stage for backend
 FROM golang:1.23.1-alpine AS backend-builder
 WORKDIR /app/backend
@@ -101,6 +113,9 @@ COPY --from=backend-builder /app/backend/krakenhashes /usr/local/bin/
 
 # Copy migrations
 COPY backend/db/migrations /usr/local/share/krakenhashes/migrations
+
+# Copy built agents from agent-builder stage
+COPY --from=agent-builder /app/bin/agent /usr/share/krakenhashes/agents
 
 # Create data directory with proper ownership
 RUN mkdir -p /var/lib/krakenhashes && \
