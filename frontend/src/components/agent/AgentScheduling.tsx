@@ -16,6 +16,7 @@ import {
   DialogActions,
   Alert,
   Tooltip,
+  Stack,
 } from '@mui/material';
 import {
   Edit as EditIcon,
@@ -61,6 +62,8 @@ const AgentScheduling: React.FC<AgentSchedulingProps> = ({
   const [error, setError] = useState('');
   const [globalSchedulingEnabled, setGlobalSchedulingEnabled] = useState(true);
   const [loadingGlobalSetting, setLoadingGlobalSetting] = useState(true);
+  const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
+  const [unscheduledDays, setUnscheduledDays] = useState<string[]>([]);
   const daysOfWeek = getDaysOfWeek();
   const userTimezone = getUserTimezone();
   const timezoneDisplay = `${getTimezoneAbbreviation()} (${getUTCOffset()})`;
@@ -113,13 +116,35 @@ const AgentScheduling: React.FC<AgentSchedulingProps> = ({
   };
 
   const handleSaveSchedules = async () => {
+    // Check for unscheduled days
+    const missingDays: string[] = [];
+    daysOfWeek.forEach(day => {
+      const schedule = editingSchedules.get(day.value);
+      if (!schedule || !schedule.startTime || !schedule.endTime) {
+        missingDays.push(day.label);
+      }
+    });
+
+    // If there are unscheduled days, show confirmation
+    if (missingDays.length > 0) {
+      setUnscheduledDays(missingDays);
+      setConfirmDialogOpen(true);
+      return;
+    }
+
+    // Proceed with save
+    await performSave();
+  };
+
+  const performSave = async () => {
     setSaving(true);
     setError('');
+    setConfirmDialogOpen(false);
 
     try {
       // Convert local times to UTC before sending
       const scheduleDTOs: AgentScheduleDTO[] = [];
-      
+
       editingSchedules.forEach((schedule, dayOfWeek) => {
         if (schedule.startTime && schedule.endTime) {
           scheduleDTOs.push({
@@ -187,10 +212,104 @@ const AgentScheduling: React.FC<AgentSchedulingProps> = ({
     setEditingSchedules(newSchedules);
   };
 
+  const applyPreset = (preset: string) => {
+    const newSchedules = new Map<number, AgentSchedule>();
+
+    switch (preset) {
+      case 'business':
+        // Monday-Friday 08:00-17:00
+        for (let day = 1; day <= 5; day++) {
+          newSchedules.set(day, {
+            agentId,
+            dayOfWeek: day,
+            startTime: '08:00',
+            endTime: '17:00',
+            timezone: userTimezone,
+            isActive: true,
+          });
+        }
+        break;
+
+      case 'overnight':
+        // All days 20:00-08:00
+        for (let day = 0; day < 7; day++) {
+          newSchedules.set(day, {
+            agentId,
+            dayOfWeek: day,
+            startTime: '20:00',
+            endTime: '08:00',
+            timezone: userTimezone,
+            isActive: true,
+          });
+        }
+        break;
+
+      case 'afterhours':
+        // Monday-Friday 17:01-07:59, Saturday-Sunday 00:00-23:59
+        for (let day = 1; day <= 5; day++) {
+          newSchedules.set(day, {
+            agentId,
+            dayOfWeek: day,
+            startTime: '17:01',
+            endTime: '07:59',
+            timezone: userTimezone,
+            isActive: true,
+          });
+        }
+        // Weekend full days
+        newSchedules.set(0, { // Sunday
+          agentId,
+          dayOfWeek: 0,
+          startTime: '00:00',
+          endTime: '23:59',
+          timezone: userTimezone,
+          isActive: true,
+        });
+        newSchedules.set(6, { // Saturday
+          agentId,
+          dayOfWeek: 6,
+          startTime: '00:00',
+          endTime: '23:59',
+          timezone: userTimezone,
+          isActive: true,
+        });
+        break;
+
+      case '24hours':
+        // All days 00:00-23:59
+        for (let day = 0; day < 7; day++) {
+          newSchedules.set(day, {
+            agentId,
+            dayOfWeek: day,
+            startTime: '00:00',
+            endTime: '23:59',
+            timezone: userTimezone,
+            isActive: true,
+          });
+        }
+        break;
+    }
+
+    setEditingSchedules(newSchedules);
+  };
+
   const renderScheduleSummary = (dayOfWeek: number) => {
     const schedule = schedules?.find(s => s.dayOfWeek === dayOfWeek);
     if (!schedule) {
-      return <Typography variant="body2" color="text.secondary">Not scheduled</Typography>;
+      return (
+        <Box display="flex" alignItems="center" gap={1}>
+          <Chip
+            size="small"
+            label="Unavailable"
+            color="error"
+            variant="filled"
+            sx={{ fontWeight: 'medium' }}
+          />
+          <Typography variant="body2" color="error">
+            No schedule set
+          </Typography>
+        </Box>
+      );
     }
 
     // Convert UTC to local for display
@@ -198,13 +317,34 @@ const AgentScheduling: React.FC<AgentSchedulingProps> = ({
     const localEnd = convertUTCTimeToLocal(schedule.endTime, dayOfWeek);
     const overnight = isOvernightSchedule(localStart, localEnd);
 
+    if (!schedule.isActive) {
+      return (
+        <Box display="flex" alignItems="center" gap={1}>
+          <Chip
+            size="small"
+            label="Disabled"
+            color="default"
+            variant="filled"
+          />
+          <Typography variant="body2" color="text.disabled">
+            {localStart} - {localEnd}
+          </Typography>
+        </Box>
+      );
+    }
+
     return (
       <Box display="flex" alignItems="center" gap={1}>
-        <Typography variant="body2">
+        <Chip
+          size="small"
+          label="Active"
+          color="success"
+          variant="outlined"
+        />
+        <Typography variant="body2" color="text.primary">
           {localStart} - {localEnd}
-          {overnight && <Chip size="small" label="Overnight" sx={{ ml: 1 }} />}
         </Typography>
-        {!schedule.isActive && <Chip size="small" label="Inactive" color="default" />}
+        {overnight && <Chip size="small" label="Overnight" color="info" variant="outlined" />}
       </Box>
     );
   };
@@ -236,6 +376,10 @@ const AgentScheduling: React.FC<AgentSchedulingProps> = ({
 
       {schedulingEnabled ? (
         <>
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            <strong>Important:</strong> When scheduling is enabled, the agent will ONLY work during scheduled times. Days without schedules mean the agent is completely offline for those days.
+          </Alert>
+
           {!globalSchedulingEnabled && (
             <Alert severity="info" sx={{ mb: 2 }}>
               Schedules are configured but not active because global scheduling is disabled.
@@ -293,10 +437,94 @@ const AgentScheduling: React.FC<AgentSchedulingProps> = ({
         <DialogTitle>Edit Agent Schedule</DialogTitle>
         <DialogContent>
           {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-          
-          <Typography variant="body2" color="text.secondary" mb={2}>
+
+          <Typography variant="body2" color="text.secondary" mb={1}>
             Set daily schedules in your local time ({timezoneDisplay})
           </Typography>
+
+          <Alert severity="info" sx={{ mb: 2 }}>
+            <strong>Tip:</strong> For overnight shifts, set end time before start time (e.g., 20:00-08:00 runs from evening through next morning)
+          </Alert>
+
+          <Box sx={{ mb: 3 }}>
+            <Typography variant="subtitle2" gutterBottom>
+              Quick Presets:
+            </Typography>
+            <Stack direction="row" spacing={1}>
+              <Tooltip
+                title={
+                  <Box>
+                    <Typography variant="body2" fontWeight="bold">Business Hours</Typography>
+                    <Typography variant="caption" display="block">Monday - Friday: 08:00 - 17:00</Typography>
+                    <Typography variant="caption">Weekends: Unavailable</Typography>
+                  </Box>
+                }
+                placement="top"
+              >
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={() => applyPreset('business')}
+                >
+                  Business Hours
+                </Button>
+              </Tooltip>
+              <Tooltip
+                title={
+                  <Box>
+                    <Typography variant="body2" fontWeight="bold">Overnight</Typography>
+                    <Typography variant="caption" display="block">All Days: 20:00 - 08:00</Typography>
+                    <Typography variant="caption">Runs from evening through next morning</Typography>
+                  </Box>
+                }
+                placement="top"
+              >
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={() => applyPreset('overnight')}
+                >
+                  Overnight
+                </Button>
+              </Tooltip>
+              <Tooltip
+                title={
+                  <Box>
+                    <Typography variant="body2" fontWeight="bold">After Hours</Typography>
+                    <Typography variant="caption" display="block">Monday - Friday: 17:01 - 07:59</Typography>
+                    <Typography variant="caption">Saturday - Sunday: 24 hours</Typography>
+                  </Box>
+                }
+                placement="top"
+              >
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={() => applyPreset('afterhours')}
+                >
+                  After Hours
+                </Button>
+              </Tooltip>
+              <Tooltip
+                title={
+                  <Box>
+                    <Typography variant="body2" fontWeight="bold">24 Hours</Typography>
+                    <Typography variant="caption" display="block">All Days: 00:00 - 23:59</Typography>
+                    <Typography variant="caption">Agent runs continuously</Typography>
+                  </Box>
+                }
+                placement="top"
+              >
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={() => applyPreset('24hours')}
+                >
+                  24 Hours
+                </Button>
+              </Tooltip>
+            </Stack>
+          </Box>
 
           <Grid container spacing={2}>
             {daysOfWeek.map(day => {
@@ -330,8 +558,8 @@ const AgentScheduling: React.FC<AgentSchedulingProps> = ({
                             size="small"
                             sx={{ width: 120 }}
                           />
-                          <Tooltip 
-                            title="When enabled, the agent will work during the specified hours on this day. When disabled, the agent will not work at all on this day."
+                          <Tooltip
+                            title="Active: Agent works during scheduled hours | Inactive: Agent is completely offline this day"
                             placement="top"
                           >
                             <FormControlLabel
@@ -402,6 +630,43 @@ const AgentScheduling: React.FC<AgentSchedulingProps> = ({
             disabled={saving}
           >
             {saving ? 'Saving...' : 'Save Changes'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Confirmation Dialog for Unscheduled Days */}
+      <Dialog
+        open={confirmDialogOpen}
+        onClose={() => setConfirmDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Warning: Unscheduled Days</DialogTitle>
+        <DialogContent>
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            The following days have no schedule and the agent will be <strong>completely unavailable</strong> on these days:
+          </Alert>
+          <Box sx={{ pl: 2 }}>
+            {unscheduledDays.map((day, index) => (
+              <Typography key={index} variant="body2" color="error" sx={{ mb: 0.5 }}>
+                • {day}
+              </Typography>
+            ))}
+          </Box>
+          <Typography variant="body2" sx={{ mt: 2 }}>
+            Do you want to continue? You can use the preset buttons to quickly set up common schedules.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmDialogOpen(false)}>
+            Go Back
+          </Button>
+          <Button
+            onClick={performSave}
+            variant="contained"
+            color="warning"
+          >
+            Continue Anyway
           </Button>
         </DialogActions>
       </Dialog>
