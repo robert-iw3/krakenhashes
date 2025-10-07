@@ -20,13 +20,11 @@ With the release of version 1.0.0, it should be a working for it's intended uses
 -   Job scheduler with adaptive load balancing
 -   REST API endpoints with JWT authentication
 -   PostgreSQL interface for job storage/results
--   Redis-based task queue with priority levels
 
 ### Agent System (Go)
 
--   Hardware resource manager (GPU/CPU/RAM allocation)
+-   Hardware resource manager (GPU/CPU allocation)
 -   Hashcat wrapper with automatic checkpointing
--   Safety mechanisms for temperature/usage limits
 -   Distributed work unit management
 -   Healthcheck system with self-healing capabilities
 
@@ -34,17 +32,8 @@ With the release of version 1.0.0, it should be a working for it's intended uses
 
 -   Real-time job progress visualization
 -   Hash type detection and configuration wizard
--   Team management dashboard for admins
 -   MFA configuration and recovery flow
 -   Interactive reporting and analytics
-
-## Security Highlights
-
--   Automatic session invalidation on IP change
--   Role-based access control (RBAC) system
--   Encrypted job payloads (AES-256-GCM)
--   Certificate-pinned agent communications
--   Audit-quality logging with chain-of-custody
 
 ## Use Cases
 
