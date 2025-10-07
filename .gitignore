@@ -91,4 +91,7 @@ logs/
 *.log
 
 # Local development configuration
-docker-compose.dev-local.yml 
+docker-compose.dev-local.yml
+
+# Test files and directories
+tests/ 
