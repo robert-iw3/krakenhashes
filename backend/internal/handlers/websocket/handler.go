@@ -1080,7 +1080,7 @@ func (h *Handler) handleCurrentTaskStatus(client *Client, msg *wsservice.Message
 				client.agent.Metadata["busy_status"] = "true"
 				client.agent.Metadata["current_task_id"] = status.TaskID
 				client.agent.Metadata["current_job_id"] = status.JobID
-				if err := h.agentService.Update(client.ctx, client.agent); err != nil {
+				if err := h.agentService.UpdateAgentMetadata(client.ctx, client.agent.ID, client.agent.Metadata); err != nil {
 					debug.Error("Failed to update agent busy status metadata: %v", err)
 				}
 
@@ -1092,7 +1092,7 @@ func (h *Handler) handleCurrentTaskStatus(client *Client, msg *wsservice.Message
 					client.agent.Metadata["busy_status"] = "false"
 					delete(client.agent.Metadata, "current_task_id")
 					delete(client.agent.Metadata, "current_job_id")
-					h.agentService.Update(client.ctx, client.agent)
+					h.agentService.UpdateAgentMetadata(client.ctx, client.agent.ID, client.agent.Metadata)
 
 					// Tell agent to stop the task if recovery failed
 					stopMsg := wsservice.Message{
@@ -1142,7 +1142,7 @@ func (h *Handler) handleCurrentTaskStatus(client *Client, msg *wsservice.Message
 		delete(client.agent.Metadata, "current_job_id")
 		
 		// Update agent in database
-		if err := h.agentService.Update(client.ctx, client.agent); err != nil {
+		if err := h.agentService.UpdateAgentMetadata(client.ctx, client.agent.ID, client.agent.Metadata); err != nil {
 			debug.Error("Failed to update agent metadata: %v", err)
 		}
 		
@@ -1236,8 +1236,8 @@ func (h *Handler) handleAgentShutdown(client *Client, msg *wsservice.Message) {
 	client.agent.Metadata["busy_status"] = "false"
 	client.agent.Metadata["current_task_id"] = ""
 	client.agent.Metadata["current_job_id"] = ""
-	
-	if err := h.agentService.Update(client.ctx, client.agent); err != nil {
+
+	if err := h.agentService.UpdateAgentMetadata(client.ctx, client.agent.ID, client.agent.Metadata); err != nil {
 		debug.Error("Agent %d: Failed to clear metadata on shutdown: %v", client.agent.ID, err)
 	}
 }

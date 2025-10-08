@@ -73,6 +73,12 @@ const (
 			updated_at = CURRENT_TIMESTAMP
 		WHERE id = $1`
 
+	UpdateAgentMetadata = `
+		UPDATE agents SET
+			metadata = $2,
+			updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1`
+
 	GetAgentByAPIKey = `
 		SELECT 
 			a.id, a.name, a.status, a.last_error, a.last_heartbeat,

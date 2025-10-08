@@ -709,6 +709,31 @@ func (r *AgentRepository) UpdateVersion(ctx context.Context, id int, version str
 	return nil
 }
 
+// UpdateMetadata updates an agent's metadata field
+func (r *AgentRepository) UpdateMetadata(ctx context.Context, agentID int, metadata map[string]string) error {
+	// Convert metadata to JSON
+	metadataJSON, err := json.Marshal(metadata)
+	if err != nil {
+		return fmt.Errorf("failed to marshal metadata: %w", err)
+	}
+
+	result, err := r.db.ExecContext(ctx, queries.UpdateAgentMetadata, agentID, metadataJSON)
+	if err != nil {
+		return fmt.Errorf("failed to update agent metadata: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("agent not found")
+	}
+
+	return nil
+}
+
 // UpdateOSInfo updates an agent's OS information
 func (r *AgentRepository) UpdateOSInfo(ctx context.Context, agentID int, osInfo map[string]interface{}) error {
 	// Convert OS info to JSON
@@ -718,7 +743,7 @@ func (r *AgentRepository) UpdateOSInfo(ctx context.Context, agentID int, osInfo 
 	}
 
 	query := `
-		UPDATE agents 
+		UPDATE agents
 		SET os_info = $2,
 		    updated_at = CURRENT_TIMESTAMP
 		WHERE id = $1`

@@ -458,9 +458,14 @@ func (s *AgentService) UpdateAgentVersion(ctx context.Context, id int, version s
 		debug.Debug("Skipping version update for agent %d - empty version", id)
 		return nil
 	}
-	
+
 	debug.Debug("Updating agent %d version to %s", id, version)
 	return s.agentRepo.UpdateVersion(ctx, id, version)
+}
+
+// UpdateAgentMetadata updates an agent's metadata
+func (s *AgentService) UpdateAgentMetadata(ctx context.Context, id int, metadata map[string]string) error {
+	return s.agentRepo.UpdateMetadata(ctx, id, metadata)
 }
 
 // UpdateAgentSyncStatus updates the sync status for an agent
