@@ -14,6 +14,7 @@ var (
 
 	// Versions holds all component versions
 	Versions struct {
+		Release  string `json:"release"`
 		Backend  string `json:"backend"`
 		Frontend string `json:"frontend"`
 		Agent    string `json:"agent"`
@@ -43,8 +44,8 @@ func LoadVersions(path string) error {
 		return err
 	}
 
-	debug.Info("Loaded versions - Backend: %s, Frontend: %s, Agent: %s",
-		Versions.Backend, Versions.Frontend, Versions.Agent)
+	debug.Info("Loaded versions - Release: %s, Backend: %s, Frontend: %s, Agent: %s",
+		Versions.Release, Versions.Backend, Versions.Frontend, Versions.Agent)
 
 	return nil
 }
@@ -53,6 +54,7 @@ func LoadVersions(path string) error {
 func GetVersionInfo() map[string]string {
 	debug.Debug("Retrieving version information")
 	return map[string]string{
+		"release":  Versions.Release,
 		"backend":  Versions.Backend,
 		"frontend": Versions.Frontend,
 		"agent":    Versions.Agent,

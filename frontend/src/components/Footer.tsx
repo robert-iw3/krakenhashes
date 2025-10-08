@@ -31,7 +31,7 @@ const Footer: React.FC<FooterProps> = ({ drawerOpen }) => {
     const fetchVersion = async () => {
       try {
         const versionInfo = await getVersionInfo();
-        setVersion(versionInfo.backend || '');
+        setVersion(versionInfo.release || versionInfo.backend || '');
       } catch (error) {
         console.error('Failed to fetch version:', error);
         setVersion('');
@@ -39,7 +39,7 @@ const Footer: React.FC<FooterProps> = ({ drawerOpen }) => {
         setLoading(false);
       }
     };
-    
+
     fetchVersion();
   }, []);
 
@@ -181,7 +181,7 @@ const Footer: React.FC<FooterProps> = ({ drawerOpen }) => {
           textAlign: isMobile ? 'center' : 'right',
         }}
       >
-        {loading ? 'Loading...' : version ? `Server v${version}` : 'Version unavailable'}
+        {loading ? 'Loading...' : version ? `Release v${version}` : 'Version unavailable'}
       </Typography>
     </Box>
   );

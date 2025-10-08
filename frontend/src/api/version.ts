@@ -1,6 +1,7 @@
 import { apiUrl } from '../config';
 
 export interface VersionInfo {
+    release?: string;
     backend: string;
     frontend: string;
     agent: string;

@@ -46,18 +46,25 @@ const About: React.FC = () => {
                     Version Information
                 </Typography>
                 <Box sx={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 2 }}>
+                    {versions.release && (
+                        <>
+                            <Typography><strong>Release:</strong></Typography>
+                            <Typography sx={{ fontWeight: 600 }}>{versions.release}</Typography>
+                        </>
+                    )}
+
                     <Typography><strong>Backend:</strong></Typography>
                     <Typography>{versions.backend}</Typography>
-                    
+
                     <Typography><strong>Frontend:</strong></Typography>
                     <Typography>{versions.frontend}</Typography>
-                    
+
                     <Typography><strong>Agent Version:</strong></Typography>
                     <Typography>{versions.agent}</Typography>
-                    
+
                     <Typography><strong>API Version:</strong></Typography>
                     <Typography>{versions.api}</Typography>
-                    
+
                     <Typography><strong>Database:</strong></Typography>
                     <Typography>{versions.database}</Typography>
                 </Box>
