@@ -15,12 +15,15 @@ RUN VERSION=$(jq -r .frontend versions.json) && \
 
 # Build stage for agents (all platforms)
 FROM golang:1.23.1-alpine AS agent-builder
-WORKDIR /app/agent
 RUN apk add --no-cache make jq
 
-# Copy the entire agent directory and versions.json
+# Set up parent directory and copy versions.json first
+WORKDIR /app
+COPY versions.json ./
+
+# Now set up agent directory and build
+WORKDIR /app/agent
 COPY agent/ ./
-COPY versions.json ../versions.json
 
 # Build agents for all platforms
 RUN make clean && make build-all
