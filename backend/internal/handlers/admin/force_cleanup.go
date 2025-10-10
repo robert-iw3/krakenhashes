@@ -27,10 +27,7 @@ func (h *ForceCleanupHandler) ForceCleanup(w http.ResponseWriter, r *http.Reques
 	agentIDStr := chi.URLParam(r, "id")
 	agentID, err := strconv.Atoi(agentIDStr)
 	if err != nil {
-		debug.Error("Invalid agent ID", map[string]interface{}{
-			"agent_id": agentIDStr,
-			"error":    err.Error(),
-		})
+		debug.Error("Invalid agent ID: %s, error: %v", agentIDStr, err)
 		http.Error(w, "Invalid agent ID", http.StatusBadRequest)
 		return
 	}
@@ -38,10 +35,7 @@ func (h *ForceCleanupHandler) ForceCleanup(w http.ResponseWriter, r *http.Reques
 	// Send force cleanup command
 	err = h.wsIntegration.SendForceCleanup(r.Context(), agentID)
 	if err != nil {
-		debug.Error("Failed to send force cleanup", map[string]interface{}{
-			"agent_id": agentID,
-			"error":    err.Error(),
-		})
+		debug.Error("Failed to send force cleanup to agent %d: %v", agentID, err)
 		http.Error(w, "Failed to send force cleanup: "+err.Error(), http.StatusInternalServerError)
 		return
 	}

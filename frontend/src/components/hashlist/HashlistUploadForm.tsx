@@ -9,7 +9,9 @@ import {
   ToggleButton,
   ToggleButtonGroup,
   IconButton,
-  Chip
+  Chip,
+  FormControlLabel,
+  Checkbox
 } from '@mui/material';
 import { Clear as ClearIcon } from '@mui/icons-material';
 import ClientAutocomplete from './ClientAutocomplete';
@@ -20,12 +22,14 @@ import { z } from 'zod';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../services/api';
 import { useNavigate } from 'react-router-dom';
+import { getJobExecutionSettings } from '../../services/jobSettings';
 
 const schema = z.object({
   name: z.string().min(1, 'Name is required'),
   description: z.string().optional(),
   hashTypeId: z.number().min(1, 'Hash type is required'),
   clientName: z.string().nullish(),
+  excludeFromPotfile: z.boolean().optional(),
 });
 
 type FormData = z.infer<typeof schema>;
@@ -39,6 +43,7 @@ export default function HashlistUploadForm({ onSuccess }: HashlistUploadFormProp
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadMode, setUploadMode] = useState<'file' | 'paste'>('file');
   const [pastedHashes, setPastedHashes] = useState('');
+  const [potfileGloballyEnabled, setPotfileGloballyEnabled] = useState(true);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
 
@@ -49,6 +54,7 @@ export default function HashlistUploadForm({ onSuccess }: HashlistUploadFormProp
       description: '',
       hashTypeId: undefined,
       clientName: null,
+      excludeFromPotfile: false,
     }
   });
 
@@ -76,6 +82,21 @@ export default function HashlistUploadForm({ onSuccess }: HashlistUploadFormProp
     },
     maxFiles: 1
   });
+
+  // Fetch global potfile setting on mount
+  useEffect(() => {
+    const fetchPotfileSetting = async () => {
+      try {
+        const settings = await getJobExecutionSettings();
+        setPotfileGloballyEnabled(settings.potfile_enabled);
+      } catch (error) {
+        console.error('Failed to fetch potfile setting:', error);
+        // Default to true if fetch fails
+        setPotfileGloballyEnabled(true);
+      }
+    };
+    fetchPotfileSetting();
+  }, []);
 
   // Clear the other input when mode changes
   useEffect(() => {
@@ -106,11 +127,9 @@ export default function HashlistUploadForm({ onSuccess }: HashlistUploadFormProp
       formData.append('hash_type_id', data.hashTypeId.toString());
       if (data.description) formData.append('description', data.description);
       if (data.clientName) formData.append('client_name', data.clientName);
-
-      console.log("FormData object before sending:");
-      formData.forEach((value, key) => {
-        console.log(`${key}: ${value}`);
-      });
+      if (data.excludeFromPotfile !== undefined) {
+        formData.append('exclude_from_potfile', data.excludeFromPotfile.toString());
+      }
 
       return api.post('/api/hashlists', formData, {
         onUploadProgress: (progressEvent) => {
@@ -145,8 +164,6 @@ export default function HashlistUploadForm({ onSuccess }: HashlistUploadFormProp
   });
 
   const onSubmit = (data: FormData): void => {
-    console.log("Submitting form data:", data);
-    console.log("Client Name in onSubmit:", data.clientName);
     uploadMutation.mutate(data);
   };
 
@@ -303,6 +320,36 @@ export default function HashlistUploadForm({ onSuccess }: HashlistUploadFormProp
           <CircularProgress variant="determinate" value={uploadProgress} />
           <Typography>{uploadProgress}%</Typography>
         </Box>
+      )}
+
+      {potfileGloballyEnabled && (
+        <>
+          <Controller
+            name="excludeFromPotfile"
+            control={control}
+            render={({ field }) => (
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={field.value || false}
+                    onChange={(e) => field.onChange(e.target.checked)}
+                  />
+                }
+                label="Exclude from potfile (don't save cracked passwords)"
+                sx={{ mt: 2 }}
+              />
+            )}
+          />
+          <Typography variant="caption" color="textSecondary" display="block" sx={{ ml: 4, mt: -1, mb: 2 }}>
+            Enable this for clients with strict data retention requirements
+          </Typography>
+        </>
+      )}
+
+      {!potfileGloballyEnabled && (
+        <Typography variant="caption" color="textSecondary" display="block" sx={{ mt: 2, mb: 2 }}>
+          Note: Potfile is currently disabled by admin settings. No cracked passwords will be saved.
+        </Typography>
       )}
 
       <Button

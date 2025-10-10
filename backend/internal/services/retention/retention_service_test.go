@@ -79,8 +79,8 @@ func TestDeleteHashlistAndOrphanedHashes(t *testing.T) {
 	mock.ExpectQuery("SELECT id, name, user_id, client_id, hash_type_id, file_path").
 		WithArgs(hashlistID).
 		WillReturnRows(
-			sqlmock.NewRows([]string{"id", "name", "user_id", "client_id", "hash_type_id", "file_path", "total_hashes", "cracked_hashes", "status", "error_message", "created_at", "updated_at"}).
-				AddRow(hashlistID, "Test Hashlist", userID, nil, 1, testFile, 10, 0, "completed", nil, time.Now(), time.Now()),
+			sqlmock.NewRows([]string{"id", "name", "user_id", "client_id", "hash_type_id", "file_path", "total_hashes", "cracked_hashes", "status", "error_message", "exclude_from_potfile", "created_at", "updated_at"}).
+				AddRow(hashlistID, "Test Hashlist", userID, nil, 1, testFile, 10, 0, "completed", nil, false, time.Now(), time.Now()),
 		)
 
 	// Mock transaction begin
@@ -184,11 +184,11 @@ func TestPurgeOldHashlists(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(2))
 
 	// Then mock the actual select query
-	mock.ExpectQuery("SELECT h\\.id, h\\.name, h\\.user_id, h\\.client_id, h\\.hash_type_id, h\\.file_path, h\\.total_hashes, h\\.cracked_hashes, h\\.status, h\\.error_message, h\\.created_at, h\\.updated_at, c\\.name AS client_name FROM hashlists h LEFT JOIN clients c").
+	mock.ExpectQuery("SELECT h\\.id, h\\.name, h\\.user_id, h\\.client_id, h\\.hash_type_id, h\\.file_path, h\\.total_hashes, h\\.cracked_hashes, h\\.status, h\\.error_message, h\\.exclude_from_potfile, h\\.created_at, h\\.updated_at, c\\.name AS client_name FROM hashlists h LEFT JOIN clients c").
 		WillReturnRows(
-			sqlmock.NewRows([]string{"id", "name", "user_id", "client_id", "hash_type_id", "file_path", "total_hashes", "cracked_hashes", "status", "error_message", "created_at", "updated_at", "client_name"}).
-				AddRow(1, "Old Hashlist", userID, clientID, 1, "/tmp/old.txt", 100, 50, "completed", nil, oldDate, oldDate, "Test Client").
-				AddRow(2, "New Hashlist", userID, clientID, 1, "/tmp/new.txt", 200, 100, "completed", nil, newDate, newDate, "Test Client"),
+			sqlmock.NewRows([]string{"id", "name", "user_id", "client_id", "hash_type_id", "file_path", "total_hashes", "cracked_hashes", "status", "error_message", "exclude_from_potfile", "created_at", "updated_at", "client_name"}).
+				AddRow(1, "Old Hashlist", userID, clientID, 1, "/tmp/old.txt", 100, 50, "completed", nil, false, oldDate, oldDate, "Test Client").
+				AddRow(2, "New Hashlist", userID, clientID, 1, "/tmp/new.txt", 200, 100, "completed", nil, false, newDate, newDate, "Test Client"),
 		)
 
 	// For the old hashlist that will be deleted
@@ -196,8 +196,8 @@ func TestPurgeOldHashlists(t *testing.T) {
 	mock.ExpectQuery("SELECT id, name, user_id, client_id, hash_type_id, file_path").
 		WithArgs(int64(1)).
 		WillReturnRows(
-			sqlmock.NewRows([]string{"id", "name", "user_id", "client_id", "hash_type_id", "file_path", "total_hashes", "cracked_hashes", "status", "error_message", "created_at", "updated_at"}).
-				AddRow(1, "Old Hashlist", userID, clientID, 1, "/tmp/old.txt", 100, 50, "completed", nil, oldDate, oldDate),
+			sqlmock.NewRows([]string{"id", "name", "user_id", "client_id", "hash_type_id", "file_path", "total_hashes", "cracked_hashes", "status", "error_message", "exclude_from_potfile", "created_at", "updated_at"}).
+				AddRow(1, "Old Hashlist", userID, clientID, 1, "/tmp/old.txt", 100, 50, "completed", nil, false, oldDate, oldDate),
 		)
 
 	// Mock transaction for deletion
@@ -217,9 +217,9 @@ func TestPurgeOldHashlists(t *testing.T) {
 	mock.ExpectQuery("SELECT COUNT\\(h\\.id\\) FROM hashlists h LEFT JOIN clients c").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 
-	mock.ExpectQuery("SELECT h\\.id, h\\.name, h\\.user_id, h\\.client_id, h\\.hash_type_id, h\\.file_path, h\\.total_hashes, h\\.cracked_hashes, h\\.status, h\\.error_message, h\\.created_at, h\\.updated_at, c\\.name AS client_name FROM hashlists h LEFT JOIN clients c").
+	mock.ExpectQuery("SELECT h\\.id, h\\.name, h\\.user_id, h\\.client_id, h\\.hash_type_id, h\\.file_path, h\\.total_hashes, h\\.cracked_hashes, h\\.status, h\\.error_message, h\\.exclude_from_potfile, h\\.created_at, h\\.updated_at, c\\.name AS client_name FROM hashlists h LEFT JOIN clients c").
 		WillReturnRows(
-			sqlmock.NewRows([]string{"id", "name", "user_id", "client_id", "hash_type_id", "file_path", "total_hashes", "cracked_hashes", "status", "error_message", "created_at", "updated_at", "client_name"}),
+			sqlmock.NewRows([]string{"id", "name", "user_id", "client_id", "hash_type_id", "file_path", "total_hashes", "cracked_hashes", "status", "error_message", "exclude_from_potfile", "created_at", "updated_at", "client_name"}),
 		)
 
 	// Mock VACUUM operations (these will fail in test but that's ok)

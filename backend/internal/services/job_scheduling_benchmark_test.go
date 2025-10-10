@@ -1,3 +1,6 @@
+//go:build unit
+// +build unit
+
 package services
 
 import (
@@ -35,9 +38,10 @@ func TestBenchmarkRequestFlow(t *testing.T) {
 
 	// Test data
 	agentID := 1
+	presetJobID := uuid.New()
 	jobExecution := &models.JobExecution{
 		ID:          uuid.New(),
-		PresetJobID: uuid.New(),
+		PresetJobID: &presetJobID,
 		HashlistID:  100,
 		AttackMode:  models.AttackModeStraight,
 	}
@@ -62,10 +66,12 @@ func TestJobAssignmentWithBenchmark(t *testing.T) {
 	mockWS := new(MockJobWebSocketIntegration)
 
 	// Test data
+	agentID := 1
+	presetJobID := uuid.New()
 	task := &models.JobTask{
 		ID:             uuid.New(),
 		JobExecutionID: uuid.New(),
-		AgentID:        1,
+		AgentID:        &agentID,
 		KeyspaceStart:  0,
 		KeyspaceEnd:    1000000,
 		Status:         models.JobTaskStatusAssigned,
@@ -73,7 +79,7 @@ func TestJobAssignmentWithBenchmark(t *testing.T) {
 
 	jobExecution := &models.JobExecution{
 		ID:          task.JobExecutionID,
-		PresetJobID: uuid.New(),
+		PresetJobID: &presetJobID,
 		HashlistID:  100,
 		AttackMode:  models.AttackModeStraight,
 	}

@@ -127,7 +127,7 @@ func (s *JobSchedulingService) ScheduleJobs(ctx context.Context) (*ScheduleJobsR
 	for _, agent := range availableAgents {
 		taskAssigned, interruptedJobs, err := s.assignWorkToAgent(ctx, &agent)
 		if err != nil {
-			assignErr := fmt.Errorf("failed to assign work to agent %s: %w", agent.ID, err)
+			assignErr := fmt.Errorf("failed to assign work to agent %d: %w", agent.ID, err)
 			result.Errors = append(result.Errors, assignErr)
 			debug.Error("Failed to assign work to agent: %v", assignErr)
 			continue

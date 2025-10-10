@@ -20,8 +20,8 @@ func TestLoginHandler(t *testing.T) {
 	emailService := testutil.NewMockEmailService()
 	handler := NewHandler(db, emailService)
 
-	// Create test user
-	testUser := testutil.CreateTestUser(t, db, "testuser", "test@example.com", testutil.DefaultTestPassword, "user")
+	// Create test user (needed for database, not directly used in test assertions)
+	_ = testutil.CreateTestUser(t, db, "testuser", "test@example.com", testutil.DefaultTestPassword, "user")
 
 	tests := []struct {
 		name           string
@@ -201,7 +201,7 @@ func TestLogoutHandler(t *testing.T) {
 
 	// Create test user and generate token
 	testUser := testutil.CreateTestUser(t, db, "testuser", "test@example.com", testutil.DefaultTestPassword, "user")
-	token, err := handler.generateAuthToken(testUser)
+	token, err := handler.generateAuthToken(testUser, 60) // 60 minutes expiry
 	require.NoError(t, err)
 
 	// Store token in database
@@ -255,9 +255,9 @@ func TestCheckAuthHandler(t *testing.T) {
 	regularUser := testutil.CreateTestUser(t, db, "user", "user@example.com", testutil.DefaultTestPassword, "user")
 
 	// Generate tokens
-	adminToken, err := handler.generateAuthToken(adminUser)
+	adminToken, err := handler.generateAuthToken(adminUser, 60) // 60 minutes expiry
 	require.NoError(t, err)
-	userToken, err := handler.generateAuthToken(regularUser)
+	userToken, err := handler.generateAuthToken(regularUser, 60) // 60 minutes expiry
 	require.NoError(t, err)
 
 	// Store tokens

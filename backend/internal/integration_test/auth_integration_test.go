@@ -2,7 +2,6 @@ package integration_test
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -10,14 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ZerkerEOD/krakenhashes/backend/internal/config"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/db"
-	"github.com/ZerkerEOD/krakenhashes/backend/internal/email"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/handlers/auth"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/models"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/testutil"
 	"github.com/ZerkerEOD/krakenhashes/backend/pkg/jwt"
-	"github.com/google/uuid"
 	"github.com/pquerna/otp/totp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -208,7 +204,7 @@ func completeMFAVerification(t *testing.T, handler *auth.Handler, emailService *
 	}
 }
 
-func testAuthenticationCheck(t *testing.T, handler *auth.Handler, database *db.DB, user *db.User) {
+func testAuthenticationCheck(t *testing.T, handler *auth.Handler, database *db.DB, user *models.User) {
 	// Generate token and store it
 	token, err := jwt.GenerateToken(user.ID.String(), user.Role, 60)
 	require.NoError(t, err)
@@ -231,7 +227,7 @@ func testAuthenticationCheck(t *testing.T, handler *auth.Handler, database *db.D
 	assert.Equal(t, user.Role, resp["role"])
 }
 
-func testLogoutFlow(t *testing.T, handler *auth.Handler, database *db.DB, user *db.User) {
+func testLogoutFlow(t *testing.T, handler *auth.Handler, database *db.DB, user *models.User) {
 	// Generate token and store it
 	token, err := jwt.GenerateToken(user.ID.String(), user.Role, 60)
 	require.NoError(t, err)

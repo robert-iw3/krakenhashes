@@ -173,10 +173,8 @@ func (s *JobExecutionService) CreateJobExecution(ctx context.Context, presetJobI
 	// Calculate effective keyspace after creating the job
 	err = s.calculateEffectiveKeyspace(ctx, jobExecution, presetJob)
 	if err != nil {
-		debug.Error("Failed to calculate effective keyspace", map[string]interface{}{
-			"job_execution_id": jobExecution.ID,
-			"error":            err.Error(),
-		})
+		debug.Error("Failed to calculate effective keyspace: job_execution_id=%s, error=%v",
+			jobExecution.ID, err)
 		// Log the error but continue - we'll handle this in the scheduling logic
 	}
 
@@ -289,10 +287,8 @@ func (s *JobExecutionService) CreateCustomJobExecution(ctx context.Context, conf
 	// Use the same effective keyspace calculation
 	err = s.calculateEffectiveKeyspace(ctx, jobExecution, tempPreset)
 	if err != nil {
-		debug.Error("Failed to calculate effective keyspace", map[string]interface{}{
-			"job_execution_id": jobExecution.ID,
-			"error":            err.Error(),
-		})
+		debug.Error("Failed to calculate effective keyspace: job_execution_id=%s, error=%v",
+			jobExecution.ID, err)
 		// Log the error but continue - we'll handle this in the scheduling logic
 	}
 
@@ -331,19 +327,15 @@ func (s *JobExecutionService) calculateKeyspace(ctx context.Context, presetJob *
 	// Get the hashcat binary path from binary manager
 	hashcatPath, err := s.binaryManager.GetLocalBinaryPath(ctx, int64(presetJob.BinaryVersionID))
 	if err != nil {
-		debug.Error("Failed to get hashcat binary path", map[string]interface{}{
-			"binary_version_id": presetJob.BinaryVersionID,
-			"error":            err.Error(),
-		})
+		debug.Error("Failed to get hashcat binary path: binary_version_id=%d, error=%v",
+			presetJob.BinaryVersionID, err)
 		return nil, fmt.Errorf("failed to get hashcat binary path for version %d: %w", presetJob.BinaryVersionID, err)
 	}
 	
 	// Verify the binary exists and is executable
 	if fileInfo, err := os.Stat(hashcatPath); err != nil {
-		debug.Error("Hashcat binary not found", map[string]interface{}{
-			"path":  hashcatPath,
-			"error": err.Error(),
-		})
+		debug.Error("Hashcat binary not found: path=%s, error=%v",
+			hashcatPath, err)
 		return nil, fmt.Errorf("hashcat binary not found at %s: %w", hashcatPath, err)
 	} else {
 		debug.Log("Found hashcat binary", map[string]interface{}{
@@ -452,14 +444,8 @@ func (s *JobExecutionService) calculateKeyspace(ctx context.Context, presetJob *
 	err = cmd.Run()
 	if err != nil {
 		// Log the full output for debugging
-		debug.Error("Hashcat keyspace calculation failed", map[string]interface{}{
-			"error":       err.Error(),
-			"stdout":      stdout.String(),
-			"stderr":      stderr.String(),
-			"working_dir": cwd,
-			"command":     hashcatPath,
-			"args":        args,
-		})
+		debug.Error("Hashcat keyspace calculation failed: error=%v, stdout=%s, stderr=%s, working_dir=%s, command=%s, args=%v",
+			err, stdout.String(), stderr.String(), cwd, hashcatPath, args)
 		return nil, fmt.Errorf("hashcat keyspace calculation failed: %w\nstdout: %s\nstderr: %s", err, stdout.String(), stderr.String())
 	}
 
@@ -628,10 +614,8 @@ func (s *JobExecutionService) calculateEffectiveKeyspace(ctx context.Context, jo
 			for _, ruleFile := range ruleFiles {
 				// First check if file exists
 				if _, err := os.Stat(ruleFile); err != nil {
-					debug.Error("Rule file does not exist at path", map[string]interface{}{
-						"rule_file": ruleFile,
-						"error":     err.Error(),
-					})
+					debug.Error("Rule file does not exist at path: rule_file=%s, error=%v",
+						ruleFile, err)
 					// For now, just use the rule count from the database query we know works
 					// We know from the database that rule ID 2 has 123289 rules
 					if len(presetJob.RuleIDs) > 0 && presetJob.RuleIDs[0] == "2" {
@@ -1149,15 +1133,8 @@ func (s *JobExecutionService) CreateJobTask(ctx context.Context, jobExecution *m
 	// Data integrity check: validate that task's effective keyspace doesn't exceed job total
 	if jobExecution.EffectiveKeyspace != nil && effectiveKeyspaceEnd != nil &&
 	   *effectiveKeyspaceEnd > *jobExecution.EffectiveKeyspace {
-		debug.Error("Task effective_keyspace_end exceeds job total - potential double multiplication", map[string]interface{}{
-			"job_id": jobExecution.ID,
-			"task_effective_end": *effectiveKeyspaceEnd,
-			"job_effective_total": *jobExecution.EffectiveKeyspace,
-			"keyspace_start": keyspaceStart,
-			"keyspace_end": keyspaceEnd,
-			"multiplication_factor": jobExecution.MultiplicationFactor,
-			"uses_rule_splitting": jobExecution.UsesRuleSplitting,
-		})
+		debug.Error("Task effective_keyspace_end exceeds job total - potential double multiplication: job_id=%s, task_effective_end=%d, job_effective_total=%d, keyspace_start=%d, keyspace_end=%d, multiplication_factor=%d, uses_rule_splitting=%v",
+			jobExecution.ID, *effectiveKeyspaceEnd, *jobExecution.EffectiveKeyspace, keyspaceStart, keyspaceEnd, jobExecution.MultiplicationFactor, jobExecution.UsesRuleSplitting)
 		// Return error to prevent bad task creation
 		return nil, fmt.Errorf("task effective keyspace end (%d) exceeds job total (%d) - potential keyspace calculation error",
 			*effectiveKeyspaceEnd, *jobExecution.EffectiveKeyspace)

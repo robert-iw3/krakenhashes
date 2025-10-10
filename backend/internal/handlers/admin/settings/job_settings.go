@@ -43,6 +43,8 @@ type JobExecutionSettings struct {
 	RuleSplitMinRules  int     `json:"rule_split_min_rules"`
 	RuleSplitMaxChunks int     `json:"rule_split_max_chunks"`
 	RuleChunkTempDir   string  `json:"rule_chunk_temp_dir"`
+	// Potfile settings
+	PotfileEnabled bool `json:"potfile_enabled"`
 }
 
 // GetJobExecutionSettings returns all job execution settings
@@ -71,6 +73,8 @@ func (h *JobSettingsHandler) GetJobExecutionSettings(w http.ResponseWriter, r *h
 		"rule_split_min_rules",
 		"rule_split_max_chunks",
 		"rule_chunk_temp_dir",
+		// Potfile settings
+		"potfile_enabled",
 	}
 
 	settings := JobExecutionSettings{
@@ -94,6 +98,8 @@ func (h *JobSettingsHandler) GetJobExecutionSettings(w http.ResponseWriter, r *h
 		RuleSplitMinRules:  100,
 		RuleSplitMaxChunks: 1000,
 		RuleChunkTempDir:   "/data/krakenhashes/temp/rule_chunks",
+		// Potfile defaults
+		PotfileEnabled: true,
 	}
 
 	// Retrieve each setting
@@ -174,6 +180,8 @@ func (h *JobSettingsHandler) GetJobExecutionSettings(w http.ResponseWriter, r *h
 				}
 			case "rule_chunk_temp_dir":
 				settings.RuleChunkTempDir = *setting.Value
+			case "potfile_enabled":
+				settings.PotfileEnabled = *setting.Value == "true"
 			}
 		}
 	}
@@ -213,6 +221,8 @@ func (h *JobSettingsHandler) UpdateJobExecutionSettings(w http.ResponseWriter, r
 		"rule_split_min_rules":  strconv.Itoa(settings.RuleSplitMinRules),
 		"rule_split_max_chunks": strconv.Itoa(settings.RuleSplitMaxChunks),
 		"rule_chunk_temp_dir":   settings.RuleChunkTempDir,
+		// Potfile settings
+		"potfile_enabled": strconv.FormatBool(settings.PotfileEnabled),
 	}
 
 	for key, value := range updates {

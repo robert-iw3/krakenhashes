@@ -2,6 +2,7 @@ package testutil
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -58,6 +59,10 @@ func MakeAuthenticatedRequest(t *testing.T, method, url string, body interface{}
 		Name:  "token",
 		Value: token,
 	})
+
+	// Add user_id to context (mimics what auth middleware does)
+	ctx := context.WithValue(req.Context(), "user_id", userID)
+	req = req.WithContext(ctx)
 
 	return req
 }

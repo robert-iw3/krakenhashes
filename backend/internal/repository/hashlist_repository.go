@@ -27,8 +27,8 @@ func NewHashListRepository(database *db.DB) *HashListRepository {
 // It updates the hashlist.ID field with the newly generated serial ID.
 func (r *HashListRepository) Create(ctx context.Context, hashlist *models.HashList) error {
 	query := `
-		INSERT INTO hashlists (name, user_id, client_id, hash_type_id, status, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO hashlists (name, user_id, client_id, hash_type_id, status, exclude_from_potfile, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		RETURNING id
 	`
 	var clientIDArg interface{} // Handle NULL client_id
@@ -44,6 +44,7 @@ func (r *HashListRepository) Create(ctx context.Context, hashlist *models.HashLi
 		clientIDArg,
 		hashlist.HashTypeID,
 		hashlist.Status,
+		hashlist.ExcludeFromPotfile,
 		hashlist.CreatedAt,
 		hashlist.UpdatedAt,
 	)
@@ -118,23 +119,25 @@ func (r *HashListRepository) UpdateStatsAndStatus(ctx context.Context, id int64,
 // GetByID retrieves a hashlist by its ID.
 func (r *HashListRepository) GetByID(ctx context.Context, id int64) (*models.HashList, error) {
 	query := `
-		SELECT id, name, user_id, client_id, hash_type_id, file_path, total_hashes, cracked_hashes, status, error_message, created_at, updated_at
+		SELECT id, name, user_id, client_id, hash_type_id, file_path, total_hashes, cracked_hashes, status, error_message, exclude_from_potfile, created_at, updated_at
 		FROM hashlists
 		WHERE id = $1
 	`
 	var hashlist models.HashList
 	var clientID sql.Null[uuid.UUID] // Handle nullable client_id
+	var filePath sql.NullString       // Handle nullable file_path
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&hashlist.ID,
 		&hashlist.Name,
 		&hashlist.UserID,
 		&clientID,
 		&hashlist.HashTypeID,
-		&hashlist.FilePath,
+		&filePath,
 		&hashlist.TotalHashes,
 		&hashlist.CrackedHashes,
 		&hashlist.Status,
 		&hashlist.ErrorMessage,
+		&hashlist.ExcludeFromPotfile,
 		&hashlist.CreatedAt,
 		&hashlist.UpdatedAt,
 	)
@@ -146,6 +149,9 @@ func (r *HashListRepository) GetByID(ctx context.Context, id int64) (*models.Has
 	}
 	if clientID.Valid {
 		hashlist.ClientID = clientID.V
+	}
+	if filePath.Valid {
+		hashlist.FilePath = filePath.String
 	}
 	return &hashlist, nil
 }
@@ -167,7 +173,7 @@ func (r *HashListRepository) List(ctx context.Context, params ListHashlistsParam
 		SELECT
 			h.id, h.name, h.user_id, h.client_id, h.hash_type_id,
 			h.file_path, h.total_hashes, h.cracked_hashes, h.status,
-			h.error_message, h.created_at, h.updated_at,
+			h.error_message, h.exclude_from_potfile, h.created_at, h.updated_at,
 			c.name AS client_name
 		FROM hashlists h
 		LEFT JOIN clients c ON h.client_id = c.id
@@ -259,6 +265,7 @@ func (r *HashListRepository) List(ctx context.Context, params ListHashlistsParam
 		var hashlist models.HashList
 		var clientID sql.Null[uuid.UUID] // Use sql.Null for nullable UUID
 		var clientName sql.NullString    // Use sql.NullString for nullable client name from LEFT JOIN
+		var filePath sql.NullString       // Use sql.NullString for nullable file_path
 
 		if err := rows.Scan(
 			&hashlist.ID,
@@ -266,11 +273,12 @@ func (r *HashListRepository) List(ctx context.Context, params ListHashlistsParam
 			&hashlist.UserID,
 			&clientID, // Scan into nullable UUID
 			&hashlist.HashTypeID,
-			&hashlist.FilePath,
+			&filePath, // Scan into nullable string
 			&hashlist.TotalHashes,
 			&hashlist.CrackedHashes,
 			&hashlist.Status,
 			&hashlist.ErrorMessage,
+			&hashlist.ExcludeFromPotfile,
 			&hashlist.CreatedAt,
 			&hashlist.UpdatedAt,
 			&clientName, // Scan into nullable string
@@ -290,6 +298,7 @@ func (r *HashListRepository) List(ctx context.Context, params ListHashlistsParam
 		}
 
 		// Explicitly set FilePath to empty string for list view (security)
+		// Note: filePath.Valid check is not needed here since we're always setting to empty
 		hashlist.FilePath = ""
 
 		hashlists = append(hashlists, hashlist)
@@ -563,4 +572,18 @@ func (r *HashListRepository) SyncCrackedCount(ctx context.Context, hashlistID in
 	}
 
 	return nil
+}
+
+// IsExcludedFromPotfile checks if a hashlist is excluded from potfile
+func (r *HashListRepository) IsExcludedFromPotfile(ctx context.Context, hashlistID int64) (bool, error) {
+	query := `SELECT exclude_from_potfile FROM hashlists WHERE id = $1`
+	var excluded bool
+	err := r.db.QueryRowContext(ctx, query, hashlistID).Scan(&excluded)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return false, fmt.Errorf("hashlist with ID %d not found: %w", hashlistID, ErrNotFound)
+		}
+		return false, fmt.Errorf("failed to check potfile exclusion for hashlist %d: %w", hashlistID, err)
+	}
+	return excluded, nil
 }

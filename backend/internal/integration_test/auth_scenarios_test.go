@@ -14,7 +14,6 @@ import (
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/models"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/testutil"
 	"github.com/ZerkerEOD/krakenhashes/backend/pkg/jwt"
-	"github.com/google/uuid"
 	"github.com/pquerna/otp/totp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -94,7 +93,7 @@ func TestEdgeCases(t *testing.T) {
 	database := testutil.SetupTestDB(t)
 	emailService := testutil.NewMockEmailService()
 	authHandler := auth.NewHandler(database, emailService)
-	mfaHandler := auth.NewMFAHandler(database, emailService)
+	_ = auth.NewMFAHandler(database, emailService)
 
 	t.Run("password edge cases", func(t *testing.T) {
 		// Test with various password complexities
@@ -195,7 +194,7 @@ func TestPerformanceScenarios(t *testing.T) {
 	authHandler := auth.NewHandler(database, emailService)
 
 	t.Run("rapid login attempts", func(t *testing.T) {
-		user := testutil.CreateTestUser(t, database, "rapidtest", "rapid@example.com", testutil.DefaultTestPassword, "user")
+		_ = testutil.CreateTestUser(t, database, "rapidtest", "rapid@example.com", testutil.DefaultTestPassword, "user")
 
 		// Perform rapid login attempts
 		const numAttempts = 50
@@ -308,7 +307,7 @@ func performLogin(t *testing.T, handler *auth.Handler, username, password string
 	}
 }
 
-func setupAuthenticatorMFA(t *testing.T, authHandler *auth.Handler, mfaHandler *auth.Handler, userID string) {
+func setupAuthenticatorMFA(t *testing.T, authHandler *auth.Handler, mfaHandler *auth.MFAHandler, userID string) {
 	// Setup MFA
 	req := testutil.MakeAuthenticatedRequest(t, http.MethodPost, "/auth/mfa/setup",
 		map[string]string{"method": "authenticator"}, userID, "user")
@@ -331,7 +330,7 @@ func setupAuthenticatorMFA(t *testing.T, authHandler *auth.Handler, mfaHandler *
 	assert.Equal(t, http.StatusOK, rr.Code)
 }
 
-func generateBackupCodes(t *testing.T, mfaHandler *auth.Handler, userID string) []string {
+func generateBackupCodes(t *testing.T, mfaHandler *auth.MFAHandler, userID string) []string {
 	req := testutil.MakeAuthenticatedRequest(t, http.MethodPost, "/auth/mfa/backup-codes",
 		nil, userID, "user")
 	rr := httptest.NewRecorder()
@@ -380,7 +379,7 @@ func testBackupCodeUsage(t *testing.T, handler *auth.Handler, database *db.DB, u
 	assert.True(t, resp["success"].(bool))
 }
 
-func disableMFA(t *testing.T, mfaHandler *auth.Handler, userID string) {
+func disableMFA(t *testing.T, mfaHandler *auth.MFAHandler, userID string) {
 	req := testutil.MakeAuthenticatedRequest(t, http.MethodPost, "/auth/mfa/disable",
 		nil, userID, "user")
 	rr := httptest.NewRecorder()

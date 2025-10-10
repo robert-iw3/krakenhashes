@@ -48,7 +48,7 @@ func TestGenerateToken(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			token, err := GenerateToken(tt.userID, tt.role)
+			token, err := GenerateToken(tt.userID, tt.role, 60)
 			require.NoError(t, err)
 			assert.NotEmpty(t, token)
 
@@ -91,7 +91,7 @@ func TestValidateJWT(t *testing.T) {
 	role := "user"
 
 	// Generate a valid token
-	validToken, err := GenerateToken(userID, role)
+	validToken, err := GenerateToken(userID, role, 60)
 	require.NoError(t, err)
 
 	// Generate an expired token
@@ -208,7 +208,7 @@ func TestGetUserRole(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			token, err := GenerateToken(tt.userID, tt.role)
+			token, err := GenerateToken(tt.userID, tt.role, 60)
 			require.NoError(t, err)
 
 			role, err := GetUserRole(token)
@@ -338,7 +338,7 @@ func TestEmptyJWTSecret(t *testing.T) {
 	role := "user"
 
 	// GenerateToken should still work (uses empty secret)
-	token, err := GenerateToken(userID, role)
+	token, err := GenerateToken(userID, role, 60)
 	assert.NoError(t, err)
 	assert.NotEmpty(t, token)
 

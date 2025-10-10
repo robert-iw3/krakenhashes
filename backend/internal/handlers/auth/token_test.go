@@ -10,7 +10,6 @@ import (
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/models"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/testutil"
 	"github.com/ZerkerEOD/krakenhashes/backend/pkg/jwt"
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -27,7 +26,7 @@ func TestTokenManagement(t *testing.T) {
 
 	t.Run("token storage and retrieval", func(t *testing.T) {
 		// Generate token
-		token, err := handler.generateAuthToken(testUser)
+		token, err := handler.generateAuthToken(testUser, 60)
 		require.NoError(t, err)
 		assert.NotEmpty(t, token)
 
@@ -70,7 +69,7 @@ func TestTokenManagement(t *testing.T) {
 
 		// Create multiple tokens
 		for i := range tokens {
-			token, err := handler.generateAuthToken(testUser)
+			token, err := handler.generateAuthToken(testUser, 60)
 			require.NoError(t, err)
 			tokens[i] = token
 
@@ -109,7 +108,7 @@ func TestTokenManagement(t *testing.T) {
 
 	t.Run("token validation in auth check", func(t *testing.T) {
 		// Generate and store token
-		token, err := handler.generateAuthToken(testUser)
+		token, err := handler.generateAuthToken(testUser, 60)
 		require.NoError(t, err)
 		err = db.StoreToken(testUser.ID.String(), token)
 		require.NoError(t, err)
@@ -160,9 +159,9 @@ func TestTokenSecurityFeatures(t *testing.T) {
 
 	t.Run("token isolation between users", func(t *testing.T) {
 		// Generate tokens for both users
-		token1, err := handler.generateAuthToken(user1)
+		token1, err := handler.generateAuthToken(user1, 60)
 		require.NoError(t, err)
-		token2, err := handler.generateAuthToken(user2)
+		token2, err := handler.generateAuthToken(user2, 60)
 		require.NoError(t, err)
 
 		// Store both tokens
@@ -259,8 +258,8 @@ func TestTokenCookieHandling(t *testing.T) {
 	emailService := testutil.NewMockEmailService()
 	handler := NewHandler(db, emailService)
 
-	// Create test user
-	testUser := testutil.CreateTestUser(t, db, "testuser", "test@example.com", testutil.DefaultTestPassword, "user")
+	// Create test user (needed for database, not directly used in test assertions)
+	_ = testutil.CreateTestUser(t, db, "testuser", "test@example.com", testutil.DefaultTestPassword, "user")
 
 	t.Run("cookie attributes on login", func(t *testing.T) {
 		req := testutil.MakeRequest(t, http.MethodPost, "/auth/login", map[string]string{

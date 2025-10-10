@@ -59,6 +59,7 @@ interface Hashlist {
   createdAt: string;
   clientName?: string;
   client_id?: string;
+  exclude_from_potfile?: boolean;
 }
 
 interface ApiHashlistResponse {

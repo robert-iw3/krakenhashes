@@ -340,6 +340,32 @@ const JobExecutionSettingsComponent: React.FC = () => {
           </Paper>
         </Grid>
 
+        {/* Potfile Settings */}
+        <Grid item xs={12}>
+          <Paper sx={{ p: 3 }}>
+            <Typography variant="subtitle1" gutterBottom fontWeight="bold">
+              Potfile Settings
+            </Typography>
+            <Divider sx={{ mb: 2 }} />
+            <Grid container spacing={2}>
+              <Grid item xs={12}>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={settings.potfile_enabled}
+                      onChange={handleChange('potfile_enabled')}
+                    />
+                  }
+                  label="Enable Potfile"
+                />
+                <Typography variant="caption" color="textSecondary" display="block">
+                  Automatically store cracked passwords for use in future jobs. Individual hashlists can still be excluded.
+                </Typography>
+              </Grid>
+            </Grid>
+          </Paper>
+        </Grid>
+
         {/* Rule Splitting Settings */}
         <Grid item xs={12}>
           <Paper sx={{ p: 3 }}>

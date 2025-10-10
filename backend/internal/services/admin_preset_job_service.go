@@ -429,19 +429,14 @@ func (s *adminPresetJobService) CalculateKeyspaceForPresetJob(ctx context.Contex
 	// Get the hashcat binary path from binary manager
 	hashcatPath, err := s.binaryManager.GetLocalBinaryPath(ctx, int64(presetJob.BinaryVersionID))
 	if err != nil {
-		debug.Error("Failed to get hashcat binary path", map[string]interface{}{
-			"binary_version_id": presetJob.BinaryVersionID,
-			"error":            err.Error(),
-		})
+		debug.Error("Failed to get hashcat binary path: binary_version_id=%d, error=%v",
+			presetJob.BinaryVersionID, err)
 		return nil, fmt.Errorf("failed to get hashcat binary path for version %d: %w", presetJob.BinaryVersionID, err)
 	}
 	
 	// Verify the binary exists and is executable
 	if fileInfo, err := os.Stat(hashcatPath); err != nil {
-		debug.Error("Hashcat binary not found", map[string]interface{}{
-			"path":  hashcatPath,
-			"error": err.Error(),
-		})
+		debug.Error("Hashcat binary not found: path=%s, error=%v", hashcatPath, err)
 		return nil, fmt.Errorf("hashcat binary not found at %s: %w", hashcatPath, err)
 	} else {
 		debug.Log("Found hashcat binary", map[string]interface{}{
@@ -583,16 +578,8 @@ func (s *adminPresetJobService) CalculateKeyspaceForPresetJob(ctx context.Contex
 			return nil, fmt.Errorf("hashcat instance conflict (this should not happen with session IDs): %s", stderrStr)
 		}
 
-		debug.Error("Hashcat keyspace calculation failed", map[string]interface{}{
-			"error":       err.Error(),
-			"exit_code":   cmd.ProcessState.ExitCode(),
-			"stdout":      stdout.String(),
-			"stderr":      stderrStr,
-			"command":     hashcatPath,
-			"args":        args,
-			"session_id":  sessionID,
-			"working_dir": cmd.Dir,
-		})
+		debug.Error("Hashcat keyspace calculation failed: error=%v, exit_code=%d, stdout=%s, stderr=%s, command=%s, args=%v, session_id=%s, working_dir=%s",
+			err, cmd.ProcessState.ExitCode(), stdout.String(), stderrStr, hashcatPath, args, sessionID, cmd.Dir)
 		return nil, fmt.Errorf("hashcat keyspace calculation failed (exit code %d): %w\nstderr: %s\nstdout: %s", 
 			cmd.ProcessState.ExitCode(), err, stderrStr, stdout.String())
 	}
@@ -642,19 +629,14 @@ func (s *adminPresetJobService) resolveWordlistPath(ctx context.Context, wordlis
 	
 	wordlistID, err := strconv.ParseInt(wordlistIDStr, 10, 64)
 	if err != nil {
-		debug.Error("Invalid wordlist ID format", map[string]interface{}{
-			"wordlist_id_str": wordlistIDStr,
-			"error":           err.Error(),
-		})
+		debug.Error("Invalid wordlist ID format: wordlist_id=%s, error=%v", wordlistIDStr, err)
 		return "", fmt.Errorf("invalid wordlist ID: %s", wordlistIDStr)
 	}
 
 	// Look up wordlist in database
 	wordlists, err := s.fileRepo.GetWordlists(ctx, "")
 	if err != nil {
-		debug.Error("Failed to get wordlists from database", map[string]interface{}{
-			"error": err.Error(),
-		})
+		debug.Error("Failed to get wordlists from database: error=%v", err)
 		return "", fmt.Errorf("failed to get wordlists: %w", err)
 	}
 
@@ -673,10 +655,7 @@ func (s *adminPresetJobService) resolveWordlistPath(ctx context.Context, wordlis
 			
 			// Verify the file exists
 			if fileInfo, err := os.Stat(path); err != nil {
-				debug.Error("Wordlist file not found", map[string]interface{}{
-					"path":  path,
-					"error": err.Error(),
-				})
+				debug.Error("Wordlist file not found: path=%s, error=%v", path, err)
 				return "", fmt.Errorf("wordlist file not found at %s: %w", path, err)
 			} else {
 				debug.Log("Wordlist file verified", map[string]interface{}{
@@ -701,19 +680,14 @@ func (s *adminPresetJobService) resolveRulePath(ctx context.Context, ruleIDStr s
 	
 	ruleID, err := strconv.ParseInt(ruleIDStr, 10, 64)
 	if err != nil {
-		debug.Error("Invalid rule ID format", map[string]interface{}{
-			"rule_id_str": ruleIDStr,
-			"error":       err.Error(),
-		})
+		debug.Error("Invalid rule ID format: rule_id=%s, error=%v", ruleIDStr, err)
 		return "", fmt.Errorf("invalid rule ID: %s", ruleIDStr)
 	}
 
 	// Look up rule in database
 	rules, err := s.fileRepo.GetRules(ctx, "")
 	if err != nil {
-		debug.Error("Failed to get rules from database", map[string]interface{}{
-			"error": err.Error(),
-		})
+		debug.Error("Failed to get rules from database: error=%v", err)
 		return "", fmt.Errorf("failed to get rules: %w", err)
 	}
 
@@ -732,10 +706,7 @@ func (s *adminPresetJobService) resolveRulePath(ctx context.Context, ruleIDStr s
 			
 			// Verify the file exists
 			if fileInfo, err := os.Stat(path); err != nil {
-				debug.Error("Rule file not found", map[string]interface{}{
-					"path":  path,
-					"error": err.Error(),
-				})
+				debug.Error("Rule file not found: path=%s, error=%v", path, err)
 				return "", fmt.Errorf("rule file not found at %s: %w", path, err)
 			} else {
 				debug.Log("Rule file verified", map[string]interface{}{

@@ -125,7 +125,11 @@ func (p *HashlistDBProcessor) processHashlist(hashlistID int64) {
 		originalHash := line // Store the raw line
 		username := hashutils.ExtractUsername(originalHash, hashType.ID)
 		hashValue := hashutils.ProcessHashIfNeeded(originalHash, hashType.ID, needsProcessing)
-		debug.Debug("[Processor:%d] Line %d: Original='%s', ProcessedValue='%s', User='%s'", hashlistID, lineNumber, originalHash, hashValue, username)
+		usernameStr := ""
+		if username != nil {
+			usernameStr = *username
+		}
+		debug.Debug("[Processor:%d] Line %d: Original='%s', ProcessedValue='%s', User='%s'", hashlistID, lineNumber, originalHash, hashValue, usernameStr)
 		// --- End New Processing Logic ---
 
 		// Determine if cracked (e.g., from input format like hash:pass)

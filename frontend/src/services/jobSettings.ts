@@ -20,6 +20,8 @@ export interface JobExecutionSettings {
   rule_split_min_rules: number;
   rule_split_max_chunks: number;
   rule_chunk_temp_dir: string;
+  // Potfile settings
+  potfile_enabled: boolean;
 }
 
 export const getJobExecutionSettings = async (): Promise<JobExecutionSettings> => {

@@ -1,7 +1,6 @@
 package auth
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -9,7 +8,6 @@ import (
 	"time"
 
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/testutil"
-	"github.com/ZerkerEOD/krakenhashes/backend/pkg/jwt"
 	"github.com/google/uuid"
 	"github.com/pquerna/otp/totp"
 	"github.com/stretchr/testify/assert"
@@ -388,7 +386,6 @@ func TestEmailMFAFlow(t *testing.T) {
 	testutil.SetTestJWTSecret(t)
 	db := testutil.SetupTestDB(t)
 	emailService := testutil.NewMockEmailService()
-	handler := NewHandler(db, emailService)
 	mfaHandler := NewMFAHandler(db, emailService)
 
 	// Create test user

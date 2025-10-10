@@ -186,7 +186,8 @@ func (h *hashlistHandler) handleUploadHashlist(w http.ResponseWriter, r *http.Re
 	name := r.FormValue("name")
 	hashTypeIDStr := r.FormValue("hash_type_id")
 	clientName := r.FormValue("client_name") // Expect client_name
-	debug.Info("Received hashlist upload: name='%s', hashTypeID='%s', clientName='%s'", name, hashTypeIDStr, clientName)
+	excludeStr := r.FormValue("exclude_from_potfile")
+	debug.Info("Received hashlist upload: name='%s', hashTypeID='%s', clientName='%s', excludeFromPotfile='%s'", name, hashTypeIDStr, clientName, excludeStr)
 
 	// --- Parse and validate hash type ID ---
 	hashTypeID, err := strconv.Atoi(hashTypeIDStr)
@@ -307,16 +308,28 @@ func (h *hashlistHandler) handleUploadHashlist(w http.ResponseWriter, r *http.Re
 	}
 	defer file.Close()
 
+	// --- Parse exclude_from_potfile boolean ---
+	excludeFromPotfile := false
+	if excludeStr != "" {
+		excludeFromPotfile, err = strconv.ParseBool(excludeStr)
+		if err != nil {
+			debug.Error("Failed to parse exclude_from_potfile '%s': %v, defaulting to false", excludeStr, err)
+			excludeFromPotfile = false
+		}
+	}
+	debug.Info("Parsed exclude_from_potfile as: %v", excludeFromPotfile)
+
 	// --- Create database entry ---
 	now := time.Now()
 	hashlist := &models.HashList{
-		Name:       name,
-		UserID:     userID,
-		ClientID:   clientID, // Will be zero UUID if not provided
-		HashTypeID: hashTypeID,
-		Status:     models.HashListStatusUploading,
-		CreatedAt:  now,
-		UpdatedAt:  now,
+		Name:               name,
+		UserID:             userID,
+		ClientID:           clientID, // Will be zero UUID if not provided
+		HashTypeID:         hashTypeID,
+		Status:             models.HashListStatusUploading,
+		ExcludeFromPotfile: excludeFromPotfile,
+		CreatedAt:          now,
+		UpdatedAt:          now,
 	}
 
 	err = h.hashlistRepo.Create(ctx, hashlist)

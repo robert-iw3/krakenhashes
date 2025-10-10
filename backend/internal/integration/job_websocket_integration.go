@@ -398,7 +398,7 @@ func (s *JobWebSocketIntegration) SendBenchmarkRequest(ctx context.Context, agen
 		return fmt.Errorf("failed to get agent: %w", err)
 	}
 
-	requestID := fmt.Sprintf("benchmark-%s-%d-%d-%d", agentID, hashType, attackMode, time.Now().Unix())
+	requestID := fmt.Sprintf("benchmark-%d-%d-%d-%d", agentID, hashType, attackMode, time.Now().Unix())
 	binaryPath := fmt.Sprintf("binaries/hashcat_%d", binaryVersionID)
 
 	debug.Log("Sending benchmark request to agent", map[string]interface{}{
@@ -611,22 +611,18 @@ func (s *JobWebSocketIntegration) HandleJobProgress(ctx context.Context, agentID
 	task, err := s.jobTaskRepo.GetByID(ctx, progress.TaskID)
 	if err != nil {
 		// Log and ignore progress updates for non-existent tasks (could be orphaned)
-		debug.Warning("Received progress for non-existent task (ignoring)", map[string]interface{}{
-			"task_id":  progress.TaskID,
-			"agent_id": agentID,
-			"error":    err.Error(),
-		})
+		debug.Warning("Received progress for non-existent task %d (ignoring): agent=%d, error=%v", progress.TaskID, agentID, err)
 		// Don't return error - just ignore the update
 		return nil
 	}
 
 	// Verify the task is assigned to this agent
 	if task.AgentID == nil || *task.AgentID != agentID {
-		debug.Error("Progress from wrong agent", map[string]interface{}{
-			"task_id":        progress.TaskID,
-			"expected_agent": task.AgentID,
-			"actual_agent":   agentID,
-		})
+		expectedAgent := 0
+		if task.AgentID != nil {
+			expectedAgent = *task.AgentID
+		}
+		debug.Error("Progress from wrong agent: task=%d, expected=%d, actual=%d", progress.TaskID, expectedAgent, agentID)
 		return fmt.Errorf("task not assigned to this agent")
 	}
 
@@ -965,13 +961,23 @@ func (s *JobWebSocketIntegration) processCrackedHashes(ctx context.Context, task
 		})
 
 		// Stage password for pot-file (non-blocking)
-		if s.potfileService != nil && s.systemSettingsRepo != nil {
+		// Check both global potfile setting AND per-hashlist exclusion
+		if s.potfileService != nil && s.systemSettingsRepo != nil && s.hashlistRepo != nil {
 			potfileEnabled, err := s.systemSettingsRepo.GetSetting(ctx, "potfile_enabled")
 			if err == nil && potfileEnabled != nil && potfileEnabled.Value != nil && *potfileEnabled.Value == "true" {
-				if err := s.potfileService.StagePassword(ctx, password, hashValue); err != nil {
-					debug.Warning("Failed to stage password for pot-file: %v", err)
+				// Check if this specific hashlist is excluded from potfile
+				excluded, err := s.hashlistRepo.IsExcludedFromPotfile(ctx, jobExecution.HashlistID)
+				if err != nil {
+					debug.Warning("Failed to check hashlist potfile exclusion: %v", err)
+				} else if excluded {
+					debug.Info("Hashlist %d is excluded from potfile, skipping password staging", jobExecution.HashlistID)
 				} else {
-					debug.Info("Successfully staged password for pot-file: hash=%s", hashValue)
+					// Both global and hashlist settings allow potfile - stage the password
+					if err := s.potfileService.StagePassword(ctx, password, hashValue); err != nil {
+						debug.Warning("Failed to stage password for pot-file: %v", err)
+					} else {
+						debug.Info("Successfully staged password for pot-file: hash=%s", hashValue)
+					}
 				}
 			}
 		}

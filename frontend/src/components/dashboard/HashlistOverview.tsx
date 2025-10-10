@@ -27,6 +27,7 @@ interface Hashlist {
   cracked_hashes: number;
   clientName?: string;
   client_id?: string;
+  exclude_from_potfile?: boolean;
 }
 
 interface UserHashlistsResponse {

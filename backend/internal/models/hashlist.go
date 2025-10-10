@@ -19,19 +19,20 @@ const (
 
 // HashList represents a collection of hashes uploaded by a user.
 type HashList struct {
-	ID            int64          `json:"id"`                   // Primary key (Changed from UUID)
-	Name          string         `json:"name"`                 // User-defined name for the list
-	UserID        uuid.UUID      `json:"user_id"`              // FK to users table
-	ClientID      uuid.UUID      `json:"client_id"`            // Optional FK to clients table (nullable in DB)
-	ClientName    *string        `json:"clientName,omitempty"` // Optional Client Name (from JOIN)
-	HashTypeID    int            `json:"hash_type_id"`         // FK to hash_types table
-	FilePath      string         `json:"-"`                    // Path to the stored hashlist file (omitted from JSON)
-	TotalHashes   int            `json:"total_hashes"`         // Total number of hashes in the list
-	CrackedHashes int            `json:"cracked_hashes"`       // Number of hashes found cracked
-	Status        string         `json:"status"`               // Processing status (uploading, processing, ready, error)
-	ErrorMessage  sql.NullString `json:"error_message"`        // Use sql.NullString to handle NULL
-	CreatedAt     time.Time      `json:"createdAt"`            // Timestamp of creation - Use camelCase
-	UpdatedAt     time.Time      `json:"updatedAt"`            // Timestamp of last update - Use camelCase
+	ID                 int64          `json:"id"`                            // Primary key (Changed from UUID)
+	Name               string         `json:"name"`                          // User-defined name for the list
+	UserID             uuid.UUID      `json:"user_id"`                       // FK to users table
+	ClientID           uuid.UUID      `json:"client_id"`                     // Optional FK to clients table (nullable in DB)
+	ClientName         *string        `json:"clientName,omitempty"`          // Optional Client Name (from JOIN)
+	HashTypeID         int            `json:"hash_type_id"`                  // FK to hash_types table
+	FilePath           string         `json:"-"`                             // Path to the stored hashlist file (omitted from JSON)
+	TotalHashes        int            `json:"total_hashes"`                  // Total number of hashes in the list
+	CrackedHashes      int            `json:"cracked_hashes"`                // Number of hashes found cracked
+	Status             string         `json:"status"`                        // Processing status (uploading, processing, ready, error)
+	ErrorMessage       sql.NullString `json:"error_message"`                 // Use sql.NullString to handle NULL
+	ExcludeFromPotfile bool           `json:"exclude_from_potfile"`          // Flag to exclude cracked passwords from potfile
+	CreatedAt          time.Time      `json:"createdAt"`                     // Timestamp of creation - Use camelCase
+	UpdatedAt          time.Time      `json:"updatedAt"`                     // Timestamp of last update - Use camelCase
 }
 
 // Hash represents a single hash entry in the system.

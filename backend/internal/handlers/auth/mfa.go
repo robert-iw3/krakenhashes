@@ -1,7 +1,6 @@
 package auth
 
 import (
-	"context"
 	"crypto/rand"
 	"encoding/base32"
 	"encoding/base64"
@@ -44,11 +43,6 @@ type MFASetupResponse struct {
 	QRCode    string `json:"qrCode,omitempty"`    // For authenticator
 	CodeSent  bool   `json:"codeSent,omitempty"`  // For email
 	ExpiresAt string `json:"expiresAt,omitempty"` // For email
-}
-
-// EmailService defines the interface for sending emails
-type EmailService interface {
-	SendMFACode(ctx context.Context, to string, code string) error
 }
 
 // MFAHandler handles MFA-related requests
