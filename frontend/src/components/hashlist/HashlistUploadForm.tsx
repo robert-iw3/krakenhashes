@@ -44,6 +44,7 @@ export default function HashlistUploadForm({ onSuccess }: HashlistUploadFormProp
   const [uploadMode, setUploadMode] = useState<'file' | 'paste'>('file');
   const [pastedHashes, setPastedHashes] = useState('');
   const [potfileGloballyEnabled, setPotfileGloballyEnabled] = useState(true);
+  const [clientPotfileEnabled, setClientPotfileEnabled] = useState(true);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
 
@@ -97,6 +98,35 @@ export default function HashlistUploadForm({ onSuccess }: HashlistUploadFormProp
     };
     fetchPotfileSetting();
   }, []);
+
+  // Fetch client potfile setting when client changes
+  useEffect(() => {
+    const fetchClientPotfileSetting = async () => {
+      const clientName = control._formValues.clientName;
+      if (!clientName) {
+        setClientPotfileEnabled(true); // Default when no client
+        return;
+      }
+
+      try {
+        // Search for the client to get the full client object
+        const response = await api.get(`/api/clients/search?q=${clientName}`);
+        const clients = Array.isArray(response.data) ? response.data : [];
+        const matchingClient = clients.find((c: any) => c.name === clientName);
+
+        if (matchingClient) {
+          setClientPotfileEnabled(!matchingClient.exclude_from_potfile);
+        } else {
+          setClientPotfileEnabled(true); // Default if client not found
+        }
+      } catch (error) {
+        console.error('Failed to fetch client potfile setting:', error);
+        setClientPotfileEnabled(true); // Default on error
+      }
+    };
+
+    fetchClientPotfileSetting();
+  }, [control._formValues.clientName]);
 
   // Clear the other input when mode changes
   useEffect(() => {
@@ -322,7 +352,7 @@ export default function HashlistUploadForm({ onSuccess }: HashlistUploadFormProp
         </Box>
       )}
 
-      {potfileGloballyEnabled && (
+      {potfileGloballyEnabled && clientPotfileEnabled && (
         <>
           <Controller
             name="excludeFromPotfile"
@@ -344,6 +374,12 @@ export default function HashlistUploadForm({ onSuccess }: HashlistUploadFormProp
             Enable this for clients with strict data retention requirements
           </Typography>
         </>
+      )}
+
+      {potfileGloballyEnabled && !clientPotfileEnabled && (
+        <Typography variant="caption" color="textSecondary" display="block" sx={{ mt: 2, mb: 2 }}>
+          Note: Potfile is disabled for this client. No cracked passwords will be saved.
+        </Typography>
       )}
 
       {!potfileGloballyEnabled && (

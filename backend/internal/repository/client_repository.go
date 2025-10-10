@@ -36,6 +36,7 @@ func (r *ClientRepository) Create(ctx context.Context, client *models.Client) er
 		client.Description,
 		client.ContactInfo,
 		client.DataRetentionMonths,
+		client.ExcludeFromPotfile,
 		client.CreatedAt,
 		client.UpdatedAt,
 	)
@@ -58,6 +59,7 @@ func (r *ClientRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.C
 		&client.Description,
 		&client.ContactInfo,
 		&client.DataRetentionMonths,
+		&client.ExcludeFromPotfile,
 		&client.CreatedAt,
 		&client.UpdatedAt,
 	)
@@ -87,6 +89,7 @@ func (r *ClientRepository) GetByName(ctx context.Context, name string) (*models.
 		&client.Description,
 		&client.ContactInfo,
 		&client.DataRetentionMonths,
+		&client.ExcludeFromPotfile,
 		&client.CreatedAt,
 		&client.UpdatedAt,
 	)
@@ -116,6 +119,7 @@ func (r *ClientRepository) List(ctx context.Context) ([]models.Client, error) {
 			&client.Description,
 			&client.ContactInfo,
 			&client.DataRetentionMonths,
+			&client.ExcludeFromPotfile,
 			&client.CreatedAt,
 			&client.UpdatedAt,
 		); err != nil {
@@ -148,6 +152,7 @@ func (r *ClientRepository) ListWithCrackedCounts(ctx context.Context) ([]models.
 			&client.Description,
 			&client.ContactInfo,
 			&client.DataRetentionMonths,
+			&client.ExcludeFromPotfile,
 			&client.CreatedAt,
 			&client.UpdatedAt,
 			&crackedCount,
@@ -191,6 +196,7 @@ func (r *ClientRepository) Search(ctx context.Context, query string) ([]models.C
 			&client.Description,
 			&client.ContactInfo,
 			&client.DataRetentionMonths,
+			&client.ExcludeFromPotfile,
 			&client.CreatedAt,
 			&client.UpdatedAt,
 		); err != nil {
@@ -213,6 +219,7 @@ func (r *ClientRepository) Update(ctx context.Context, client *models.Client) er
 		client.Description,
 		client.ContactInfo,
 		client.DataRetentionMonths,
+		client.ExcludeFromPotfile,
 		client.UpdatedAt,
 		client.ID,
 	)
@@ -248,4 +255,18 @@ func (r *ClientRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	}
 
 	return nil
+}
+
+// IsExcludedFromPotfile checks if a client has potfile exclusion enabled
+func (r *ClientRepository) IsExcludedFromPotfile(ctx context.Context, clientID uuid.UUID) (bool, error) {
+	query := `SELECT exclude_from_potfile FROM clients WHERE id = $1`
+	var excluded bool
+	err := r.db.QueryRowContext(ctx, query, clientID).Scan(&excluded)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return false, fmt.Errorf("client with ID %s not found: %w", clientID, ErrNotFound)
+		}
+		return false, fmt.Errorf("failed to check potfile exclusion for client %s: %w", clientID, err)
+	}
+	return excluded, nil
 }

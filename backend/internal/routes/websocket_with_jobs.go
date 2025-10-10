@@ -86,6 +86,7 @@ func SetupWebSocketWithJobRoutes(
 	fileRepo := repository.NewFileRepository(database, appConfig.DataDir)
 	deviceRepo := repository.NewAgentDeviceRepository(database)
 	scheduleRepo := repository.NewAgentScheduleRepository(database)
+	clientRepo := repository.NewClientRepository(database)
 
 	// Create services
 	jobExecutionService := services.NewJobExecutionService(
@@ -175,6 +176,7 @@ func SetupWebSocketWithJobRoutes(
 		jobTaskRepo,
 		agentRepo,
 		deviceRepo,
+		clientRepo,
 		systemSettingsRepo,
 		potfileService,
 		sqlDB,

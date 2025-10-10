@@ -190,6 +190,7 @@ func (h *ClientHandler) UpdateClient(w http.ResponseWriter, r *http.Request) {
 	client.Description = updates.Description
 	client.ContactInfo = updates.ContactInfo
 	client.DataRetentionMonths = updates.DataRetentionMonths // Will be handled correctly by repo (sets NULL if pointer is nil)
+	client.ExcludeFromPotfile = updates.ExcludeFromPotfile
 	// UpdatedAt will be set by repository
 
 	err = h.clientRepo.Update(r.Context(), client)

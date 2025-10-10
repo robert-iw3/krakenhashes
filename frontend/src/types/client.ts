@@ -7,6 +7,7 @@ export interface Client {
   description?: string;
   contactInfo?: string;
   dataRetentionMonths?: number | null; // Added: number of months, null means use default
+  exclude_from_potfile?: boolean; // Flag to exclude from potfile
   createdAt?: string; // Assuming ISO string format
   updatedAt?: string; // Assuming ISO string format
   cracked_count?: number; // Count of cracked hashes for this client

@@ -66,6 +66,7 @@ type Client struct {
 	Description         *string   `json:"description,omitempty"`         // Optional description (Use pointer for optional field)
 	ContactInfo         *string   `json:"contactInfo,omitempty"`         // Optional contact information (Use pointer for optional field)
 	DataRetentionMonths *int      `json:"dataRetentionMonths,omitempty"` // Use pointer for nullable INT (Keep forever=0, Use Default=NULL)
+	ExcludeFromPotfile  bool      `json:"exclude_from_potfile"`          // Flag to exclude cracked passwords from potfile
 	CreatedAt           time.Time `json:"createdAt"`                     // Timestamp of creation
 	UpdatedAt           time.Time `json:"updatedAt"`                     // Timestamp of last update
 	CrackedCount        *int      `json:"cracked_count,omitempty"`       // Count of cracked hashes for this client (computed field)

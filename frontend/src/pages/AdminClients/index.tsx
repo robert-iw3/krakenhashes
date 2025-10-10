@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { 
+import {
     Box, Typography, Button, Paper, CircularProgress, Alert,
-    Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, TextField 
+    Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, TextField, FormControlLabel, Checkbox
 } from '@mui/material';
 import { DataGrid, GridColDef, GridRowParams, GridActionsCellItem } from '@mui/x-data-grid';
 import AddIcon from '@mui/icons-material/Add';
@@ -20,7 +20,7 @@ export const AdminClients: React.FC = () => {
     const [isAddEditDialogOpen, setIsAddEditDialogOpen] = useState<boolean>(false);
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState<boolean>(false);
     const [selectedClient, setSelectedClient] = useState<Client | null>(null);
-    const [clientFormData, setClientFormData] = useState<Partial<Client>>({ name: '', description: '', contactInfo: '', dataRetentionMonths: null });
+    const [clientFormData, setClientFormData] = useState<Partial<Client>>({ name: '', description: '', contactInfo: '', dataRetentionMonths: null, exclude_from_potfile: false });
     const [formError, setFormError] = useState<string | null>(null);
     const [isSaving, setIsSaving] = useState<boolean>(false);
     const [defaultRetention, setDefaultRetention] = useState<string | null>(null);
@@ -151,13 +151,14 @@ export const AdminClients: React.FC = () => {
     
     const handleAddClick = () => {
         setSelectedClient(null);
-        setFormError(null); 
-        setClientFormData({ 
-          name: '', 
-          description: '', 
-          contactInfo: '', 
-          dataRetentionMonths: defaultRetention ? parseInt(defaultRetention, 10) : null 
-        }); 
+        setFormError(null);
+        setClientFormData({
+          name: '',
+          description: '',
+          contactInfo: '',
+          dataRetentionMonths: defaultRetention ? parseInt(defaultRetention, 10) : null,
+          exclude_from_potfile: false
+        });
         setIsAddEditDialogOpen(true);
     };
 
@@ -167,7 +168,8 @@ export const AdminClients: React.FC = () => {
             name: client.name,
             description: client.description || '',
             contactInfo: client.contactInfo || '',
-            dataRetentionMonths: client.dataRetentionMonths === undefined ? null : client.dataRetentionMonths 
+            dataRetentionMonths: client.dataRetentionMonths === undefined ? null : client.dataRetentionMonths,
+            exclude_from_potfile: client.exclude_from_potfile || false
         });
         setFormError(null);
         setIsAddEditDialogOpen(true);
@@ -186,10 +188,10 @@ export const AdminClients: React.FC = () => {
     };
 
     const handleFormChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-        const { name, value } = event.target;
+        const { name, value, type, checked } = event.target;
         setClientFormData(prev => ({
             ...prev,
-            [name]: name === 'dataRetentionMonths' ? (value === '' ? null : parseInt(value, 10)) : value
+            [name]: type === 'checkbox' ? checked : (name === 'dataRetentionMonths' ? (value === '' ? null : parseInt(value, 10)) : value)
         }));
     };
 
@@ -213,7 +215,8 @@ export const AdminClients: React.FC = () => {
             name: clientFormData.name,
             description: clientFormData.description || undefined,
             contactInfo: clientFormData.contactInfo || undefined,
-            dataRetentionMonths: clientFormData.dataRetentionMonths
+            dataRetentionMonths: clientFormData.dataRetentionMonths,
+            exclude_from_potfile: clientFormData.exclude_from_potfile
         };
 
         try {
@@ -341,11 +344,25 @@ export const AdminClients: React.FC = () => {
                         onChange={handleFormChange}
                         helperText="Leave empty to use system default. Enter 0 to keep forever."
                         InputProps={{
-                            inputProps: { 
-                                min: 0 
+                            inputProps: {
+                                min: 0
                             }
                         }}
                     />
+                    <FormControlLabel
+                        control={
+                            <Checkbox
+                                checked={clientFormData.exclude_from_potfile || false}
+                                onChange={handleFormChange}
+                                name="exclude_from_potfile"
+                            />
+                        }
+                        label="Exclude from potfile (don't save cracked passwords)"
+                        sx={{ mt: 2 }}
+                    />
+                    <Typography variant="caption" color="textSecondary" display="block" sx={{ ml: 4, mt: -1, mb: 2 }}>
+                        Enable this for clients with strict data retention requirements
+                    </Typography>
                 </DialogContent>
                 <DialogActions>
                     <Button onClick={handleCloseDialog} disabled={isSaving}>Cancel</Button>

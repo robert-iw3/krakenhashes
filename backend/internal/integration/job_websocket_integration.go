@@ -38,6 +38,7 @@ type JobWebSocketIntegration struct {
 	jobTaskRepo          *repository.JobTaskRepository
 	agentRepo            *repository.AgentRepository
 	deviceRepo           *repository.AgentDeviceRepository
+	clientRepo           *repository.ClientRepository
 	systemSettingsRepo   *repository.SystemSettingsRepository
 	potfileService       *services.PotfileService
 	db                   *sql.DB
@@ -65,6 +66,7 @@ func NewJobWebSocketIntegration(
 	jobTaskRepo *repository.JobTaskRepository,
 	agentRepo *repository.AgentRepository,
 	deviceRepo *repository.AgentDeviceRepository,
+	clientRepo *repository.ClientRepository,
 	systemSettingsRepo *repository.SystemSettingsRepository,
 	potfileService *services.PotfileService,
 	db *sql.DB,
@@ -84,6 +86,7 @@ func NewJobWebSocketIntegration(
 		jobTaskRepo:          jobTaskRepo,
 		agentRepo:            agentRepo,
 		deviceRepo:           deviceRepo,
+		clientRepo:           clientRepo,
 		systemSettingsRepo:   systemSettingsRepo,
 		potfileService:       potfileService,
 		db:                   db,
@@ -961,22 +964,42 @@ func (s *JobWebSocketIntegration) processCrackedHashes(ctx context.Context, task
 		})
 
 		// Stage password for pot-file (non-blocking)
-		// Check both global potfile setting AND per-hashlist exclusion
-		if s.potfileService != nil && s.systemSettingsRepo != nil && s.hashlistRepo != nil {
+		// Check global potfile setting, client-level exclusion, AND per-hashlist exclusion
+		if s.potfileService != nil && s.systemSettingsRepo != nil && s.hashlistRepo != nil && s.clientRepo != nil {
 			potfileEnabled, err := s.systemSettingsRepo.GetSetting(ctx, "potfile_enabled")
 			if err == nil && potfileEnabled != nil && potfileEnabled.Value != nil && *potfileEnabled.Value == "true" {
-				// Check if this specific hashlist is excluded from potfile
-				excluded, err := s.hashlistRepo.IsExcludedFromPotfile(ctx, jobExecution.HashlistID)
+				// Get hashlist to find client_id
+				hashlist, err := s.hashlistRepo.GetByID(ctx, jobExecution.HashlistID)
 				if err != nil {
-					debug.Warning("Failed to check hashlist potfile exclusion: %v", err)
-				} else if excluded {
-					debug.Info("Hashlist %d is excluded from potfile, skipping password staging", jobExecution.HashlistID)
+					debug.Warning("Failed to get hashlist for potfile check: %v", err)
 				} else {
-					// Both global and hashlist settings allow potfile - stage the password
-					if err := s.potfileService.StagePassword(ctx, password, hashValue); err != nil {
-						debug.Warning("Failed to stage password for pot-file: %v", err)
+					// Check if client has potfile excluded (if hashlist has a client)
+					clientExcluded := false
+					if hashlist.ClientID != uuid.Nil {
+						clientExcluded, err = s.clientRepo.IsExcludedFromPotfile(ctx, hashlist.ClientID)
+						if err != nil {
+							debug.Warning("Failed to check client potfile exclusion: %v", err)
+							clientExcluded = false // Default to not excluded on error
+						}
+					}
+
+					if clientExcluded {
+						debug.Info("Client %s is excluded from potfile, skipping password staging", hashlist.ClientID)
 					} else {
-						debug.Info("Successfully staged password for pot-file: hash=%s", hashValue)
+						// Check if this specific hashlist is excluded from potfile
+						hashlistExcluded, err := s.hashlistRepo.IsExcludedFromPotfile(ctx, jobExecution.HashlistID)
+						if err != nil {
+							debug.Warning("Failed to check hashlist potfile exclusion: %v", err)
+						} else if hashlistExcluded {
+							debug.Info("Hashlist %d is excluded from potfile, skipping password staging", jobExecution.HashlistID)
+						} else {
+							// All checks passed (global enabled, client not excluded, hashlist not excluded) - stage the password
+							if err := s.potfileService.StagePassword(ctx, password, hashValue); err != nil {
+								debug.Warning("Failed to stage password for pot-file: %v", err)
+							} else {
+								debug.Info("Successfully staged password for pot-file: hash=%s", hashValue)
+							}
+						}
 					}
 				}
 			}
