@@ -653,13 +653,13 @@ func (s *JobExecutionService) calculateEffectiveKeyspace(ctx context.Context, jo
 
 			job.BaseKeyspace = &baseKeyspace
 			job.MultiplicationFactor = totalRules
-			effectiveKeyspace := baseKeyspace * int64(totalRules)
-			job.EffectiveKeyspace = &effectiveKeyspace
+			job.IsAccurateKeyspace = false // Will be set by first agent benchmark
+			// Leave job.EffectiveKeyspace NULL - will be set from hashcat progress[1]
 
-			debug.Log("Straight attack with rules", map[string]interface{}{
-				"rule_files":         len(ruleFiles),
-				"total_rules":        totalRules,
-				"effective_keyspace": effectiveKeyspace,
+			debug.Log("Straight attack with rules - keyspace will be set by first benchmark", map[string]interface{}{
+				"rule_files":    len(ruleFiles),
+				"total_rules":   totalRules,
+				"base_keyspace": baseKeyspace,
 			})
 		} else {
 			// No rules, effective = base
@@ -695,13 +695,12 @@ func (s *JobExecutionService) calculateEffectiveKeyspace(ctx context.Context, jo
 				job.MultiplicationFactor = int(keyspace1)
 			}
 
-			effectiveKeyspace := keyspace1 * keyspace2
-			job.EffectiveKeyspace = &effectiveKeyspace
+			job.IsAccurateKeyspace = false // Will be set by first agent benchmark
+			// Leave job.EffectiveKeyspace NULL - will be set from hashcat progress[1]
 
-			debug.Log("Combination attack", map[string]interface{}{
+			debug.Log("Combination attack - keyspace will be set by first benchmark", map[string]interface{}{
 				"wordlist1_keyspace": keyspace1,
 				"wordlist2_keyspace": keyspace2,
-				"effective_keyspace": effectiveKeyspace,
 			})
 		} else {
 			// Not enough wordlists for combination
@@ -733,13 +732,12 @@ func (s *JobExecutionService) calculateEffectiveKeyspace(ctx context.Context, jo
 			baseKeyspace := int64(1)
 			job.BaseKeyspace = &baseKeyspace
 			job.MultiplicationFactor = totalRules
-			effectiveKeyspace := int64(totalRules)
-			job.EffectiveKeyspace = &effectiveKeyspace
+			job.IsAccurateKeyspace = false // Will be set by first agent benchmark
+			// Leave job.EffectiveKeyspace NULL - will be set from hashcat progress[1]
 
-			debug.Log("Association attack", map[string]interface{}{
-				"rule_files":         len(ruleFiles),
-				"total_rules":        totalRules,
-				"effective_keyspace": effectiveKeyspace,
+			debug.Log("Association attack - keyspace will be set by first benchmark", map[string]interface{}{
+				"rule_files":  len(ruleFiles),
+				"total_rules": totalRules,
 			})
 		} else {
 			baseKeyspace := int64(1)
