@@ -1143,19 +1143,20 @@ func (s *JobExecutionService) CreateJobTask(ctx context.Context, jobExecution *m
 			jobExecution.ID, effectiveEnd, *jobExecution.EffectiveKeyspace)
 	}
 
+	effectiveProcessed := int64(0)
 	jobTask := &models.JobTask{
-		JobExecutionID:           jobExecution.ID,
-		AgentID:                  &agent.ID,
-		Status:                   models.JobTaskStatusPending,
-		KeyspaceStart:            keyspaceStart,
-		KeyspaceEnd:              keyspaceEnd,
-		KeyspaceProcessed:        0,
-		EffectiveKeyspaceStart:   &effectiveStart,
-		EffectiveKeyspaceEnd:     &effectiveEnd,
-		EffectiveKeyspaceProcessed: 0,
-		BenchmarkSpeed:           benchmarkSpeed,
-		ChunkDuration:            chunkDuration,
-		IsActualKeyspace:         false, // Will be updated from hashcat progress[1]
+		JobExecutionID:             jobExecution.ID,
+		AgentID:                    &agent.ID,
+		Status:                     models.JobTaskStatusPending,
+		KeyspaceStart:              keyspaceStart,
+		KeyspaceEnd:                keyspaceEnd,
+		KeyspaceProcessed:          0,
+		EffectiveKeyspaceStart:     &effectiveStart,
+		EffectiveKeyspaceEnd:       &effectiveEnd,
+		EffectiveKeyspaceProcessed: &effectiveProcessed,
+		BenchmarkSpeed:             benchmarkSpeed,
+		ChunkDuration:              chunkDuration,
+		IsActualKeyspace:           false, // Will be updated from hashcat progress[1]
 	}
 
 	err := s.jobTaskRepo.Create(ctx, jobTask)
