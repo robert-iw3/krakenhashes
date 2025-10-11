@@ -658,20 +658,20 @@ func (s *JobWebSocketIntegration) HandleJobProgress(ctx context.Context, agentID
 		// This is the first update with hashcat's progress[1] - the true effective keyspace
 		totalEffectiveKeyspace := *progress.TotalEffectiveKeyspace
 
-		// For rule-split tasks, calculate this task's effective keyspace range
-		if task.IsRuleSplitTask && task.RuleStartIndex != nil && task.RuleEndIndex != nil {
-			// Get job execution to find base_keyspace and rule count
-			database := &db.DB{DB: s.db}
-			jobExecRepo := repository.NewJobExecutionRepository(database)
-			jobExec, err := jobExecRepo.GetByID(ctx, task.JobExecutionID)
-			if err == nil && jobExec.BaseKeyspace != nil && *jobExec.BaseKeyspace > 0 {
+		// Get job execution
+		database := &db.DB{DB: s.db}
+		jobExecRepo := repository.NewJobExecutionRepository(database)
+		jobExec, err := jobExecRepo.GetByID(ctx, task.JobExecutionID)
+		if err != nil {
+			debug.Warning("Failed to get job execution for keyspace update: error=%v", err)
+		} else {
+			// Update task-level effective keyspace
+			if task.IsRuleSplitTask && task.RuleStartIndex != nil && task.RuleEndIndex != nil && jobExec.BaseKeyspace != nil && *jobExec.BaseKeyspace > 0 {
 				baseKeyspace := *jobExec.BaseKeyspace
 				ruleStart := *task.RuleStartIndex
 				ruleEnd := *task.RuleEndIndex
 
 				// Calculate this task's effective keyspace range
-				// effective_start = base_keyspace * rule_start_index
-				// effective_end = base_keyspace * rule_end_index
 				effectiveStart := baseKeyspace * int64(ruleStart)
 				effectiveEnd := baseKeyspace * int64(ruleEnd)
 
@@ -683,18 +683,72 @@ func (s *JobWebSocketIntegration) HandleJobProgress(ctx context.Context, agentID
 					debug.Info("Updated task %s with actual effective keyspace: start=%d, end=%d, is_actual=true",
 						progress.TaskID, effectiveStart, effectiveEnd)
 				}
-			}
-		} else {
-			// Non-rule-split task: effective keyspace matches the total
-			effectiveStart := int64(0)
-			effectiveEnd := totalEffectiveKeyspace
 
-			err = s.jobTaskRepo.UpdateTaskEffectiveKeyspace(ctx, progress.TaskID, effectiveStart, effectiveEnd)
-			if err != nil {
-				debug.Warning("Failed to update task effective keyspace: task=%s, error=%v", progress.TaskID, err)
+				// Update job-level effective keyspace if not yet accurate
+				if !jobExec.IsAccurateKeyspace {
+					// Calculate full job effective keyspace from this task's chunk
+					// Per-rule keyspace = totalEffectiveKeyspace / rules_in_chunk
+					rulesInChunk := ruleEnd - ruleStart
+					if rulesInChunk > 0 {
+						perRuleKeyspace := totalEffectiveKeyspace / int64(rulesInChunk)
+						fullJobKeyspace := perRuleKeyspace * int64(jobExec.MultiplicationFactor)
+
+						jobExec.EffectiveKeyspace = &fullJobKeyspace
+						jobExec.IsAccurateKeyspace = true
+
+						// Calculate avg_rule_multiplier
+						if jobExec.BaseKeyspace != nil && *jobExec.BaseKeyspace > 0 {
+							multiplier := float64(fullJobKeyspace) /
+								float64(*jobExec.BaseKeyspace) /
+								float64(jobExec.MultiplicationFactor)
+							jobExec.AvgRuleMultiplier = &multiplier
+						}
+
+						// Update job in database
+						err = s.jobExecutionService.UpdateKeyspaceInfo(ctx, jobExec)
+						if err != nil {
+							debug.Warning("Failed to update job keyspace info: job=%s, error=%v", jobExec.ID, err)
+						} else {
+							debug.Info("Updated job %s with accurate effective keyspace from first progress: %d (avg_rule_multiplier: %.5f)",
+								jobExec.ID, fullJobKeyspace, *jobExec.AvgRuleMultiplier)
+						}
+					}
+				}
 			} else {
-				debug.Info("Updated task %s with actual effective keyspace: start=%d, end=%d, is_actual=true",
-					progress.TaskID, effectiveStart, effectiveEnd)
+				// Non-rule-split task: effective keyspace matches the total
+				effectiveStart := int64(0)
+				effectiveEnd := totalEffectiveKeyspace
+
+				err = s.jobTaskRepo.UpdateTaskEffectiveKeyspace(ctx, progress.TaskID, effectiveStart, effectiveEnd)
+				if err != nil {
+					debug.Warning("Failed to update task effective keyspace: task=%s, error=%v", progress.TaskID, err)
+				} else {
+					debug.Info("Updated task %s with actual effective keyspace: start=%d, end=%d, is_actual=true",
+						progress.TaskID, effectiveStart, effectiveEnd)
+				}
+
+				// Update job-level effective keyspace if not yet accurate
+				if !jobExec.IsAccurateKeyspace {
+					jobExec.EffectiveKeyspace = &totalEffectiveKeyspace
+					jobExec.IsAccurateKeyspace = true
+
+					// Calculate avg_rule_multiplier
+					if jobExec.BaseKeyspace != nil && *jobExec.BaseKeyspace > 0 && jobExec.MultiplicationFactor > 0 {
+						multiplier := float64(totalEffectiveKeyspace) /
+							float64(*jobExec.BaseKeyspace) /
+							float64(jobExec.MultiplicationFactor)
+						jobExec.AvgRuleMultiplier = &multiplier
+					}
+
+					// Update job in database
+					err = s.jobExecutionService.UpdateKeyspaceInfo(ctx, jobExec)
+					if err != nil {
+						debug.Warning("Failed to update job keyspace info: job=%s, error=%v", jobExec.ID, err)
+					} else {
+						debug.Info("Updated job %s with accurate effective keyspace from first progress: %d",
+							jobExec.ID, totalEffectiveKeyspace)
+					}
+				}
 			}
 		}
 	}
