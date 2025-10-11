@@ -1434,8 +1434,13 @@ func (s *JobExecutionService) UpdateRuleSplitting(ctx context.Context, jobID uui
 	if err != nil {
 		return fmt.Errorf("failed to get job execution: %w", err)
 	}
-	
+
 	job.UsesRuleSplitting = usesRuleSplitting
+	return s.jobExecRepo.UpdateKeyspaceInfo(ctx, job)
+}
+
+// UpdateKeyspaceInfo updates the keyspace information for a job execution
+func (s *JobExecutionService) UpdateKeyspaceInfo(ctx context.Context, job *models.JobExecution) error {
 	return s.jobExecRepo.UpdateKeyspaceInfo(ctx, job)
 }
 
