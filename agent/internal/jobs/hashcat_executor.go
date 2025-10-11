@@ -1113,7 +1113,7 @@ func (e *HashcatExecutor) RunSpeedTest(ctx context.Context, assignment *JobTaskA
 	// Build command similar to real job but without skip/limit and without --remove
 	cmd, _, _, _, err := e.buildHashcatCommandWithOptions(assignment, true)
 	if err != nil {
-		return 0, nil, fmt.Errorf("failed to build command: %w", err)
+		return 0, nil, 0, fmt.Errorf("failed to build command: %w", err)
 	}
 	
 	// Get the original args
@@ -1146,17 +1146,17 @@ func (e *HashcatExecutor) RunSpeedTest(ctx context.Context, assignment *JobTaskA
 	// Set up pipes for stdout/stderr
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return 0, nil, fmt.Errorf("failed to create stdout pipe: %w", err)
+		return 0, nil, 0, fmt.Errorf("failed to create stdout pipe: %w", err)
 	}
-	
+
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
-		return 0, nil, fmt.Errorf("failed to create stderr pipe: %w", err)
+		return 0, nil, 0, fmt.Errorf("failed to create stderr pipe: %w", err)
 	}
-	
+
 	// Start the command
 	if err := cmd.Start(); err != nil {
-		return 0, nil, fmt.Errorf("failed to start hashcat: %w", err)
+		return 0, nil, 0, fmt.Errorf("failed to start hashcat: %w", err)
 	}
 	
 	// Channel to collect status updates
