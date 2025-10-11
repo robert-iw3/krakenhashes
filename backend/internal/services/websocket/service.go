@@ -216,12 +216,13 @@ type TaskAssignmentPayload struct {
 
 // BenchmarkResultPayload represents benchmark results from an agent
 type BenchmarkResultPayload struct {
-	AttackMode   int           `json:"attack_mode"`
-	HashType     int           `json:"hash_type"`
-	Speed        int64         `json:"speed"`                   // Total hashes per second
-	DeviceSpeeds []DeviceSpeed `json:"device_speeds,omitempty"` // Per-device speeds
-	Success      bool          `json:"success"`
-	Error        string        `json:"error,omitempty"`
+	AttackMode             int           `json:"attack_mode"`
+	HashType               int           `json:"hash_type"`
+	Speed                  int64         `json:"speed"`                             // Total hashes per second
+	DeviceSpeeds           []DeviceSpeed `json:"device_speeds,omitempty"`           // Per-device speeds
+	TotalEffectiveKeyspace int64         `json:"total_effective_keyspace"`          // Hashcat progress[1] from full job run
+	Success                bool          `json:"success"`
+	Error                  string        `json:"error,omitempty"`
 }
 
 // DeviceSpeed represents speed for a single device
