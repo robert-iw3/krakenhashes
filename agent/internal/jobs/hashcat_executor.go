@@ -73,19 +73,21 @@ type DeviceMetric struct {
 
 // JobProgress represents progress updates sent to backend
 type JobProgress struct {
-	TaskID            string         `json:"task_id"`
-	KeyspaceProcessed int64          `json:"keyspace_processed"` // Restore point (position in wordlist)
-	EffectiveProgress int64          `json:"effective_progress"` // Actual effective progress (words × rules processed)
-	ProgressPercent   float64        `json:"progress_percent"`   // Actual progress percentage (0-100)
-	HashRate          int64          `json:"hash_rate"`         // Current hashes per second
-	Temperature       *float64       `json:"temperature"`       // GPU temperature (deprecated, use DeviceMetrics)
-	Utilization       *float64       `json:"utilization"`       // GPU utilization percentage (deprecated, use DeviceMetrics)
-	TimeRemaining     *int           `json:"time_remaining"`    // Estimated seconds remaining
-	CrackedCount      int            `json:"cracked_count"`     // Number of hashes cracked in this update
-	CrackedHashes     []CrackedHash  `json:"cracked_hashes"`    // Detailed crack information
-	Status            string         `json:"status,omitempty"`  // Task status (running, completed, failed)
-	ErrorMessage      string         `json:"error_message,omitempty"` // Error message if status is failed
-	DeviceMetrics     []DeviceMetric `json:"device_metrics,omitempty"` // Per-device metrics
+	TaskID                 string         `json:"task_id"`
+	KeyspaceProcessed      int64          `json:"keyspace_processed"`                   // Restore point (position in wordlist)
+	EffectiveProgress      int64          `json:"effective_progress"`                   // Actual effective progress (words × rules processed)
+	ProgressPercent        float64        `json:"progress_percent"`                     // Actual progress percentage (0-100)
+	TotalEffectiveKeyspace *int64         `json:"total_effective_keyspace,omitempty"`   // Only sent on first update - hashcat progress[1]
+	IsFirstUpdate          bool           `json:"is_first_update"`                      // Flag indicating this is the first progress update
+	HashRate               int64          `json:"hash_rate"`                            // Current hashes per second
+	Temperature            *float64       `json:"temperature"`                          // GPU temperature (deprecated, use DeviceMetrics)
+	Utilization            *float64       `json:"utilization"`                          // GPU utilization percentage (deprecated, use DeviceMetrics)
+	TimeRemaining          *int           `json:"time_remaining"`                       // Estimated seconds remaining
+	CrackedCount           int            `json:"cracked_count"`                        // Number of hashes cracked in this update
+	CrackedHashes          []CrackedHash  `json:"cracked_hashes"`                       // Detailed crack information
+	Status                 string         `json:"status,omitempty"`                     // Task status (running, completed, failed)
+	ErrorMessage           string         `json:"error_message,omitempty"`              // Error message if status is failed
+	DeviceMetrics          []DeviceMetric `json:"device_metrics,omitempty"`              // Per-device metrics
 }
 
 // CrackedHash represents a cracked hash with all available information
@@ -633,27 +635,36 @@ func (e *HashcatExecutor) runHashcatProcess(ctx context.Context, process *Hashca
 						if restorePoint, ok := status["restore_point"].(float64); ok {
 							keyspaceProcessed = int64(restorePoint)
 						}
-						
+
 						// Extract progress values for percentage calculation
 						var currentProgress, totalProgress int64
 						if current, ok := progressArr[0].(float64); ok {
 							currentProgress = int64(current)  // Current position (words * rules processed)
 						}
 						if total, ok := progressArr[1].(float64); ok {
-							totalProgress = int64(total)  // Total to process (total words * total rules)
+							totalProgress = int64(total)  // Total to process (total words * total rules) - this is progress[1]
 						}
-						
+
 						// Calculate progress percentage
 						var progressPercent float64
 						if totalProgress > 0 {
 							progressPercent = (float64(currentProgress) / float64(totalProgress)) * 100
 						}
-						
+
+						// Determine if this is the first progress update
+						isFirstUpdate := process.LastProgress == nil || process.LastProgress.EffectiveProgress == 0
+
 						progress := &JobProgress{
 							TaskID:            process.TaskID,
 							KeyspaceProcessed: keyspaceProcessed,  // Restore point (word position)
 							EffectiveProgress: currentProgress,     // Actual effective progress
 							ProgressPercent:   progressPercent,     // Actual progress percentage
+							IsFirstUpdate:     isFirstUpdate,       // Flag indicating first update
+						}
+
+						// On first update, include total effective keyspace from hashcat
+						if isFirstUpdate && totalProgress > 0 {
+							progress.TotalEffectiveKeyspace = &totalProgress  // Hashcat's progress[1]
 						}
 						
 						// Extract metrics from all devices
@@ -1094,7 +1105,8 @@ func (e *HashcatExecutor) ForceCleanup() error {
 }
 
 // RunSpeedTest runs a real-world speed test with actual job configuration
-func (e *HashcatExecutor) RunSpeedTest(ctx context.Context, assignment *JobTaskAssignment, testDuration int) (int64, []DeviceSpeed, error) {
+// Returns: totalSpeed (H/s), deviceSpeeds, totalEffectiveKeyspace (progress[1]), error
+func (e *HashcatExecutor) RunSpeedTest(ctx context.Context, assignment *JobTaskAssignment, testDuration int) (int64, []DeviceSpeed, int64, error) {
 	debug.Info("Running speed test for hash type %d, attack mode %d, duration %d seconds", 
 		assignment.HashType, assignment.AttackMode, testDuration)
 	
@@ -1213,19 +1225,21 @@ func (e *HashcatExecutor) RunSpeedTest(ctx context.Context, assignment *JobTaskA
 	var statusUpdates []string
 	var lastValidSpeed int64
 	var lastDeviceSpeeds []DeviceSpeed
+	var lastTotalEffectiveKeyspace int64
 	statusCollected := make(chan bool)
-	
+
 	go func() {
 		for {
 			select {
 			case status := <-statusChan:
 				debug.Debug("[Speed test] Received status update %d", len(statusUpdates)+1)
 				// Try to parse this status update immediately
-				speed, devSpeeds, err := e.parseSpeedFromJSON(status)
+				speed, devSpeeds, totalEffective, err := e.parseSpeedFromJSON(status)
 				if err == nil && speed > 0 {
 					lastValidSpeed = speed
 					lastDeviceSpeeds = devSpeeds
-					debug.Info("[Speed test] Parsed valid speed: %d H/s from update %d", speed, len(statusUpdates)+1)
+					lastTotalEffectiveKeyspace = totalEffective
+					debug.Info("[Speed test] Parsed valid speed: %d H/s, effective keyspace: %d from update %d", speed, totalEffective, len(statusUpdates)+1)
 				} else if err != nil {
 					debug.Warning("[Speed test] Failed to parse update %d: %v", len(statusUpdates)+1, err)
 				}
@@ -1277,24 +1291,24 @@ func (e *HashcatExecutor) RunSpeedTest(ctx context.Context, assignment *JobTaskA
 	if lastValidSpeed == 0 {
 		debug.Warning("[Speed test] No valid speed parsed during collection, checking stored updates")
 		if len(statusUpdates) == 0 {
-			return 0, nil, fmt.Errorf("no status updates received during speed test")
+			return 0, nil, 0, fmt.Errorf("no status updates received during speed test")
 		}
-		
+
 		// Try to parse from the best available update
 		// Use 3rd update if available, otherwise use the last update
 		statusIndex := len(statusUpdates) - 1
 		if len(statusUpdates) >= 3 {
 			statusIndex = 2 // Third update (0-indexed) for stability
 		}
-		
+
 		debug.Debug("[Speed test] Attempting to parse update %d of %d: %s", statusIndex+1, len(statusUpdates), statusUpdates[statusIndex])
-		totalSpeed, deviceSpeeds, err := e.parseSpeedFromJSON(statusUpdates[statusIndex])
+		totalSpeed, deviceSpeeds, totalEffective, err := e.parseSpeedFromJSON(statusUpdates[statusIndex])
 		if err != nil {
 			// Log the actual content that failed to parse
 			debug.Error("[Speed test] Failed to parse JSON from update %d. Content: %s", statusIndex+1, statusUpdates[statusIndex])
-			return 0, nil, fmt.Errorf("failed to parse speed from status: %w", err)
+			return 0, nil, 0, fmt.Errorf("failed to parse speed from status: %w", err)
 		}
-		
+
 		if totalSpeed == 0 {
 			// For exhausted jobs with only 1 update, this might be expected
 			debug.Warning("[Speed test] Speed is 0 H/s after %d updates - job may have exhausted immediately", len(statusUpdates))
@@ -1303,41 +1317,43 @@ func (e *HashcatExecutor) RunSpeedTest(ctx context.Context, assignment *JobTaskA
 				debug.Info("[Speed test] Using device speeds even though total is 0")
 			}
 		}
-		
+
 		lastValidSpeed = totalSpeed
 		lastDeviceSpeeds = deviceSpeeds
+		lastTotalEffectiveKeyspace = totalEffective
 	}
-	
-	debug.Info("Speed test completed: %d H/s total from %d updates", lastValidSpeed, len(statusUpdates))
-	return lastValidSpeed, lastDeviceSpeeds, nil
+
+	debug.Info("Speed test completed: %d H/s total, effective keyspace: %d from %d updates", lastValidSpeed, lastTotalEffectiveKeyspace, len(statusUpdates))
+	return lastValidSpeed, lastDeviceSpeeds, lastTotalEffectiveKeyspace, nil
 }
 
-// parseSpeedFromJSON parses device speeds from hashcat JSON status output
-func (e *HashcatExecutor) parseSpeedFromJSON(jsonStr string) (int64, []DeviceSpeed, error) {
+// parseSpeedFromJSON parses device speeds and effective keyspace from hashcat JSON status output
+func (e *HashcatExecutor) parseSpeedFromJSON(jsonStr string) (int64, []DeviceSpeed, int64, error) {
 	// Fix hashcat's invalid JSON - it outputs device_id with leading zeros like 01, 02
 	// which is invalid JSON. We need to fix these to be valid numbers.
 	fixedJSON := jsonStr
-	
+
 	// Use regex to fix device_id values with leading zeros
 	// This will convert "device_id": 01 to "device_id": 1
 	re := regexp.MustCompile(`"device_id":\s*0+(\d+)`)
 	fixedJSON = re.ReplaceAllString(fixedJSON, `"device_id": $1`)
-	
+
 	var status struct {
 		Devices []struct {
 			DeviceID   int    `json:"device_id"`
 			DeviceName string `json:"device_name"`
 			Speed      int64  `json:"speed"`
 		} `json:"devices"`
+		Progress [2]int64 `json:"progress"` // [current, total] - total is progress[1]
 	}
-	
+
 	if err := json.Unmarshal([]byte(fixedJSON), &status); err != nil {
-		return 0, nil, fmt.Errorf("failed to parse JSON: %w", err)
+		return 0, nil, 0, fmt.Errorf("failed to parse JSON: %w", err)
 	}
-	
+
 	var totalSpeed int64
 	var deviceSpeeds []DeviceSpeed
-	
+
 	for _, device := range status.Devices {
 		totalSpeed += device.Speed
 		deviceSpeeds = append(deviceSpeeds, DeviceSpeed{
@@ -1346,8 +1362,11 @@ func (e *HashcatExecutor) parseSpeedFromJSON(jsonStr string) (int64, []DeviceSpe
 			Speed:      device.Speed,
 		})
 	}
-	
-	return totalSpeed, deviceSpeeds, nil
+
+	// Extract total effective keyspace from progress[1]
+	totalEffectiveKeyspace := status.Progress[1]
+
+	return totalSpeed, deviceSpeeds, totalEffectiveKeyspace, nil
 }
 
 
