@@ -75,7 +75,8 @@ func (r *JobExecutionRepository) GetByID(ctx context.Context, id uuid.UUID) (*mo
 			je.completion_email_sent, je.completion_email_sent_at, je.completion_email_error,
 			je.wordlist_ids, je.rule_ids, je.mask, je.binary_version_id,
 			je.chunk_size_seconds, je.status_updates_enabled, je.allow_high_priority_override,
-			je.additional_args, je.hash_type, je.updated_at
+			je.additional_args, je.hash_type, je.updated_at,
+			je.avg_rule_multiplier, je.is_accurate_keyspace
 		FROM job_executions je
 		WHERE je.id = $1`
 
@@ -93,6 +94,7 @@ func (r *JobExecutionRepository) GetByID(ctx context.Context, id uuid.UUID) (*mo
 		&exec.WordlistIDs, &exec.RuleIDs, &exec.Mask, &exec.BinaryVersionID,
 		&exec.ChunkSizeSeconds, &exec.StatusUpdatesEnabled, &exec.AllowHighPriorityOverride,
 		&exec.AdditionalArgs, &exec.HashType, &exec.UpdatedAt,
+		&exec.AvgRuleMultiplier, &exec.IsAccurateKeyspace,
 	)
 
 	if err == sql.ErrNoRows {
@@ -558,15 +560,17 @@ func (r *JobExecutionRepository) UpdateKeyspaceInfo(ctx context.Context, job *mo
 	}
 
 	query := `
-		UPDATE job_executions 
-		SET base_keyspace = $1, 
-		    effective_keyspace = $2, 
+		UPDATE job_executions
+		SET base_keyspace = $1,
+		    effective_keyspace = $2,
 		    multiplication_factor = $3,
 		    uses_rule_splitting = $4,
 		    rule_split_count = $5,
 		    total_keyspace = $6,
+		    avg_rule_multiplier = $7,
+		    is_accurate_keyspace = $8,
 		    updated_at = CURRENT_TIMESTAMP
-		WHERE id = $7`
+		WHERE id = $9`
 
 	result, err := r.db.ExecContext(ctx, query,
 		job.BaseKeyspace,
@@ -575,6 +579,8 @@ func (r *JobExecutionRepository) UpdateKeyspaceInfo(ctx context.Context, job *mo
 		job.UsesRuleSplitting,
 		job.RuleSplitCount,
 		totalKeyspace,
+		job.AvgRuleMultiplier,
+		job.IsAccurateKeyspace,
 		job.ID,
 	)
 	if err != nil {

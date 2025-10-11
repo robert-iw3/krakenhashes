@@ -882,6 +882,61 @@ func (s *JobWebSocketIntegration) HandleBenchmarkResult(ctx context.Context, age
 		"speed":       result.Speed,
 	})
 
+	// Handle total effective keyspace from hashcat progress[1]
+	if result.TotalEffectiveKeyspace > 0 {
+		// Find the job this benchmark is for
+		// Get the next pending job for this agent (the one that requested the benchmark)
+		job, err := s.jobExecutionService.GetNextJobWithWork(ctx)
+		if err != nil || job == nil {
+			debug.Warning("Could not find job for benchmark result from agent %d: %v", agentID, err)
+			return nil // Don't fail - benchmark speed was still saved
+		}
+
+		// Use the JobExecution from the wrapper
+		jobExec := &job.JobExecution
+
+		// First benchmark for this job?
+		if jobExec.EffectiveKeyspace == nil || !jobExec.IsAccurateKeyspace {
+			// Set job-level effective keyspace from hashcat progress[1]
+			jobExec.EffectiveKeyspace = &result.TotalEffectiveKeyspace
+			jobExec.IsAccurateKeyspace = true
+
+			// Calculate avg_rule_multiplier for future task estimates
+			if jobExec.BaseKeyspace != nil && *jobExec.BaseKeyspace > 0 && jobExec.MultiplicationFactor > 0 {
+				multiplier := float64(result.TotalEffectiveKeyspace) /
+					float64(*jobExec.BaseKeyspace) /
+					float64(jobExec.MultiplicationFactor)
+				jobExec.AvgRuleMultiplier = &multiplier
+
+				debug.Info("Job %s: Set accurate effective keyspace from hashcat: %d (avg_rule_multiplier: %.5f)",
+					jobExec.ID, result.TotalEffectiveKeyspace, multiplier)
+			} else {
+				debug.Info("Job %s: Set accurate effective keyspace from hashcat: %d",
+					jobExec.ID, result.TotalEffectiveKeyspace)
+			}
+
+			// Update job in database
+			if err := s.jobExecutionService.UpdateKeyspaceInfo(ctx, jobExec); err != nil {
+				debug.Error("Failed to update job keyspace info: %v", err)
+				return fmt.Errorf("failed to update job keyspace info: %w", err)
+			}
+		} else {
+			// Subsequent benchmark - validate consistency (should match job total)
+			diff := result.TotalEffectiveKeyspace - *jobExec.EffectiveKeyspace
+			if diff < 0 {
+				diff = -diff // abs value
+			}
+			threshold := *jobExec.EffectiveKeyspace / 1000 // 0.1%
+
+			if diff > threshold {
+				debug.Warning("Agent %d benchmark differs from job total: observed=%d, expected=%d, diff=%d",
+					agentID, result.TotalEffectiveKeyspace, *jobExec.EffectiveKeyspace, diff)
+			} else {
+				debug.Info("Agent %d benchmark validates job effective keyspace (diff=%d)", agentID, diff)
+			}
+		}
+	}
+
 	return nil
 }
 
