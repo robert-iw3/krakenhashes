@@ -653,6 +653,52 @@ func (s *JobWebSocketIntegration) HandleJobProgress(ctx context.Context, agentID
 		}
 	}
 
+	// Handle first progress update with actual effective keyspace from hashcat
+	if progress.IsFirstUpdate && progress.TotalEffectiveKeyspace != nil && *progress.TotalEffectiveKeyspace > 0 {
+		// This is the first update with hashcat's progress[1] - the true effective keyspace
+		totalEffectiveKeyspace := *progress.TotalEffectiveKeyspace
+
+		// For rule-split tasks, calculate this task's effective keyspace range
+		if task.IsRuleSplitTask && task.RuleStartIndex != nil && task.RuleEndIndex != nil {
+			// Get job execution to find base_keyspace and rule count
+			database := &db.DB{DB: s.db}
+			jobExecRepo := repository.NewJobExecutionRepository(database)
+			jobExec, err := jobExecRepo.GetByID(ctx, task.JobExecutionID)
+			if err == nil && jobExec.BaseKeyspace != nil && *jobExec.BaseKeyspace > 0 {
+				baseKeyspace := *jobExec.BaseKeyspace
+				ruleStart := *task.RuleStartIndex
+				ruleEnd := *task.RuleEndIndex
+
+				// Calculate this task's effective keyspace range
+				// effective_start = base_keyspace * rule_start_index
+				// effective_end = base_keyspace * rule_end_index
+				effectiveStart := baseKeyspace * int64(ruleStart)
+				effectiveEnd := baseKeyspace * int64(ruleEnd)
+
+				// Update task with actual effective keyspace
+				err = s.jobTaskRepo.UpdateTaskEffectiveKeyspace(ctx, progress.TaskID, effectiveStart, effectiveEnd)
+				if err != nil {
+					debug.Warning("Failed to update task effective keyspace: task=%s, error=%v", progress.TaskID, err)
+				} else {
+					debug.Info("Updated task %s with actual effective keyspace: start=%d, end=%d, is_actual=true",
+						progress.TaskID, effectiveStart, effectiveEnd)
+				}
+			}
+		} else {
+			// Non-rule-split task: effective keyspace matches the total
+			effectiveStart := int64(0)
+			effectiveEnd := totalEffectiveKeyspace
+
+			err = s.jobTaskRepo.UpdateTaskEffectiveKeyspace(ctx, progress.TaskID, effectiveStart, effectiveEnd)
+			if err != nil {
+				debug.Warning("Failed to update task effective keyspace: task=%s, error=%v", progress.TaskID, err)
+			} else {
+				debug.Info("Updated task %s with actual effective keyspace: start=%d, end=%d, is_actual=true",
+					progress.TaskID, effectiveStart, effectiveEnd)
+			}
+		}
+	}
+
 	// Store progress in memory
 	s.progressMutex.Lock()
 	s.taskProgressMap[progress.TaskID.String()] = progress
