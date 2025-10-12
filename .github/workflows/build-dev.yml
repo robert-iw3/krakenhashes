@@ -146,13 +146,17 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Generate lowercase image name
+        id: image
+        run: echo "name=$(echo ${{ env.IMAGE_NAME }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
       - name: Build and push dev Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
           file: ./Dockerfile.prod
           push: true
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev
+          tags: ${{ env.REGISTRY }}/${{ steps.image.outputs.name }}:dev
           labels: |
             org.opencontainers.image.description=KrakenHashes - Password Cracking Management System (Development Build)
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
@@ -162,10 +166,11 @@ jobs:
 
       - name: Image information
         run: |
+          IMAGE_NAME=$(echo ${{ env.IMAGE_NAME }} | tr '[:upper:]' '[:lower:]')
           echo "✅ Dev image built and pushed successfully!"
           echo ""
-          echo "Docker image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev"
-          echo "Pull with: docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev"
+          echo "Docker image: ${{ env.REGISTRY }}/${IMAGE_NAME}:dev"
+          echo "Pull with: docker pull ${{ env.REGISTRY }}/${IMAGE_NAME}:dev"
           echo ""
           echo "Commit: ${{ github.sha }}"
           echo "Branch: ${{ github.ref_name }}"
