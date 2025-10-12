@@ -303,6 +303,68 @@ func (s *JobSchedulingService) assignWorkToAgent(ctx context.Context, agent *mod
 	// and only runs when no agents are available
 	var interruptedJobs []uuid.UUID
 
+	// Check for stale benchmark requests (timeout after 5 minutes)
+	if agent.Metadata != nil {
+		if requestedAt, exists := agent.Metadata["benchmark_requested_at"]; exists {
+			if parsedTime, err := time.Parse(time.RFC3339, requestedAt); err == nil {
+				if time.Since(parsedTime) > 5*time.Minute {
+					debug.Warning("Benchmark request for agent %d timed out after 5 minutes, clearing and retrying", agent.ID)
+					delete(agent.Metadata, "pending_benchmark_job")
+					delete(agent.Metadata, "benchmark_requested_at")
+					s.agentRepo.Update(ctx, agent)
+					// Will retry benchmark below if needed
+				}
+			}
+		}
+	}
+
+	// Check if this job needs a forced benchmark before first task assignment
+	if !nextJob.IsAccurateKeyspace {
+		// Check if any tasks have been created for this job yet
+		taskCount, err := s.jobExecutionService.jobTaskRepo.GetTaskCountForJob(ctx, nextJob.ID)
+		if err != nil {
+			debug.Warning("Failed to check task count for job %s: %v", nextJob.ID, err)
+		} else if taskCount == 0 {
+			// This is the first task assignment - force a benchmark
+			debug.Info("Job %s needs forced benchmark before first task assignment", nextJob.ID)
+
+			// Check if benchmark is already pending/in-progress for this job
+			if agent.Metadata != nil {
+				if pendingBench, exists := agent.Metadata["pending_benchmark_job"]; exists && pendingBench == nextJob.ID.String() {
+					debug.Info("Benchmark already pending for job %s on agent %d, waiting...", nextJob.ID, agent.ID)
+					return nil, nil, nil // Benchmark in progress, don't assign yet
+				}
+			}
+
+			// Mark agent as having pending benchmark for this job
+			if agent.Metadata == nil {
+				agent.Metadata = make(map[string]string)
+			}
+			agent.Metadata["pending_benchmark_job"] = nextJob.ID.String()
+			agent.Metadata["benchmark_requested_at"] = time.Now().Format(time.RFC3339)
+			err = s.agentRepo.Update(ctx, agent)
+			if err != nil {
+				debug.Warning("Failed to update agent metadata for benchmark: %v", err)
+			}
+
+			// Send benchmark request to agent
+			err = s.wsIntegration.RequestAgentBenchmark(ctx, agent.ID, nextJob)
+			if err != nil {
+				// Failed to send benchmark - clear metadata and fall back to estimation
+				debug.Error("Failed to send benchmark request for job %s to agent %d: %v", nextJob.ID, agent.ID, err)
+				if agent.Metadata != nil {
+					delete(agent.Metadata, "pending_benchmark_job")
+					delete(agent.Metadata, "benchmark_requested_at")
+					s.agentRepo.Update(ctx, agent)
+				}
+				// Continue with task assignment using estimated keyspace
+			} else {
+				debug.Info("Sent forced benchmark request for job %s to agent %d", nextJob.ID, agent.ID)
+				return nil, nil, nil // Wait for benchmark to complete before assigning task
+			}
+		}
+	}
+
 	// Ensure the hashlist is available on the agent
 	debug.Log("Syncing hashlist to agent", map[string]interface{}{
 		"agent_id":    agent.ID,

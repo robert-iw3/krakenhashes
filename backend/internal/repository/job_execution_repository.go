@@ -75,7 +75,8 @@ func (r *JobExecutionRepository) GetByID(ctx context.Context, id uuid.UUID) (*mo
 			je.completion_email_sent, je.completion_email_sent_at, je.completion_email_error,
 			je.wordlist_ids, je.rule_ids, je.mask, je.binary_version_id,
 			je.chunk_size_seconds, je.status_updates_enabled, je.allow_high_priority_override,
-			je.additional_args, je.hash_type, je.updated_at
+			je.additional_args, je.hash_type, je.updated_at,
+			je.avg_rule_multiplier, je.is_accurate_keyspace
 		FROM job_executions je
 		WHERE je.id = $1`
 
@@ -93,6 +94,7 @@ func (r *JobExecutionRepository) GetByID(ctx context.Context, id uuid.UUID) (*mo
 		&exec.WordlistIDs, &exec.RuleIDs, &exec.Mask, &exec.BinaryVersionID,
 		&exec.ChunkSizeSeconds, &exec.StatusUpdatesEnabled, &exec.AllowHighPriorityOverride,
 		&exec.AdditionalArgs, &exec.HashType, &exec.UpdatedAt,
+		&exec.AvgRuleMultiplier, &exec.IsAccurateKeyspace,
 	)
 
 	if err == sql.ErrNoRows {
@@ -115,6 +117,7 @@ func (r *JobExecutionRepository) GetPendingJobs(ctx context.Context) ([]models.J
 			je.consecutive_failures,
 			je.max_agents, je.updated_at,
 			je.base_keyspace, je.effective_keyspace, je.multiplication_factor,
+			je.is_accurate_keyspace, je.avg_rule_multiplier,
 			je.uses_rule_splitting, je.rule_split_count,
 			je.overall_progress_percent, je.last_progress_update,
 			je.dispatched_keyspace,
@@ -142,6 +145,7 @@ func (r *JobExecutionRepository) GetPendingJobs(ctx context.Context) ([]models.J
 			&exec.ConsecutiveFailures,
 			&exec.MaxAgents, &exec.UpdatedAt,
 			&exec.BaseKeyspace, &exec.EffectiveKeyspace, &exec.MultiplicationFactor,
+			&exec.IsAccurateKeyspace, &exec.AvgRuleMultiplier,
 			&exec.UsesRuleSplitting, &exec.RuleSplitCount,
 			&exec.OverallProgressPercent, &exec.LastProgressUpdate,
 			&exec.DispatchedKeyspace,
@@ -403,13 +407,14 @@ func (r *JobExecutionRepository) InterruptExecution(ctx context.Context, id uuid
 // Returns jobs ordered by priority DESC (highest first)
 func (r *JobExecutionRepository) GetPendingJobsWithHighPriorityOverride(ctx context.Context) ([]models.JobExecution, error) {
 	query := `
-		SELECT 
+		SELECT
 			id, preset_job_id, hashlist_id, status, priority,
 			total_keyspace, processed_keyspace, attack_mode, created_by,
 			created_at, started_at, completed_at, error_message, interrupted_by,
 			consecutive_failures,
 			max_agents, updated_at,
 			base_keyspace, effective_keyspace, multiplication_factor,
+			is_accurate_keyspace, avg_rule_multiplier,
 			uses_rule_splitting, rule_split_count,
 			overall_progress_percent, last_progress_update,
 			dispatched_keyspace,
@@ -438,6 +443,7 @@ func (r *JobExecutionRepository) GetPendingJobsWithHighPriorityOverride(ctx cont
 			&exec.ConsecutiveFailures,
 			&exec.MaxAgents, &exec.UpdatedAt,
 			&exec.BaseKeyspace, &exec.EffectiveKeyspace, &exec.MultiplicationFactor,
+			&exec.IsAccurateKeyspace, &exec.AvgRuleMultiplier,
 			&exec.UsesRuleSplitting, &exec.RuleSplitCount,
 			&exec.OverallProgressPercent, &exec.LastProgressUpdate,
 			&exec.DispatchedKeyspace,
@@ -558,15 +564,17 @@ func (r *JobExecutionRepository) UpdateKeyspaceInfo(ctx context.Context, job *mo
 	}
 
 	query := `
-		UPDATE job_executions 
-		SET base_keyspace = $1, 
-		    effective_keyspace = $2, 
+		UPDATE job_executions
+		SET base_keyspace = $1,
+		    effective_keyspace = $2,
 		    multiplication_factor = $3,
 		    uses_rule_splitting = $4,
 		    rule_split_count = $5,
 		    total_keyspace = $6,
+		    avg_rule_multiplier = $7,
+		    is_accurate_keyspace = $8,
 		    updated_at = CURRENT_TIMESTAMP
-		WHERE id = $7`
+		WHERE id = $9`
 
 	result, err := r.db.ExecContext(ctx, query,
 		job.BaseKeyspace,
@@ -575,6 +583,8 @@ func (r *JobExecutionRepository) UpdateKeyspaceInfo(ctx context.Context, job *mo
 		job.UsesRuleSplitting,
 		job.RuleSplitCount,
 		totalKeyspace,
+		job.AvgRuleMultiplier,
+		job.IsAccurateKeyspace,
 		job.ID,
 	)
 	if err != nil {
@@ -684,6 +694,7 @@ func (r *JobExecutionRepository) GetJobsWithPendingWork(ctx context.Context) ([]
 			je.consecutive_failures,
 			COALESCE(je.max_agents, 999) as max_agents, je.updated_at,
 			je.base_keyspace, je.effective_keyspace, je.multiplication_factor,
+			je.is_accurate_keyspace, je.avg_rule_multiplier,
 			je.uses_rule_splitting, je.rule_split_count,
 			je.overall_progress_percent, je.last_progress_update,
 			je.dispatched_keyspace,
@@ -733,6 +744,7 @@ func (r *JobExecutionRepository) GetJobsWithPendingWork(ctx context.Context) ([]
 			&exec.ConsecutiveFailures,
 			&exec.MaxAgents, &exec.UpdatedAt,
 			&exec.BaseKeyspace, &exec.EffectiveKeyspace, &exec.MultiplicationFactor,
+			&exec.IsAccurateKeyspace, &exec.AvgRuleMultiplier,
 			&exec.UsesRuleSplitting, &exec.RuleSplitCount,
 			&exec.OverallProgressPercent, &exec.LastProgressUpdate,
 			&exec.DispatchedKeyspace,

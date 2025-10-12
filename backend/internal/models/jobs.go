@@ -158,11 +158,13 @@ type JobExecution struct {
 	AdditionalArgs            *string `json:"additional_args,omitempty" db:"additional_args"`
 
 	// Enhanced chunking fields
-	BaseKeyspace         *int64 `json:"base_keyspace" db:"base_keyspace"`                 // Wordlist-only keyspace
-	EffectiveKeyspace    *int64 `json:"effective_keyspace" db:"effective_keyspace"`       // Base × multiplication factor
-	MultiplicationFactor int    `json:"multiplication_factor" db:"multiplication_factor"` // Rules count or second wordlist size
-	UsesRuleSplitting    bool   `json:"uses_rule_splitting" db:"uses_rule_splitting"`     // Whether this job uses rule splitting
-	RuleSplitCount       int    `json:"rule_split_count" db:"rule_split_count"`           // Number of rule chunks created
+	BaseKeyspace         *int64   `json:"base_keyspace" db:"base_keyspace"`                 // Wordlist-only keyspace
+	EffectiveKeyspace    *int64   `json:"effective_keyspace" db:"effective_keyspace"`       // Base × multiplication factor (or from hashcat progress[1])
+	MultiplicationFactor int      `json:"multiplication_factor" db:"multiplication_factor"` // Rules count or second wordlist size
+	AvgRuleMultiplier    *float64 `json:"avg_rule_multiplier" db:"avg_rule_multiplier"`     // Actual effectiveness from hashcat: effective/base/rules
+	IsAccurateKeyspace   bool     `json:"is_accurate_keyspace" db:"is_accurate_keyspace"`   // TRUE if effective_keyspace from hashcat progress[1]
+	UsesRuleSplitting    bool     `json:"uses_rule_splitting" db:"uses_rule_splitting"`     // Whether this job uses rule splitting
+	RuleSplitCount       int      `json:"rule_split_count" db:"rule_split_count"`           // Number of rule chunks created
 
 	// Progress tracking
 	OverallProgressPercent float64    `json:"overall_progress_percent" db:"overall_progress_percent"` // Overall job progress (0-100)
@@ -199,10 +201,11 @@ type JobTask struct {
 	KeyspaceStart           int64   `json:"keyspace_start" db:"keyspace_start"`
 	KeyspaceEnd             int64   `json:"keyspace_end" db:"keyspace_end"`
 	KeyspaceProcessed       int64   `json:"keyspace_processed" db:"keyspace_processed"`
-	EffectiveKeyspaceStart  *int64  `json:"effective_keyspace_start" db:"effective_keyspace_start"`   // For rule splitting: base_keyspace * rule_start_index
-	EffectiveKeyspaceEnd    *int64  `json:"effective_keyspace_end" db:"effective_keyspace_end"`       // For rule splitting: base_keyspace * rule_end_index  
-	EffectiveKeyspaceProcessed *int64 `json:"effective_keyspace_processed" db:"effective_keyspace_processed"` // Actual effective progress
-	ProgressPercent         float64 `json:"progress_percent" db:"progress_percent"` // Task progress percentage (0-100)
+	EffectiveKeyspaceStart     *int64  `json:"effective_keyspace_start" db:"effective_keyspace_start"`         // For rule splitting: base_keyspace * rule_start_index (estimate or actual)
+	EffectiveKeyspaceEnd       *int64  `json:"effective_keyspace_end" db:"effective_keyspace_end"`             // For rule splitting: base_keyspace * rule_end_index (estimate or actual)
+	EffectiveKeyspaceProcessed *int64  `json:"effective_keyspace_processed" db:"effective_keyspace_processed"` // Actual effective progress
+	IsActualKeyspace           bool    `json:"is_actual_keyspace" db:"is_actual_keyspace"`                     // TRUE if effective ranges from hashcat progress[1]
+	ProgressPercent            float64 `json:"progress_percent" db:"progress_percent"`                         // Task progress percentage (0-100)
 	BenchmarkSpeed    *int64        `json:"benchmark_speed" db:"benchmark_speed"`   // hashes per second (current/last reported)
 	AverageSpeed      *int64        `json:"average_speed" db:"average_speed"`       // time-weighted average hashes per second
 	ChunkDuration     int           `json:"chunk_duration" db:"chunk_duration"`     // seconds
@@ -343,19 +346,21 @@ type DeviceMetric struct {
 
 // JobProgress represents a progress update from an agent
 type JobProgress struct {
-	TaskID            uuid.UUID      `json:"task_id"`
-	KeyspaceProcessed int64          `json:"keyspace_processed"`      // Restore point (position in wordlist)
-	EffectiveProgress int64          `json:"effective_progress"`      // Actual effective progress (words × rules processed)
-	ProgressPercent   float64        `json:"progress_percent"`        // Actual progress percentage (0-100)
-	HashRate          int64          `json:"hash_rate"`               // Current hashes per second
-	Temperature       *float64       `json:"temperature"`             // GPU temperature (deprecated, use DeviceMetrics)
-	Utilization       *float64       `json:"utilization"`             // GPU utilization percentage (deprecated, use DeviceMetrics)
-	TimeRemaining     *int           `json:"time_remaining"`          // Estimated seconds remaining
-	CrackedCount      int            `json:"cracked_count"`           // Number of hashes cracked in this update
-	CrackedHashes     []CrackedHash  `json:"cracked_hashes"`          // Detailed crack information
-	Status            string         `json:"status,omitempty"`        // Task status (running, completed, failed)
-	ErrorMessage      string         `json:"error_message,omitempty"` // Error message if status is failed
-	DeviceMetrics     []DeviceMetric `json:"device_metrics,omitempty"` // Per-device metrics
+	TaskID                 uuid.UUID      `json:"task_id"`
+	KeyspaceProcessed      int64          `json:"keyspace_processed"`                   // Restore point (position in wordlist)
+	EffectiveProgress      int64          `json:"effective_progress"`                   // Actual effective progress (words × rules processed)
+	ProgressPercent        float64        `json:"progress_percent"`                     // Actual progress percentage (0-100)
+	TotalEffectiveKeyspace *int64         `json:"total_effective_keyspace,omitempty"`   // Only sent on first update - hashcat progress[1]
+	IsFirstUpdate          bool           `json:"is_first_update"`                      // Flag indicating this is the first progress update
+	HashRate               int64          `json:"hash_rate"`                            // Current hashes per second
+	Temperature            *float64       `json:"temperature"`                          // GPU temperature (deprecated, use DeviceMetrics)
+	Utilization            *float64       `json:"utilization"`                          // GPU utilization percentage (deprecated, use DeviceMetrics)
+	TimeRemaining          *int           `json:"time_remaining"`                       // Estimated seconds remaining
+	CrackedCount           int            `json:"cracked_count"`                        // Number of hashes cracked in this update
+	CrackedHashes          []CrackedHash  `json:"cracked_hashes"`                       // Detailed crack information
+	Status                 string         `json:"status,omitempty"`                     // Task status (running, completed, failed)
+	ErrorMessage           string         `json:"error_message,omitempty"`              // Error message if status is failed
+	DeviceMetrics          []DeviceMetric `json:"device_metrics,omitempty"`              // Per-device metrics
 }
 
 // CrackedHash represents a cracked hash with all available information

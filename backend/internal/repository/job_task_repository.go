@@ -28,13 +28,13 @@ func (r *JobTaskRepository) Create(ctx context.Context, task *models.JobTask) er
 	query := `
 		INSERT INTO job_tasks (
 			job_execution_id, agent_id, status, priority, attack_cmd,
-			keyspace_start, keyspace_end, keyspace_processed, 
+			keyspace_start, keyspace_end, keyspace_processed,
 			effective_keyspace_start, effective_keyspace_end, effective_keyspace_processed,
 			benchmark_speed, chunk_duration,
 			rule_start_index, rule_end_index, rule_chunk_path, is_rule_split_task,
-			chunk_number
+			chunk_number, is_actual_keyspace
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
 		RETURNING id, assigned_at, created_at, updated_at`
 
 	err := r.db.QueryRowContext(ctx, query,
@@ -56,6 +56,7 @@ func (r *JobTaskRepository) Create(ctx context.Context, task *models.JobTask) er
 		task.RuleChunkPath,
 		task.IsRuleSplitTask,
 		task.ChunkNumber,
+		task.IsActualKeyspace,
 	).Scan(&task.ID, &task.AssignedAt, &task.CreatedAt, &task.UpdatedAt)
 
 	if err != nil {
@@ -78,13 +79,13 @@ func (r *JobTaskRepository) CreateWithRuleSplitting(ctx context.Context, task *m
 	query := `
 		INSERT INTO job_tasks (
 			job_execution_id, agent_id, status, priority, attack_cmd,
-			keyspace_start, keyspace_end, keyspace_processed, 
+			keyspace_start, keyspace_end, keyspace_processed,
 			effective_keyspace_start, effective_keyspace_end, effective_keyspace_processed,
 			benchmark_speed, chunk_duration,
 			rule_start_index, rule_end_index, rule_chunk_path, is_rule_split_task,
-			chunk_number
+			chunk_number, is_actual_keyspace
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
 		RETURNING id, assigned_at, created_at, updated_at`
 
 	err := r.db.QueryRowContext(ctx, query,
@@ -106,6 +107,7 @@ func (r *JobTaskRepository) CreateWithRuleSplitting(ctx context.Context, task *m
 		task.RuleChunkPath,
 		task.IsRuleSplitTask,
 		task.ChunkNumber,
+		task.IsActualKeyspace,
 	).Scan(&task.ID, &task.AssignedAt, &task.CreatedAt, &task.UpdatedAt)
 
 	if err != nil {
@@ -1323,6 +1325,33 @@ func (r *JobTaskRepository) GetTasksByAgentAndStatus(ctx context.Context, agentI
 	return taskIDs, nil
 }
 
+// UpdateTaskEffectiveKeyspace updates the effective keyspace for a task with actual values from hashcat
+func (r *JobTaskRepository) UpdateTaskEffectiveKeyspace(ctx context.Context, taskID uuid.UUID, effectiveKeyspaceStart, effectiveKeyspaceEnd int64) error {
+	query := `
+		UPDATE job_tasks
+		SET effective_keyspace_start = $2,
+		    effective_keyspace_end = $3,
+		    is_actual_keyspace = true,
+		    updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1`
+
+	result, err := r.db.ExecContext(ctx, query, taskID, effectiveKeyspaceStart, effectiveKeyspaceEnd)
+	if err != nil {
+		return fmt.Errorf("failed to update task effective keyspace: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return ErrNotFound
+	}
+
+	return nil
+}
+
 // CalculateAndStoreAverageSpeed calculates the time-weighted average speed for a task and stores it
 func (r *JobTaskRepository) CalculateAndStoreAverageSpeed(ctx context.Context, taskID uuid.UUID) error {
 	// Query all speed metrics for this task from agent_performance_metrics
@@ -1402,4 +1431,17 @@ func (r *JobTaskRepository) CalculateAndStoreAverageSpeed(ctx context.Context, t
 	}
 
 	return nil
+}
+
+// GetTaskCountForJob returns the number of tasks (all statuses) for a job
+func (r *JobTaskRepository) GetTaskCountForJob(ctx context.Context, jobExecutionID uuid.UUID) (int, error) {
+	query := `SELECT COUNT(*) FROM job_tasks WHERE job_execution_id = $1`
+
+	var count int
+	err := r.db.QueryRowContext(ctx, query, jobExecutionID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get task count: %w", err)
+	}
+
+	return count, nil
 }

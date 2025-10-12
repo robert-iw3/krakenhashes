@@ -107,6 +107,7 @@ type CurrentTaskStatusPayload struct {
 // BenchmarkRequest represents a request to test speed for a specific job configuration
 type BenchmarkRequest struct {
 	RequestID       string             `json:"request_id"`
+	JobExecutionID  string             `json:"job_execution_id"` // Job execution ID for tracking results
 	TaskID          string             `json:"task_id"`
 	HashlistID      int64              `json:"hashlist_id"`
 	HashlistPath    string             `json:"hashlist_path"`
@@ -125,6 +126,7 @@ type BenchmarkRequest struct {
 // BenchmarkResult represents the result of a speed test
 type BenchmarkResult struct {
 	RequestID      string              `json:"request_id"`
+	JobExecutionID string              `json:"job_execution_id"`  // Job execution ID to match with request
 	TaskID         string              `json:"task_id"`
 	TotalSpeed     int64               `json:"total_speed"` // Total H/s across all devices
 	DeviceSpeeds   []jobs.DeviceSpeed  `json:"device_speeds"`
@@ -1224,12 +1226,13 @@ func (c *Connection) readPump() {
 						debug.Error("Failed to get data directories: %v", err)
 						// Send failure result
 						resultPayload := map[string]interface{}{
-							"attack_mode":   benchmarkPayload.AttackMode,
-							"hash_type":     benchmarkPayload.HashType,
-							"speed":         int64(0),
-							"device_speeds": []jobs.DeviceSpeed{},
-							"success":       false,
-							"error":         fmt.Sprintf("Failed to get data directories: %v", err),
+							"job_execution_id": benchmarkPayload.JobExecutionID,
+							"attack_mode":      benchmarkPayload.AttackMode,
+							"hash_type":        benchmarkPayload.HashType,
+							"speed":            int64(0),
+							"device_speeds":    []jobs.DeviceSpeed{},
+							"success":          false,
+							"error":            fmt.Sprintf("Failed to get data directories: %v", err),
 						}
 						payloadBytes, _ := json.Marshal(resultPayload)
 						response := WSMessage{
@@ -1249,12 +1252,13 @@ func (c *Connection) readPump() {
 						debug.Error("Failed to load agent credentials: %v", err)
 						// Send failure result
 						resultPayload := map[string]interface{}{
-							"attack_mode":   benchmarkPayload.AttackMode,
-							"hash_type":     benchmarkPayload.HashType,
-							"speed":         int64(0),
-							"device_speeds": []jobs.DeviceSpeed{},
-							"success":       false,
-							"error":         fmt.Sprintf("Failed to load agent credentials: %v", err),
+							"job_execution_id": benchmarkPayload.JobExecutionID,
+							"attack_mode":      benchmarkPayload.AttackMode,
+							"hash_type":        benchmarkPayload.HashType,
+							"speed":            int64(0),
+							"device_speeds":    []jobs.DeviceSpeed{},
+							"success":          false,
+							"error":            fmt.Sprintf("Failed to load agent credentials: %v", err),
 						}
 						payloadBytes, _ := json.Marshal(resultPayload)
 						response := WSMessage{
@@ -1273,12 +1277,13 @@ func (c *Connection) readPump() {
 						debug.Error("Failed to initialize file sync: %v", err)
 						// Send failure result
 						resultPayload := map[string]interface{}{
-							"attack_mode":   benchmarkPayload.AttackMode,
-							"hash_type":     benchmarkPayload.HashType,
-							"speed":         int64(0),
-							"device_speeds": []jobs.DeviceSpeed{},
-							"success":       false,
-							"error":         fmt.Sprintf("Failed to initialize file sync: %v", err),
+							"job_execution_id": benchmarkPayload.JobExecutionID,
+							"attack_mode":      benchmarkPayload.AttackMode,
+							"hash_type":        benchmarkPayload.HashType,
+							"speed":            int64(0),
+							"device_speeds":    []jobs.DeviceSpeed{},
+							"success":          false,
+							"error":            fmt.Sprintf("Failed to initialize file sync: %v", err),
 						}
 						payloadBytes, _ := json.Marshal(resultPayload)
 						response := WSMessage{
@@ -1318,12 +1323,13 @@ func (c *Connection) readPump() {
 							debug.Error("Failed to download hashlist for benchmark: %v", err)
 							// Send failure result
 							resultPayload := map[string]interface{}{
-								"attack_mode":   benchmarkPayload.AttackMode,
-								"hash_type":     benchmarkPayload.HashType,
-								"speed":         int64(0),
-								"device_speeds": []jobs.DeviceSpeed{},
-								"success":       false,
-								"error":         fmt.Sprintf("Failed to download hashlist: %v", err),
+								"job_execution_id": benchmarkPayload.JobExecutionID,
+								"attack_mode":      benchmarkPayload.AttackMode,
+								"hash_type":        benchmarkPayload.HashType,
+								"speed":            int64(0),
+								"device_speeds":    []jobs.DeviceSpeed{},
+								"success":          false,
+								"error":            fmt.Sprintf("Failed to download hashlist: %v", err),
 							}
 							payloadBytes, _ := json.Marshal(resultPayload)
 							response := WSMessage{
@@ -1342,12 +1348,13 @@ func (c *Connection) readPump() {
 							debug.Error("Hashlist file not found after download: %s", localPath)
 							// Send failure result
 							resultPayload := map[string]interface{}{
-								"attack_mode":   benchmarkPayload.AttackMode,
-								"hash_type":     benchmarkPayload.HashType,
-								"speed":         int64(0),
-								"device_speeds": []jobs.DeviceSpeed{},
-								"success":       false,
-								"error":         "Hashlist file not found after download",
+								"job_execution_id": benchmarkPayload.JobExecutionID,
+								"attack_mode":      benchmarkPayload.AttackMode,
+								"hash_type":        benchmarkPayload.HashType,
+								"speed":            int64(0),
+								"device_speeds":    []jobs.DeviceSpeed{},
+								"success":          false,
+								"error":            "Hashlist file not found after download",
 							}
 							payloadBytes, _ := json.Marshal(resultPayload)
 							response := WSMessage{
@@ -1400,18 +1407,20 @@ func (c *Connection) readPump() {
 
 				// Get the hashcat executor from job manager
 				executor := c.jobManager.(*jobs.JobManager).GetHashcatExecutor()
-				totalSpeed, deviceSpeeds, err := executor.RunSpeedTest(ctx, assignment, testDuration)
+				totalSpeed, deviceSpeeds, totalEffectiveKeyspace, err := executor.RunSpeedTest(ctx, assignment, testDuration)
 
 				if err != nil {
 					debug.Error("Speed test failed: %v", err)
 					// Send failure result in the format the backend expects
 					resultPayload := map[string]interface{}{
-						"attack_mode":   benchmarkPayload.AttackMode,
-						"hash_type":     benchmarkPayload.HashType,
-						"speed":         int64(0),
-						"device_speeds": []jobs.DeviceSpeed{},
-						"success":       false,
-						"error":         err.Error(), // Backend expects "error" not "error_message"
+						"job_execution_id":          benchmarkPayload.JobExecutionID,
+						"attack_mode":               benchmarkPayload.AttackMode,
+						"hash_type":                 benchmarkPayload.HashType,
+						"speed":                     int64(0),
+						"device_speeds":             []jobs.DeviceSpeed{},
+						"total_effective_keyspace":  int64(0),
+						"success":                   false,
+						"error":                     err.Error(), // Backend expects "error" not "error_message"
 					}
 
 					payloadBytes, _ := json.Marshal(resultPayload)
@@ -1429,11 +1438,13 @@ func (c *Connection) readPump() {
 				// Send success result in the format the backend expects
 				// The backend expects BenchmarkResultPayload which has different field names
 				resultPayload := map[string]interface{}{
-					"attack_mode":   benchmarkPayload.AttackMode,
-					"hash_type":     benchmarkPayload.HashType,
-					"speed":         totalSpeed, // Backend expects "speed" not "total_speed"
-					"device_speeds": deviceSpeeds,
-					"success":       true,
+					"job_execution_id":          benchmarkPayload.JobExecutionID, // Include job ID for tracking
+					"attack_mode":               benchmarkPayload.AttackMode,
+					"hash_type":                 benchmarkPayload.HashType,
+					"speed":                     totalSpeed, // Backend expects "speed" not "total_speed"
+					"device_speeds":             deviceSpeeds,
+					"total_effective_keyspace":  totalEffectiveKeyspace, // Hashcat's progress[1]
+					"success":                   true,
 				}
 
 				payloadBytes, _ := json.Marshal(resultPayload)
@@ -1445,7 +1456,7 @@ func (c *Connection) readPump() {
 				if err := c.ws.WriteJSON(response); err != nil {
 					debug.Error("Failed to send benchmark result: %v", err)
 				} else {
-					debug.Info("Successfully sent benchmark result: %d H/s total", totalSpeed)
+					debug.Info("Successfully sent benchmark result: %d H/s total, effective keyspace: %d", totalSpeed, totalEffectiveKeyspace)
 				}
 			}()
 			
