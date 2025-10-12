@@ -216,6 +216,7 @@ type TaskAssignmentPayload struct {
 
 // BenchmarkResultPayload represents benchmark results from an agent
 type BenchmarkResultPayload struct {
+	JobExecutionID         string        `json:"job_execution_id"`                  // Job execution ID to match with request
 	AttackMode             int           `json:"attack_mode"`
 	HashType               int           `json:"hash_type"`
 	Speed                  int64         `json:"speed"`                             // Total hashes per second
@@ -241,10 +242,11 @@ type JobStopPayload struct {
 
 // BenchmarkRequestPayload represents a benchmark request sent to an agent
 type BenchmarkRequestPayload struct {
-	RequestID  string `json:"request_id"`
-	AttackMode int    `json:"attack_mode"`
-	HashType   int    `json:"hash_type"`
-	BinaryPath string `json:"binary_path"`
+	RequestID       string `json:"request_id"`
+	JobExecutionID  string `json:"job_execution_id"`               // Job execution ID for tracking benchmark results
+	AttackMode      int    `json:"attack_mode"`
+	HashType        int    `json:"hash_type"`
+	BinaryPath      string `json:"binary_path"`
 	// Additional fields for real-world speed test
 	TaskID          string   `json:"task_id,omitempty"`
 	HashlistID      int64    `json:"hashlist_id,omitempty"`

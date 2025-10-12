@@ -1432,3 +1432,16 @@ func (r *JobTaskRepository) CalculateAndStoreAverageSpeed(ctx context.Context, t
 
 	return nil
 }
+
+// GetTaskCountForJob returns the number of tasks (all statuses) for a job
+func (r *JobTaskRepository) GetTaskCountForJob(ctx context.Context, jobExecutionID uuid.UUID) (int, error) {
+	query := `SELECT COUNT(*) FROM job_tasks WHERE job_execution_id = $1`
+
+	var count int
+	err := r.db.QueryRowContext(ctx, query, jobExecutionID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get task count: %w", err)
+	}
+
+	return count, nil
+}

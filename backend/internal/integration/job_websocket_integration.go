@@ -558,6 +558,7 @@ func (s *JobWebSocketIntegration) RequestAgentBenchmark(ctx context.Context, age
 	// Create enhanced benchmark request payload with job-specific configuration
 	benchmarkReq := wsservice.BenchmarkRequestPayload{
 		RequestID:       requestID,
+		JobExecutionID:  jobExecution.ID.String(),                                           // Include job ID for result tracking
 		TaskID:          fmt.Sprintf("benchmark-%s-%d", jobExecution.ID, time.Now().Unix()), // Generate a task ID for the benchmark
 		HashType:        hashlist.HashTypeID,
 		AttackMode:      int(jobExecution.AttackMode),
@@ -650,106 +651,6 @@ func (s *JobWebSocketIntegration) HandleJobProgress(ctx context.Context, agentID
 			debug.Log("Started task", map[string]interface{}{
 				"task_id": progress.TaskID,
 			})
-		}
-	}
-
-	// Handle first progress update with actual effective keyspace from hashcat
-	if progress.IsFirstUpdate && progress.TotalEffectiveKeyspace != nil && *progress.TotalEffectiveKeyspace > 0 {
-		// This is the first update with hashcat's progress[1] - the true effective keyspace
-		totalEffectiveKeyspace := *progress.TotalEffectiveKeyspace
-
-		// Get job execution
-		database := &db.DB{DB: s.db}
-		jobExecRepo := repository.NewJobExecutionRepository(database)
-		jobExec, err := jobExecRepo.GetByID(ctx, task.JobExecutionID)
-		if err != nil {
-			debug.Warning("Failed to get job execution for keyspace update: error=%v", err)
-		} else {
-			// Update task-level effective keyspace
-			if task.IsRuleSplitTask && task.RuleStartIndex != nil && task.RuleEndIndex != nil && jobExec.BaseKeyspace != nil && *jobExec.BaseKeyspace > 0 {
-				baseKeyspace := *jobExec.BaseKeyspace
-				ruleStart := *task.RuleStartIndex
-				ruleEnd := *task.RuleEndIndex
-
-				// Calculate this task's effective keyspace range
-				effectiveStart := baseKeyspace * int64(ruleStart)
-				effectiveEnd := baseKeyspace * int64(ruleEnd)
-
-				// Update task with actual effective keyspace
-				err = s.jobTaskRepo.UpdateTaskEffectiveKeyspace(ctx, progress.TaskID, effectiveStart, effectiveEnd)
-				if err != nil {
-					debug.Warning("Failed to update task effective keyspace: task=%s, error=%v", progress.TaskID, err)
-				} else {
-					debug.Info("Updated task %s with actual effective keyspace: start=%d, end=%d, is_actual=true",
-						progress.TaskID, effectiveStart, effectiveEnd)
-				}
-
-				// Update job-level effective keyspace if not yet accurate
-				if !jobExec.IsAccurateKeyspace {
-					// Calculate full job effective keyspace from this task's chunk
-					// Per-rule keyspace = totalEffectiveKeyspace / rules_in_chunk
-					rulesInChunk := ruleEnd - ruleStart
-					if rulesInChunk > 0 {
-						perRuleKeyspace := totalEffectiveKeyspace / int64(rulesInChunk)
-						fullJobKeyspace := perRuleKeyspace * int64(jobExec.MultiplicationFactor)
-
-						jobExec.EffectiveKeyspace = &fullJobKeyspace
-						jobExec.IsAccurateKeyspace = true
-
-						// Calculate avg_rule_multiplier
-						if jobExec.BaseKeyspace != nil && *jobExec.BaseKeyspace > 0 {
-							multiplier := float64(fullJobKeyspace) /
-								float64(*jobExec.BaseKeyspace) /
-								float64(jobExec.MultiplicationFactor)
-							jobExec.AvgRuleMultiplier = &multiplier
-						}
-
-						// Update job in database
-						err = s.jobExecutionService.UpdateKeyspaceInfo(ctx, jobExec)
-						if err != nil {
-							debug.Warning("Failed to update job keyspace info: job=%s, error=%v", jobExec.ID, err)
-						} else {
-							debug.Info("Updated job %s with accurate effective keyspace from first progress: %d (avg_rule_multiplier: %.5f)",
-								jobExec.ID, fullJobKeyspace, *jobExec.AvgRuleMultiplier)
-						}
-					}
-				}
-			} else {
-				// Non-rule-split task: effective keyspace matches the total
-				effectiveStart := int64(0)
-				effectiveEnd := totalEffectiveKeyspace
-
-				err = s.jobTaskRepo.UpdateTaskEffectiveKeyspace(ctx, progress.TaskID, effectiveStart, effectiveEnd)
-				if err != nil {
-					debug.Warning("Failed to update task effective keyspace: task=%s, error=%v", progress.TaskID, err)
-				} else {
-					debug.Info("Updated task %s with actual effective keyspace: start=%d, end=%d, is_actual=true",
-						progress.TaskID, effectiveStart, effectiveEnd)
-				}
-
-				// Update job-level effective keyspace if not yet accurate
-				if !jobExec.IsAccurateKeyspace {
-					jobExec.EffectiveKeyspace = &totalEffectiveKeyspace
-					jobExec.IsAccurateKeyspace = true
-
-					// Calculate avg_rule_multiplier
-					if jobExec.BaseKeyspace != nil && *jobExec.BaseKeyspace > 0 && jobExec.MultiplicationFactor > 0 {
-						multiplier := float64(totalEffectiveKeyspace) /
-							float64(*jobExec.BaseKeyspace) /
-							float64(jobExec.MultiplicationFactor)
-						jobExec.AvgRuleMultiplier = &multiplier
-					}
-
-					// Update job in database
-					err = s.jobExecutionService.UpdateKeyspaceInfo(ctx, jobExec)
-					if err != nil {
-						debug.Warning("Failed to update job keyspace info: job=%s, error=%v", jobExec.ID, err)
-					} else {
-						debug.Info("Updated job %s with accurate effective keyspace from first progress: %d",
-							jobExec.ID, totalEffectiveKeyspace)
-					}
-				}
-			}
 		}
 	}
 
@@ -984,16 +885,57 @@ func (s *JobWebSocketIntegration) HandleBenchmarkResult(ctx context.Context, age
 
 	// Handle total effective keyspace from hashcat progress[1]
 	if result.TotalEffectiveKeyspace > 0 {
-		// Find the job this benchmark is for
-		// Get the next pending job for this agent (the one that requested the benchmark)
-		job, err := s.jobExecutionService.GetNextJobWithWork(ctx)
-		if err != nil || job == nil {
-			debug.Warning("Could not find job for benchmark result from agent %d: %v", agentID, err)
-			return nil // Don't fail - benchmark speed was still saved
-		}
+		// Find the job this benchmark is for using the job_execution_id from the result
+		var jobExec *models.JobExecution
 
-		// Use the JobExecution from the wrapper
-		jobExec := &job.JobExecution
+		// PRIMARY: Use JobExecutionID from the benchmark result
+		if result.JobExecutionID != "" {
+			jobID, err := uuid.Parse(result.JobExecutionID)
+			if err != nil {
+				debug.Error("Failed to parse job_execution_id from benchmark result (agent %d): %v", agentID, err)
+				return fmt.Errorf("invalid job_execution_id in benchmark result: %w", err)
+			}
+
+			// Get the specific job by ID
+			jobExec, err = s.jobExecutionService.GetJobExecutionByID(ctx, jobID)
+			if err != nil {
+				debug.Error("Failed to find job %s for benchmark result from agent %d: %v", jobID, agentID, err)
+				return fmt.Errorf("job %s not found for benchmark result: %w", jobID, err)
+			}
+			if jobExec == nil {
+				debug.Error("Job %s not found for benchmark result from agent %d", jobID, agentID)
+				return fmt.Errorf("job %s not found", jobID)
+			}
+
+			debug.Info("Found job %s for benchmark result from agent %d via job_execution_id", jobID, agentID)
+		} else {
+			// FALLBACK: Try agent metadata for backwards compatibility with older agents
+			debug.Warning("Benchmark result from agent %d missing job_execution_id, falling back to metadata", agentID)
+
+			if agent.Metadata != nil {
+				if pendingJobIDStr, exists := agent.Metadata["pending_benchmark_job"]; exists && pendingJobIDStr != "" {
+					jobID, err := uuid.Parse(pendingJobIDStr)
+					if err != nil {
+						debug.Error("Failed to parse pending_benchmark_job ID for agent %d: %v", agentID, err)
+						return fmt.Errorf("invalid pending_benchmark_job in metadata: %w", err)
+					}
+
+					jobExec, err = s.jobExecutionService.GetJobExecutionByID(ctx, jobID)
+					if err != nil || jobExec == nil {
+						debug.Error("Could not find job %s from metadata for agent %d: %v", jobID, agentID, err)
+						return fmt.Errorf("job %s from metadata not found: %w", jobID, err)
+					}
+
+					debug.Info("Found job %s for benchmark result from agent %d via metadata fallback", jobID, agentID)
+				} else {
+					debug.Error("Agent %d has no job_execution_id in result and no pending_benchmark_job in metadata", agentID)
+					return fmt.Errorf("cannot determine which job the benchmark result is for")
+				}
+			} else {
+				debug.Error("Agent %d has no job_execution_id in result and no metadata", agentID)
+				return fmt.Errorf("cannot determine which job the benchmark result is for")
+			}
+		}
 
 		// First benchmark for this job?
 		if jobExec.EffectiveKeyspace == nil || !jobExec.IsAccurateKeyspace {
@@ -1033,6 +975,41 @@ func (s *JobWebSocketIntegration) HandleBenchmarkResult(ctx context.Context, age
 					agentID, result.TotalEffectiveKeyspace, *jobExec.EffectiveKeyspace, diff)
 			} else {
 				debug.Info("Agent %d benchmark validates job effective keyspace (diff=%d)", agentID, diff)
+			}
+		}
+
+		// Clear pending benchmark metadata from the current agent that ran the benchmark
+		// This must run regardless of whether this was the first or subsequent benchmark
+		if agent.Metadata != nil {
+			if pendingJob, exists := agent.Metadata["pending_benchmark_job"]; exists && pendingJob == jobExec.ID.String() {
+				delete(agent.Metadata, "pending_benchmark_job")
+				delete(agent.Metadata, "benchmark_requested_at")
+				err := s.agentRepo.Update(ctx, agent)
+				if err != nil {
+					debug.Warning("Failed to clear benchmark metadata for agent %d: %v", agent.ID, err)
+				} else {
+					debug.Info("Cleared pending benchmark metadata for agent %d after job %s benchmark completed", agent.ID, jobExec.ID)
+				}
+			}
+		}
+
+		// Also clear pending benchmark metadata from any other agents waiting for this job
+		agents, err := s.agentRepo.List(ctx, nil)
+		if err == nil {
+			for i := range agents {
+				otherAgent := &agents[i]
+				if otherAgent.ID != agentID && otherAgent.Metadata != nil {
+					if pendingJob, exists := otherAgent.Metadata["pending_benchmark_job"]; exists && pendingJob == jobExec.ID.String() {
+						delete(otherAgent.Metadata, "pending_benchmark_job")
+						delete(otherAgent.Metadata, "benchmark_requested_at")
+						err := s.agentRepo.Update(ctx, otherAgent)
+						if err != nil {
+							debug.Warning("Failed to clear benchmark metadata for agent %d: %v", otherAgent.ID, err)
+						} else {
+							debug.Info("Cleared pending benchmark metadata for agent %d after job %s benchmark completed", otherAgent.ID, jobExec.ID)
+						}
+					}
+				}
 			}
 		}
 	}
