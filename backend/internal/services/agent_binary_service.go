@@ -236,7 +236,8 @@ func (s *AgentBinaryService) GetAllBinaries() []BinaryInfo {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	var result []BinaryInfo
+	// Initialize with empty slice instead of nil to ensure JSON encoding returns [] not null
+	result := make([]BinaryInfo, 0)
 	for _, binary := range s.binaries {
 		result = append(result, binary)
 	}

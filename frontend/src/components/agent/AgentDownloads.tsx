@@ -72,6 +72,12 @@ export default function AgentDownloads() {
 
       setVersion(response.data.version);
 
+      // Guard against null/undefined platforms array
+      if (!response.data.platforms || !Array.isArray(response.data.platforms)) {
+        setError('No agent binaries available');
+        return;
+      }
+
       // Group platforms by OS
       const grouped: { [key: string]: Platform[] } = {};
       response.data.platforms.forEach(platform => {

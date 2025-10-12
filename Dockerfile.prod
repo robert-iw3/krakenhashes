@@ -116,6 +116,10 @@ COPY --from=backend-builder /app/backend/krakenhashes /usr/local/bin/
 # Copy migrations
 COPY backend/db/migrations /usr/local/share/krakenhashes/migrations
 
+# Copy agent binaries (built by GitHub Actions or locally)
+# The binaries should be in ./bin/agent/{os}/{arch}/ structure
+COPY --chown=root:root bin/agent /usr/share/krakenhashes/agents
+
 # Create data directory with proper ownership
 RUN mkdir -p /var/lib/krakenhashes && \
     chown -R krakenhashes:krakenhashes /var/lib/krakenhashes && \

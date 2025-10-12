@@ -10,53 +10,7 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  # Build and push Docker images
-  docker:
-    name: Build Docker Images
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-      
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-      
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-      
-      - name: Extract version from tag
-        id: version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-      
-      - name: Extract metadata (tags, labels)
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-      
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./Dockerfile.prod
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-  # Build agent binaries for all platforms
+  # Build agent binaries for all platforms FIRST
   agent-binaries:
     name: Build Agent - ${{ matrix.os }}-${{ matrix.arch }}
     runs-on: ubuntu-latest
@@ -140,12 +94,102 @@ jobs:
             echo "ARCHIVE_PATH=${ARCHIVE_NAME}.tar.gz" >> $GITHUB_ENV
           fi
       
-      - name: Upload artifact
+      - name: Upload binary for Docker build
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.os }}-${{ matrix.arch }}
+          path: ./agent/krakenhashes-agent${{ matrix.ext }}
+          retention-days: 1
+
+      - name: Upload archive for release
         uses: actions/upload-artifact@v4
         with:
           name: agent-${{ matrix.os }}-${{ matrix.arch }}
           path: ./agent/${{ env.ARCHIVE_PATH }}
           retention-days: 1
+
+  # Build and push Docker images (after agent binaries are built)
+  docker:
+    name: Build Docker Images
+    needs: [agent-binaries]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all agent binaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: binary-*
+          path: ./agent-binaries
+
+      - name: Organize binaries for Docker build
+        run: |
+          # Create the directory structure expected by the Dockerfile
+          mkdir -p ./bin/agent
+
+          # Move binaries to organized structure
+          for binary_dir in ./agent-binaries/binary-*; do
+            if [ -d "$binary_dir" ]; then
+              # Extract os and arch from directory name (e.g., binary-linux-amd64)
+              dir_name=$(basename "$binary_dir")
+              os_arch="${dir_name#binary-}"
+              os="${os_arch%-*}"
+              arch="${os_arch##*-}"
+
+              # Create destination directory
+              mkdir -p "./bin/agent/$os/$arch"
+
+              # Move binary to destination
+              if [ -f "$binary_dir/krakenhashes-agent.exe" ]; then
+                mv "$binary_dir/krakenhashes-agent.exe" "./bin/agent/$os/$arch/"
+              elif [ -f "$binary_dir/krakenhashes-agent" ]; then
+                mv "$binary_dir/krakenhashes-agent" "./bin/agent/$os/$arch/"
+              fi
+            fi
+          done
+
+          # List the structure for debugging
+          echo "Agent binary structure:"
+          ls -lR ./bin/agent
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Extract metadata (tags, labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.prod
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   # Create GitHub release with all artifacts
   create-release:
