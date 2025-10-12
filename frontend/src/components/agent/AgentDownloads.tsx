@@ -16,6 +16,7 @@ import {
   Download as DownloadIcon,
   ContentCopy as CopyIcon,
   Check as CheckIcon,
+  Terminal as TerminalIcon,
 } from '@mui/icons-material';
 import { api } from '../../services/api';
 
@@ -54,7 +55,7 @@ export default function AgentDownloads() {
   const [version, setVersion] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
+  const [copiedItem, setCopiedItem] = useState<{platformId: string, type: 'url' | 'curl' | 'wget'} | null>(null);
 
   useEffect(() => {
     fetchPlatforms();
@@ -147,6 +148,25 @@ export default function AgentDownloads() {
     }
   };
 
+  // Helper function to get output filename
+  const getOutputFilename = (platform: Platform): string => {
+    return platform.os === 'windows' ? 'krakenhashes-agent.exe' : 'krakenhashes-agent';
+  };
+
+  // Generate curl command with SSL bypass
+  const getCurlCommand = (platform: Platform): string => {
+    const url = `${window.location.origin}${platform.download_url}`;
+    const filename = getOutputFilename(platform);
+    return `curl -k -o ${filename} ${url}`;
+  };
+
+  // Generate wget command with SSL bypass
+  const getWgetCommand = (platform: Platform): string => {
+    const url = `${window.location.origin}${platform.download_url}`;
+    const filename = getOutputFilename(platform);
+    return `wget --no-check-certificate -O ${filename} ${url}`;
+  };
+
   const handleDownload = (platform: Platform) => {
     const url = `${window.location.origin}${platform.download_url}`;
     window.open(url, '_blank');
@@ -156,12 +176,38 @@ export default function AgentDownloads() {
     const url = `${window.location.origin}${platform.download_url}`;
     try {
       await navigator.clipboard.writeText(url);
-      setCopiedUrl(platform.download_url);
+      setCopiedItem({ platformId: `${platform.os}-${platform.arch}`, type: 'url' });
       setTimeout(() => {
-        setCopiedUrl(null);
+        setCopiedItem(null);
       }, 2000);
     } catch (err) {
       console.error('Failed to copy URL:', err);
+    }
+  };
+
+  const handleCopyCurl = async (platform: Platform) => {
+    const command = getCurlCommand(platform);
+    try {
+      await navigator.clipboard.writeText(command);
+      setCopiedItem({ platformId: `${platform.os}-${platform.arch}`, type: 'curl' });
+      setTimeout(() => {
+        setCopiedItem(null);
+      }, 2000);
+    } catch (err) {
+      console.error('Failed to copy curl command:', err);
+    }
+  };
+
+  const handleCopyWget = async (platform: Platform) => {
+    const command = getWgetCommand(platform);
+    try {
+      await navigator.clipboard.writeText(command);
+      setCopiedItem({ platformId: `${platform.os}-${platform.arch}`, type: 'wget' });
+      setTimeout(() => {
+        setCopiedItem(null);
+      }, 2000);
+    } catch (err) {
+      console.error('Failed to copy wget command:', err);
     }
   };
 
@@ -224,7 +270,7 @@ export default function AgentDownloads() {
                         </Typography>
                       </Box>
 
-                      <Box sx={{ display: 'flex', gap: 0.5 }}>
+                      <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
                         <Button
                           size="small"
                           variant="outlined"
@@ -233,15 +279,59 @@ export default function AgentDownloads() {
                         >
                           Download
                         </Button>
-                        <Tooltip title={copiedUrl === platform.download_url ? 'Copied!' : 'Copy URL'}>
+                        <Tooltip title={
+                          copiedItem?.platformId === `${platform.os}-${platform.arch}` && copiedItem?.type === 'url'
+                            ? 'Copied!'
+                            : 'Copy URL'
+                        }>
                           <IconButton
                             size="small"
                             onClick={() => handleCopyUrl(platform)}
-                            color={copiedUrl === platform.download_url ? 'success' : 'default'}
+                            color={
+                              copiedItem?.platformId === `${platform.os}-${platform.arch}` && copiedItem?.type === 'url'
+                                ? 'success'
+                                : 'default'
+                            }
                           >
-                            {copiedUrl === platform.download_url ? <CheckIcon /> : <CopyIcon />}
+                            {copiedItem?.platformId === `${platform.os}-${platform.arch}` && copiedItem?.type === 'url'
+                              ? <CheckIcon />
+                              : <CopyIcon />}
                           </IconButton>
                         </Tooltip>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          startIcon={
+                            copiedItem?.platformId === `${platform.os}-${platform.arch}` && copiedItem?.type === 'curl'
+                              ? <CheckIcon />
+                              : <TerminalIcon />
+                          }
+                          onClick={() => handleCopyCurl(platform)}
+                          color={
+                            copiedItem?.platformId === `${platform.os}-${platform.arch}` && copiedItem?.type === 'curl'
+                              ? 'success'
+                              : 'primary'
+                          }
+                        >
+                          curl
+                        </Button>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          startIcon={
+                            copiedItem?.platformId === `${platform.os}-${platform.arch}` && copiedItem?.type === 'wget'
+                              ? <CheckIcon />
+                              : <TerminalIcon />
+                          }
+                          onClick={() => handleCopyWget(platform)}
+                          color={
+                            copiedItem?.platformId === `${platform.os}-${platform.arch}` && copiedItem?.type === 'wget'
+                              ? 'success'
+                              : 'primary'
+                          }
+                        >
+                          wget
+                        </Button>
                       </Box>
                     </Box>
                   ))}

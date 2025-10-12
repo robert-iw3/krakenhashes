@@ -42,8 +42,8 @@ func (h *AgentDownloadHandler) DownloadAgent(w http.ResponseWriter, r *http.Requ
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", binary.Size))
 
-	// Set filename for download
-	filename := fmt.Sprintf("krakenhashes-agent-%s-%s", os, arch)
+	// Set filename for download (simplified for consistency with documentation)
+	filename := "krakenhashes-agent"
 	if os == "windows" {
 		filename += ".exe"
 	}
