@@ -237,6 +237,10 @@ The keyspace represents the total search space:
 - **Linear Progress**: Steady advancement through wordlist attacks
 - **Chunk-Based**: Progress jumps as chunks complete
 - **Rule Multiplication**: Progress may seem slow with large rule sets
+- **Accurate Tracking**: Progress values are captured directly from hashcat for precision
+
+!!! tip "Accurate Progress Tracking"
+    KrakenHashes captures actual keyspace values directly from hashcat (`progress[1]`), ensuring that progress percentages accurately reflect the real search progress, especially for jobs with rules or combination attacks where estimation can be inaccurate.
 
 #### Time Estimates
 Estimated completion times are based on:
@@ -244,9 +248,10 @@ Estimated completion times are based on:
 - Remaining keyspace
 - Historical performance
 - Agent availability
+- Actual keyspace values from hashcat
 
 !!! note "Estimate Accuracy"
-    Time estimates become more accurate as the job progresses and the system learns the actual performance characteristics.
+    Time estimates become more accurate as the job progresses and the system learns the actual performance characteristics. After the first benchmark or progress update, the system uses actual keyspace values from hashcat instead of estimates.
 
 ### Monitoring Best Practices
 

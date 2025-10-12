@@ -31,7 +31,9 @@ cd ~/krakenhashes-agent
 
 ### Step 2: Download the Agent Binary
 
-Download the appropriate binary for your platform from the [GitHub Releases](https://github.com/ZerkerEOD/krakenhashes/releases) page:
+Download the appropriate binary for your platform from the [GitHub Releases](https://github.com/ZerkerEOD/krakenhashes/releases) page or directly from your KrakenHashes server:
+
+#### Option 1: Download from GitHub Releases
 
 ```bash
 # For Linux AMD64 (most common)
@@ -49,6 +51,29 @@ wget https://github.com/ZerkerEOD/krakenhashes/releases/latest/download/krakenha
 # Make the binary executable
 chmod +x krakenhashes-agent
 ```
+
+#### Option 2: Download from KrakenHashes Server
+
+The KrakenHashes web UI provides convenient download options with ready-to-use commands. Navigate to the Agent Downloads page in your installation to access:
+
+- **Direct Download Buttons**: Click to download the agent binary for your platform
+- **Copy URL**: Get the direct download URL
+- **curl Command**: One-click copy of curl command with SSL bypass flags for self-signed certificates
+- **wget Command**: One-click copy of wget command with SSL bypass flags for self-signed certificates
+
+Example commands (replace `your-server` with your actual server URL):
+
+```bash
+# Using curl (Linux AMD64)
+curl -k -o krakenhashes-agent https://your-server:31337/api/public/agent/download/linux/amd64
+chmod +x krakenhashes-agent
+
+# Using wget (Linux AMD64)
+wget --no-check-certificate -O krakenhashes-agent https://your-server:31337/api/public/agent/download/linux/amd64
+chmod +x krakenhashes-agent
+```
+
+**Note:** The `-k` (curl) and `--no-check-certificate` (wget) flags bypass SSL certificate validation, which is necessary when using self-signed certificates. All downloads save as `krakenhashes-agent` regardless of platform.
 
 ### Step 3: Verify Installation
 

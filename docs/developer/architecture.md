@@ -127,6 +127,7 @@ The backend follows a clean layered architecture with clear separation of concer
 - **File Synchronization**: Agent-backend file sync
 - **Monitoring**: System metrics and heartbeat management
 - **Data Retention**: Configurable retention policies
+- **Accurate Keyspace Tracking**: Captures real keyspace from hashcat `progress[1]` values for precise progress reporting
 
 ## Frontend Architecture
 

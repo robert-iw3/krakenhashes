@@ -527,6 +527,8 @@ Tracks actual job runs.
 | progress | NUMERIC(6,3) | | 0 | Progress percentage (added in migration 36, updated in migration 38) |
 | consecutive_failures | INTEGER | | 0 | Consecutive failure count (added in migration 37) |
 | last_failure_at | TIMESTAMP WITH TIME ZONE | | | Last failure time (added in migration 37) |
+| is_accurate_keyspace | BOOLEAN | | false | True when keyspace is from hashcat progress[1] values (added in migration 63) |
+| avg_rule_multiplier | FLOAT | | | Actual/estimated keyspace ratio for improving future estimates (added in migration 63) |
 
 **Indexes:**
 - idx_job_executions_status (status)
@@ -561,6 +563,7 @@ Individual chunks assigned to agents.
 | last_failure_at | TIMESTAMP WITH TIME ZONE | | | Last failure time (added in migration 37) |
 | chunk_number | INTEGER | | | Chunk number for rule splits (added in migration 44) |
 | effective_keyspace | BIGINT | | | Effective keyspace size (added in migration 47) |
+| is_actual_keyspace | BOOLEAN | | false | True when task has actual keyspace from hashcat progress[1] (added in migration 63) |
 
 **Indexes:**
 - idx_job_tasks_agent_status (agent_id, status)
@@ -1240,7 +1243,7 @@ The potfile system initializes in stages during server startup:
 
 ## Migration History
 
-The database schema has evolved through 47 migrations:
+The database schema has evolved through 63 migrations:
 
 1. **000001**: Initial schema - users, teams, user_teams
 2. **000002**: Add auth_tokens table
@@ -1289,6 +1292,22 @@ The database schema has evolved through 47 migrations:
 45. **000045**: Fix total_keyspace for rule split jobs
 46. **000046**: Add task heartbeat timeout setting
 47. **000047**: Add effective_keyspace to job_tasks
+48. **000048**: Add potfile support
+49. **000049**: Make job executions self-contained
+50. **000050**: Add reconnect_pending status
+51. **000051**: Add monitoring settings
+52. **000052**: Remove is_small_job column
+53. **000053**: Add binary default system
+54. **000054**: Add auth token last activity tracking
+55. **000055**: Add job notification tracking
+56. **000056**: Add reconnect grace period setting
+57. **000057**: Add agent download settings
+58. **000058**: Add agent sync status
+59. **000059**: Add average speed to tasks
+60. **000060**: Add missing hash types
+61. **000061**: Add hashlist potfile exclusion
+62. **000062**: Add client potfile exclusion
+63. **000063**: Add accurate keyspace tracking
 
 ---
 
