@@ -27,6 +27,7 @@ type UserJobsHandler struct {
 	hashlistRepo        *repository.HashListRepository
 	clientRepo          *repository.ClientRepository
 	workflowRepo        repository.JobWorkflowRepository
+	hashTypeRepo        *repository.HashTypeRepository
 	wordlistStore       *wordlist.Store
 	ruleStore           *rule.Store
 	binaryStore         binary.Store
@@ -53,6 +54,7 @@ func NewUserJobsHandler(
 	hashlistRepo *repository.HashListRepository,
 	clientRepo *repository.ClientRepository,
 	workflowRepo repository.JobWorkflowRepository,
+	hashTypeRepo *repository.HashTypeRepository,
 	wordlistStore *wordlist.Store,
 	ruleStore *rule.Store,
 	binaryStore binary.Store,
@@ -66,6 +68,7 @@ func NewUserJobsHandler(
 		hashlistRepo:        hashlistRepo,
 		clientRepo:          clientRepo,
 		workflowRepo:        workflowRepo,
+		hashTypeRepo:        hashTypeRepo,
 		wordlistStore:       wordlistStore,
 		ruleStore:           ruleStore,
 		binaryStore:         binaryStore,
@@ -618,6 +621,18 @@ func (h *UserJobsHandler) GetJobDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get hash type name and format as "HashName (Mode)"
+	var formattedHashType string
+	if job.HashType > 0 {
+		hashType, err := h.hashTypeRepo.GetByID(ctx, job.HashType)
+		if err != nil {
+			debug.Warning("Failed to get hash type %d for job %s: %v", job.HashType, jobID, err)
+			formattedHashType = fmt.Sprintf("Unknown (%d)", job.HashType)
+		} else {
+			formattedHashType = fmt.Sprintf("%s (%d)", hashType.Name, job.HashType)
+		}
+	}
+
 	// Get ALL tasks for this job execution (no pagination)
 	// Frontend will handle filtering and client-side pagination
 	tasks, err := h.jobTaskRepo.GetAllTasksByJobExecution(ctx, jobID)
@@ -767,6 +782,7 @@ func (h *UserJobsHandler) GetJobDetail(w http.ResponseWriter, r *http.Request) {
 		"max_agents":                job.MaxAgents,
 		"chunk_size_seconds":        job.ChunkSizeSeconds,
 		"attack_mode":               job.AttackMode,
+		"hash_type":                 formattedHashType,
 		"total_keyspace":            job.TotalKeyspace,
 		"effective_keyspace":        job.EffectiveKeyspace,
 		"base_keyspace":             job.BaseKeyspace,

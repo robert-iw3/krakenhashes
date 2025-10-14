@@ -674,7 +674,20 @@ const JobDetails: React.FC = () => {
               </TableRow>
               <TableRow>
                 <TableCell sx={{ fontWeight: 'bold' }}>Hashlist</TableCell>
-                <TableCell>{jobData.hashlist_name} (ID: {jobData.hashlist_id})</TableCell>
+                <TableCell>
+                  <Link
+                    component="button"
+                    onClick={() => navigate(`/hashlists/${jobData.hashlist_id}`)}
+                    sx={{ cursor: 'pointer' }}
+                  >
+                    {jobData.hashlist_name}
+                  </Link>
+                  {' '}(ID: {jobData.hashlist_id})
+                </TableCell>
+              </TableRow>
+              <TableRow>
+                <TableCell sx={{ fontWeight: 'bold' }}>Hash Type</TableCell>
+                <TableCell>{jobData.hash_type || 'N/A'}</TableCell>
               </TableRow>
               <TableRow>
                 <TableCell sx={{ fontWeight: 'bold' }}>Attack Mode</TableCell>

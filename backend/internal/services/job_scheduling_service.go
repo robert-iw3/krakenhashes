@@ -823,10 +823,35 @@ func (s *JobSchedulingService) assignWorkToAgent(ctx context.Context, agent *mod
 		// Replace rule file with chunk path
 		attackCmd = strings.Replace(attackCmd, rulePath, chunk.Path, 1)
 
-		// Calculate effective keyspace for this chunk
-		effectiveKeyspaceStart := baseKeyspace * int64(chunk.StartIndex)
-		effectiveKeyspaceEnd := baseKeyspace * int64(chunk.EndIndex)
-		
+		// Calculate effective keyspace for this chunk using previous chunks' ACTUAL sizes
+		effectiveKeyspaceStart := int64(0)
+
+		// Get cumulative actual keyspace from all previous chunks
+		previousChunksActual, err := s.jobExecutionService.GetPreviousChunksActualKeyspace(ctx, nextJob.ID, chunkNumber)
+		if err == nil && previousChunksActual > 0 {
+			effectiveKeyspaceStart = previousChunksActual
+		} else {
+			if err != nil {
+				debug.Error("Failed to get previous chunks' actual keyspace: %v", err)
+			}
+			// Fall back to estimated based on base keyspace
+			effectiveKeyspaceStart = baseKeyspace * int64(nextRuleStart)
+		}
+
+		// For end, use estimated chunk size (will be corrected when hashcat reports actual)
+		rulesInChunk := chunk.RuleCount
+		estimatedChunkKeyspace := baseKeyspace * int64(rulesInChunk)
+		effectiveKeyspaceEnd := effectiveKeyspaceStart + estimatedChunkKeyspace
+
+		debug.Log("Calculated effective keyspace for new chunk", map[string]interface{}{
+			"job_id":               nextJob.ID,
+			"chunk_number":         chunkNumber,
+			"rules_in_chunk":       rulesInChunk,
+			"effective_start":      effectiveKeyspaceStart,
+			"effective_end":        effectiveKeyspaceEnd,
+			"estimated_chunk_size": estimatedChunkKeyspace,
+		})
+
 		// Create task
 		task := &models.JobTask{
 			JobExecutionID:         nextJob.ID,

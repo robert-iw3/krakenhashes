@@ -20,22 +20,25 @@ export interface ProgressInfo {
  */
 export const formatKeyspace = (keyspace: number): string => {
   if (keyspace === 0) return '0';
-  
-  const units = ['', 'K', 'M', 'B', 'T'];
+
+  const units = ['', 'K', 'M', 'B', 'T', 'Q', 'Qi', 'S'];
   const k = 1000;
-  
+
   // Find the appropriate unit
   const i = Math.floor(Math.log(keyspace) / Math.log(k));
-  
+
   if (i === 0) {
     return keyspace.toString();
   }
-  
+
+  // Cap at the highest unit we support
+  const unitIndex = Math.min(i, units.length - 1);
+
   // Format with appropriate precision
-  const value = keyspace / Math.pow(k, i);
+  const value = keyspace / Math.pow(k, unitIndex);
   const precision = value < 10 ? 2 : value < 100 ? 1 : 0;
-  
-  return `${value.toFixed(precision)}${units[i]}`;
+
+  return `${value.toFixed(precision)}${units[unitIndex]}`;
 };
 
 /**

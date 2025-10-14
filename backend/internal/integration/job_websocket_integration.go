@@ -654,6 +654,63 @@ func (s *JobWebSocketIntegration) HandleJobProgress(ctx context.Context, agentID
 		}
 	}
 
+	// Update task effective keyspace from hashcat progress[1] if we haven't already
+	if progress.TotalEffectiveKeyspace != nil && *progress.TotalEffectiveKeyspace > 0 && !task.IsActualKeyspace {
+		// IMPORTANT: progress.TotalEffectiveKeyspace is the CHUNK's actual keyspace size (not cumulative!)
+		// It represents the total keyspace for this specific chunk's rules
+		chunkActualKeyspace := *progress.TotalEffectiveKeyspace
+
+		// Get the current start position (where this chunk begins in the cumulative keyspace)
+		effectiveStart := int64(0)
+		if task.EffectiveKeyspaceStart != nil {
+			effectiveStart = *task.EffectiveKeyspaceStart
+		}
+
+		// Calculate new end = start + chunk's actual size
+		actualEffectiveEnd := effectiveStart + chunkActualKeyspace
+
+		// Calculate adjustment for job dispatched keyspace
+		estimatedChunkSize := int64(0)
+		if task.EffectiveKeyspaceEnd != nil {
+			estimatedChunkSize = *task.EffectiveKeyspaceEnd - effectiveStart
+		}
+		dispatchedAdjustment := chunkActualKeyspace - estimatedChunkSize
+
+		// Update task with actual values AND store chunk size for cascade calculations
+		err = s.jobTaskRepo.UpdateTaskEffectiveKeyspaceWithChunkSize(ctx, progress.TaskID,
+			effectiveStart, actualEffectiveEnd, chunkActualKeyspace)
+		if err != nil {
+			debug.Error("Failed to update task effective keyspace from progress[1]: %v", err)
+		} else {
+			debug.Info("Updated task %s: start=%d, end=%d, chunk_size=%d (is_actual_keyspace=true)",
+				progress.TaskID, effectiveStart, actualEffectiveEnd, chunkActualKeyspace)
+
+			// Adjust job's dispatched keyspace to reflect actual vs estimated
+			if dispatchedAdjustment != 0 {
+				database := &db.DB{DB: s.db}
+				jobExecRepo := repository.NewJobExecutionRepository(database)
+
+				err = jobExecRepo.IncrementDispatchedKeyspace(ctx, task.JobExecutionID, dispatchedAdjustment)
+				if err != nil {
+					debug.Error("Failed to adjust job dispatched keyspace: %v", err)
+				} else {
+					debug.Info("Adjusted job %s dispatched keyspace by %d (actual vs estimated)",
+						task.JobExecutionID, dispatchedAdjustment)
+				}
+			}
+
+			// CASCADE: Recalculate all subsequent chunks' positions
+			if task.ChunkNumber > 0 {
+				err = s.recalculateSubsequentChunks(ctx, task.JobExecutionID, task.ChunkNumber)
+				if err != nil {
+					debug.Error("Failed to cascade update subsequent chunks: %v", err)
+				} else {
+					debug.Info("Cascaded effective keyspace updates to chunks after chunk %d", task.ChunkNumber)
+				}
+			}
+		}
+	}
+
 	// Store progress in memory
 	s.progressMutex.Lock()
 	s.taskProgressMap[progress.TaskID.String()] = progress
@@ -1596,4 +1653,103 @@ func (s *JobWebSocketIntegration) handleReconnectGracePeriod(ctx context.Context
 			}
 		}
 	}
+}
+
+// recalculateSubsequentChunks updates start/end positions for all chunks after completedChunkNumber
+// This ensures the chain is self-correcting when actual keyspace sizes are received
+func (s *JobWebSocketIntegration) recalculateSubsequentChunks(ctx context.Context, jobExecutionID uuid.UUID, completedChunkNumber int) error {
+	// Get all tasks for this job ordered by chunk number
+	query := `
+		SELECT id, chunk_number, chunk_actual_keyspace,
+		       effective_keyspace_start, effective_keyspace_end
+		FROM job_tasks
+		WHERE job_execution_id = $1
+		ORDER BY chunk_number ASC`
+
+	rows, err := s.db.QueryContext(ctx, query, jobExecutionID)
+	if err != nil {
+		return fmt.Errorf("failed to get tasks: %w", err)
+	}
+	defer rows.Close()
+
+	type taskInfo struct {
+		id                     uuid.UUID
+		chunkNumber            int
+		chunkActualKeyspace    *int64
+		effectiveKeyspaceStart *int64
+		effectiveKeyspaceEnd   *int64
+	}
+
+	var tasks []taskInfo
+	for rows.Next() {
+		var t taskInfo
+		if err := rows.Scan(&t.id, &t.chunkNumber, &t.chunkActualKeyspace,
+			&t.effectiveKeyspaceStart, &t.effectiveKeyspaceEnd); err != nil {
+			return fmt.Errorf("failed to scan task: %w", err)
+		}
+		tasks = append(tasks, t)
+	}
+
+	// Calculate cumulative positions
+	cumulativeEnd := int64(0)
+	needsUpdate := false
+
+	for _, t := range tasks {
+		expectedStart := cumulativeEnd
+
+		// Calculate expected end based on actual or estimated chunk size
+		var expectedEnd int64
+		if t.chunkActualKeyspace != nil {
+			// Use actual chunk size
+			expectedEnd = expectedStart + *t.chunkActualKeyspace
+			cumulativeEnd = expectedEnd
+		} else {
+			// Use estimated chunk size
+			if t.effectiveKeyspaceStart != nil && t.effectiveKeyspaceEnd != nil {
+				chunkSize := *t.effectiveKeyspaceEnd - *t.effectiveKeyspaceStart
+				expectedEnd = expectedStart + chunkSize
+				cumulativeEnd = expectedEnd
+			} else {
+				// Can't calculate without start/end
+				continue
+			}
+		}
+
+		// Check if this task needs correction
+		currentStart := int64(0)
+		if t.effectiveKeyspaceStart != nil {
+			currentStart = *t.effectiveKeyspaceStart
+		}
+		currentEnd := int64(0)
+		if t.effectiveKeyspaceEnd != nil {
+			currentEnd = *t.effectiveKeyspaceEnd
+		}
+
+		if currentStart != expectedStart || currentEnd != expectedEnd {
+			// Task needs update
+			debug.Info("Recalculating chunk %d: old[%d-%d] -> new[%d-%d]",
+				t.chunkNumber, currentStart, currentEnd, expectedStart, expectedEnd)
+
+			updateQuery := `
+				UPDATE job_tasks
+				SET effective_keyspace_start = $2,
+				    effective_keyspace_end = $3,
+				    updated_at = CURRENT_TIMESTAMP
+				WHERE id = $1`
+
+			_, err = s.db.ExecContext(ctx, updateQuery, t.id, expectedStart, expectedEnd)
+			if err != nil {
+				debug.Error("Failed to update chunk %d: %v", t.chunkNumber, err)
+				continue
+			}
+			needsUpdate = true
+		}
+	}
+
+	if needsUpdate {
+		debug.Info("Recalculated effective keyspace positions for job %s after chunk %d completed",
+			jobExecutionID, completedChunkNumber)
+	}
+
+	return nil
 }

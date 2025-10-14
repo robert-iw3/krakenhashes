@@ -2208,6 +2208,16 @@ func (s *JobExecutionService) HandleTaskCompletion(ctx context.Context, taskID u
 	}
 
 	if allTasksComplete {
+		// Mark job as completed
+		if err := s.jobExecRepo.CompleteExecution(ctx, task.JobExecutionID); err != nil {
+			debug.Error("Failed to mark job as completed: %v", err)
+			// Don't fail the task completion, but log the error
+		} else {
+			debug.Log("Job marked as completed", map[string]interface{}{
+				"job_id": task.JobExecutionID,
+			})
+		}
+
 		// Cleanup job-level resources
 		if err := s.CleanupJobResources(ctx, task.JobExecutionID); err != nil {
 			debug.Error("Failed to cleanup job resources: %v", err)
@@ -2395,4 +2405,10 @@ func parseIntValueFromString(value string) (int, error) {
 		result = result*10 + int(char-'0')
 	}
 	return result, nil
+}
+
+// GetPreviousChunksActualKeyspace returns the cumulative actual keyspace size from all previous chunks
+// This is used when creating new chunks to ensure correct starting positions
+func (s *JobExecutionService) GetPreviousChunksActualKeyspace(ctx context.Context, jobExecutionID uuid.UUID, currentChunkNumber int) (int64, error) {
+	return s.jobTaskRepo.GetPreviousChunksActualKeyspace(ctx, jobExecutionID, currentChunkNumber)
 }

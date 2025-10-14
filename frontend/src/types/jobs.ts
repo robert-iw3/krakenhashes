@@ -171,7 +171,7 @@ export interface JobDetailsResponse {
   status_updates_enabled?: boolean;
   allow_high_priority_override?: boolean;
   additional_args?: string;
-  hash_type?: number;
+  hash_type?: string;
 }
 
 // Job detail response

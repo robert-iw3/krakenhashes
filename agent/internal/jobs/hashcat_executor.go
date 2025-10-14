@@ -662,8 +662,8 @@ func (e *HashcatExecutor) runHashcatProcess(ctx context.Context, process *Hashca
 							IsFirstUpdate:     isFirstUpdate,       // Flag indicating first update
 						}
 
-						// On first update, include total effective keyspace from hashcat
-						if isFirstUpdate && totalProgress > 0 {
+						// Always include total effective keyspace from hashcat
+						if totalProgress > 0 {
 							progress.TotalEffectiveKeyspace = &totalProgress  // Hashcat's progress[1]
 						}
 						

@@ -255,27 +255,94 @@ func (r *JobTaskRepository) GetTaskCountByJobExecution(ctx context.Context, jobE
 */
 
 // AreAllTasksComplete checks if all tasks for a job execution are complete
+// AND all work has been dispatched (for rule-splitting and keyspace-chunking jobs)
 func (r *JobTaskRepository) AreAllTasksComplete(ctx context.Context, jobExecutionID uuid.UUID) (bool, error) {
+	// First check if all existing tasks are complete
 	query := `
 		SELECT COUNT(*) = 0
 		FROM job_tasks
 		WHERE job_execution_id = $1
 		AND status NOT IN ($2, $3, $4, $5)`
 
-	var allComplete bool
+	var allTasksComplete bool
 	err := r.db.QueryRowContext(ctx, query,
 		jobExecutionID,
 		models.JobTaskStatusCompleted,
 		models.JobTaskStatusFailed,
 		models.JobTaskStatusCancelled,
 		"completed", // Handle both constants and string values
-	).Scan(&allComplete)
+	).Scan(&allTasksComplete)
 
 	if err != nil {
 		return false, fmt.Errorf("failed to check if all tasks complete: %w", err)
 	}
 
-	return allComplete, nil
+	// If not all tasks are complete, return false immediately
+	if !allTasksComplete {
+		return false, nil
+	}
+
+	// All existing tasks are complete - now check if all work has been dispatched
+	// Get job details to check dispatch status
+	jobQuery := `
+		SELECT uses_rule_splitting, multiplication_factor, effective_keyspace,
+		       base_keyspace, dispatched_keyspace, total_keyspace
+		FROM job_executions
+		WHERE id = $1`
+
+	var usesRuleSplitting bool
+	var multiplicationFactor int
+	var effectiveKeyspace, baseKeyspace, totalKeyspace *int64
+	var dispatchedKeyspace int64
+
+	err = r.db.QueryRowContext(ctx, jobQuery, jobExecutionID).Scan(
+		&usesRuleSplitting,
+		&multiplicationFactor,
+		&effectiveKeyspace,
+		&baseKeyspace,
+		&dispatchedKeyspace,
+		&totalKeyspace,
+	)
+	if err != nil {
+		return false, fmt.Errorf("failed to get job details: %w", err)
+	}
+
+	// For rule-splitting jobs, check if all rules have been dispatched
+	if usesRuleSplitting {
+		// Calculate total rules from multiplication factor or effective/base keyspace
+		totalRules := multiplicationFactor
+		if totalRules == 0 && effectiveKeyspace != nil && baseKeyspace != nil && *baseKeyspace > 0 {
+			totalRules = int(*effectiveKeyspace / *baseKeyspace)
+		}
+
+		if totalRules > 0 {
+			// Get maximum rule end index from all tasks
+			maxRuleEnd, err := r.GetMaxRuleEndIndex(ctx, jobExecutionID)
+			if err != nil {
+				return false, fmt.Errorf("failed to get max rule end index: %w", err)
+			}
+
+			// Check if all rules have been dispatched
+			if maxRuleEnd == nil || *maxRuleEnd < totalRules {
+				// More rules need to be dispatched
+				return false, nil
+			}
+		}
+	} else {
+		// For non-rule-splitting jobs, check if all keyspace has been dispatched
+		targetKeyspace := effectiveKeyspace
+		if targetKeyspace == nil {
+			targetKeyspace = totalKeyspace
+		}
+
+		if targetKeyspace != nil && dispatchedKeyspace < *targetKeyspace {
+			// More keyspace needs to be dispatched
+			return false, nil
+		}
+	}
+
+	// All tasks are complete AND all work has been dispatched
+	return true, nil
 }
 
 // GetPendingTasksByJobExecution retrieves all pending tasks for a specific job execution

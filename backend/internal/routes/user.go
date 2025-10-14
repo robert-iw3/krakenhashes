@@ -39,6 +39,7 @@ func CreateJobsHandler(database *db.DB, dataDir string, binaryManager binary.Man
 	agentRepo := repository.NewAgentRepository(dbWrapper)
 	systemSettingsRepo := repository.NewSystemSettingsRepository(dbWrapper)
 	fileRepo := repository.NewFileRepository(dbWrapper, dataDir)
+	hashTypeRepo := repository.NewHashTypeRepository(dbWrapper)
 
 	// Create client repository
 	clientRepo := repository.NewClientRepository(dbWrapper)
@@ -82,6 +83,7 @@ func CreateJobsHandler(database *db.DB, dataDir string, binaryManager binary.Man
 		hashlistRepo,
 		clientRepo,
 		workflowRepo,
+		hashTypeRepo,
 		wordlistStore,
 		ruleStore,
 		binaryStore,

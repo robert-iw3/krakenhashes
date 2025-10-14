@@ -23,6 +23,24 @@ func NewJobTaskRepository(db *db.DB) *JobTaskRepository {
 	return &JobTaskRepository{db: db}
 }
 
+// GetPreviousChunksActualKeyspace returns the cumulative actual keyspace size from all previous chunks
+func (r *JobTaskRepository) GetPreviousChunksActualKeyspace(ctx context.Context, jobExecutionID uuid.UUID, currentChunkNumber int) (int64, error) {
+	query := `
+		SELECT COALESCE(SUM(chunk_actual_keyspace), 0)
+		FROM job_tasks
+		WHERE job_execution_id = $1
+		  AND chunk_number < $2
+		  AND chunk_actual_keyspace IS NOT NULL`
+
+	var cumulativeKeyspace int64
+	err := r.db.QueryRowContext(ctx, query, jobExecutionID, currentChunkNumber).Scan(&cumulativeKeyspace)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get previous chunks' actual keyspace: %w", err)
+	}
+
+	return cumulativeKeyspace, nil
+}
+
 // Create creates a new job task
 func (r *JobTaskRepository) Create(ctx context.Context, task *models.JobTask) error {
 	query := `
@@ -1338,6 +1356,35 @@ func (r *JobTaskRepository) UpdateTaskEffectiveKeyspace(ctx context.Context, tas
 	result, err := r.db.ExecContext(ctx, query, taskID, effectiveKeyspaceStart, effectiveKeyspaceEnd)
 	if err != nil {
 		return fmt.Errorf("failed to update task effective keyspace: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return ErrNotFound
+	}
+
+	return nil
+}
+
+// UpdateTaskEffectiveKeyspaceWithChunkSize updates effective keyspace values and stores the actual chunk size
+// This enables self-correcting cascade updates for subsequent chunks
+func (r *JobTaskRepository) UpdateTaskEffectiveKeyspaceWithChunkSize(ctx context.Context, taskID uuid.UUID, effectiveKeyspaceStart, effectiveKeyspaceEnd, chunkActualKeyspace int64) error {
+	query := `
+		UPDATE job_tasks
+		SET effective_keyspace_start = $2,
+		    effective_keyspace_end = $3,
+		    chunk_actual_keyspace = $4,
+		    is_actual_keyspace = true,
+		    updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1`
+
+	result, err := r.db.ExecContext(ctx, query, taskID, effectiveKeyspaceStart, effectiveKeyspaceEnd, chunkActualKeyspace)
+	if err != nil {
+		return fmt.Errorf("failed to update task effective keyspace with chunk size: %w", err)
 	}
 
 	rowsAffected, err := result.RowsAffected()
