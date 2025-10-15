@@ -92,6 +92,69 @@ The progress bar always shows:
 - Gray: Remaining keyspace
 - Percentage: Based on effective keyspace
 
+## Accurate Keyspace Tracking from Hashcat
+
+### Overview
+KrakenHashes captures actual keyspace values directly from hashcat's `progress[1]` field to ensure precise progress reporting, especially for jobs with rules or combination attacks where estimation can be inaccurate.
+
+### How It Works
+
+1. **Initial Job Creation**: Job created with estimated keyspace based on wordlists/rules, `is_accurate_keyspace = false`
+2. **First Progress Update**: Agent sends `progress[1]` value from hashcat, backend captures it as `chunk_actual_keyspace`
+3. **Cascade Recalculation**: All subsequent chunks' start/end positions are recalculated using cumulative actual keyspace from completed chunks
+4. **Self-Correcting**: The system handles out-of-order chunk completion correctly by recalculating all subsequent chunks whenever a chunk receives its actual keyspace
+
+### Technical Details
+
+**Chunk Actual Keyspace:**
+- Each chunk's `chunk_actual_keyspace` field stores the immutable size from hashcat's `progress[1]` value
+- This represents the actual keyspace processed by hashcat for that specific chunk
+- Used to calculate exact start/end positions for subsequent chunks
+
+**Cascade Updates:**
+When a chunk completes and provides its actual keyspace:
+1. Backend updates the chunk's `chunk_actual_keyspace` and `effective_keyspace_end`
+2. All subsequent chunks (higher chunk numbers) have their positions recalculated
+3. New chunk start position = sum of all previous chunks' actual keyspace
+4. Works correctly even if chunks complete out of order
+
+**Dispatched Keyspace Adjustments:**
+- When actual keyspace differs from estimate, `dispatched_keyspace` is adjusted
+- Ensures job progress accurately reflects work distribution
+
+### Database Schema
+
+**job_tasks table:**
+- `chunk_actual_keyspace` (BIGINT): Immutable chunk size from hashcat `progress[1]`
+- `is_actual_keyspace` (BOOLEAN): True when task has actual keyspace from hashcat
+
+**job_executions table:**
+- `is_accurate_keyspace` (BOOLEAN): True when keyspace is from hashcat `progress[1]`
+- `avg_rule_multiplier` (FLOAT): Actual/estimated ratio for improving future estimates
+
+### Benefits
+
+1. **Precise Progress**: Progress percentages match hashcat's actual progress, not estimates
+2. **Better Task Distribution**: Chunk sizes calculated based on real keyspace
+3. **Improved Future Estimates**: Multiplier derived from actual values helps estimate remaining work
+4. **Self-Correcting Ranges**: Chunks automatically adjust when actual differs from estimate
+5. **No Backwards Ranges**: Ensures ascending keyspace ranges (10.45T → 20.14T, not 10.45T → 9.60T)
+
+### Example
+
+**Before accurate tracking:**
+- Estimated: 10.00T per chunk
+- Reality: 10.51T, 9.63T, 9.71T (varies by rule effectiveness)
+- Problem: Progress bars and ETAs inaccurate
+
+**After accurate tracking:**
+- Chunk 1: 0 → 10.51T (actual from hashcat)
+- Chunk 2: 10.51T → 20.14T (starts where chunk 1 ended)
+- Chunk 3: 20.14T → 29.85T (continues from chunk 2)
+- Result: Perfect cumulative chain with accurate progress
+
+See [Benchmark Workflow](./benchmark-workflow.md) for more details on keyspace capture during benchmarking.
+
 ## Dynamic Updates During Execution
 
 When wordlists, rules, or potfiles are modified while jobs are running, the chunking system adapts:

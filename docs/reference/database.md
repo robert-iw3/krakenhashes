@@ -564,6 +564,7 @@ Individual chunks assigned to agents.
 | chunk_number | INTEGER | | | Chunk number for rule splits (added in migration 44) |
 | effective_keyspace | BIGINT | | | Effective keyspace size (added in migration 47) |
 | is_actual_keyspace | BOOLEAN | | false | True when task has actual keyspace from hashcat progress[1] (added in migration 63) |
+| chunk_actual_keyspace | BIGINT | | | Immutable chunk size from hashcat progress[1] for accurate keyspace tracking (added in migration 64) |
 
 **Indexes:**
 - idx_job_tasks_agent_status (agent_id, status)
@@ -1308,6 +1309,7 @@ The database schema has evolved through 63 migrations:
 61. **000061**: Add hashlist potfile exclusion
 62. **000062**: Add client potfile exclusion
 63. **000063**: Add accurate keyspace tracking
+64. **000064**: Add chunk_actual_keyspace tracking
 
 ---
 

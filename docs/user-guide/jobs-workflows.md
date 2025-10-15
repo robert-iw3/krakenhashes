@@ -130,6 +130,41 @@ To ensure optimal performance:
 3. **Monitor Progress**: Check job status regularly for time-sensitive tasks
 4. **Communicate Urgency**: Work with administrators to set correct priorities for critical audits
 
+## Automatic Job Completion
+
+KrakenHashes automatically detects when all hashes in a hashlist have been cracked and manages the lifecycle of related jobs to prevent failures and wasted resources.
+
+### How It Works
+
+When an agent reports hashcat status code 6 (all hashes cracked):
+
+1. **Detection**: Backend receives status code 6 from hashcat's JSON status output
+2. **Trust Model**: Status code 6 is trusted as authoritative (no database verification needed)
+3. **Running Jobs**: Currently executing jobs are stopped and marked as completed at 100%
+4. **Pending Jobs**: Jobs that haven't started yet are automatically deleted
+5. **Notifications**: Email notifications sent for completed jobs (if configured)
+
+### Why This Matters
+
+Hashcat's `--remove` option removes cracked hashes from the input file during execution. If all hashes are cracked, the file becomes empty, causing subsequent jobs to fail. This automatic detection prevents those failures.
+
+### What You'll See
+
+- Job status changes to "completed" even if not all keyspace was processed
+- Progress shows 100% when all target hashes are cracked
+- Related pending jobs for the same hashlist disappear from the queue
+- Email notification of job completion (if email is configured)
+
+This ensures your workflow doesn't encounter errors when your cracking campaign is successful!
+
+### Technical Details
+
+For administrators and developers interested in the implementation:
+- Status code 6 detection occurs in the agent's hashcat output parser
+- The `AllHashesCracked` flag is transmitted via WebSocket to the backend
+- `HashlistCompletionService` handles the cleanup asynchronously
+- See the [Job Completion System](../reference/architecture/job-completion-system.md) architecture documentation for full details
+
 ## Monitoring Job Execution
 
 ### The Job Details Page

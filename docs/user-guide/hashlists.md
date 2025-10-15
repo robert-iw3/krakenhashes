@@ -64,12 +64,21 @@ The backend processor performs the following steps:
     *   **Default:** Checks for a colon (`:`) separator. If found, the part before the colon is treated as the hash, and the part after is treated as the pre-cracked password (`is_cracked` = true). If no colon is found, the entire line is treated as the hash (`is_cracked` = false).
     *   **Type-Specific Processing:** For certain hash types (e.g., `1000 - NTLM`), specific processing logic might be applied to extract the canonical hash format from more complex lines (like `user:sid:LM:NT:::`). This logic is determined by the `needs_processing` flag and potentially the `processing_logic` field in the `hash_types` table.
 5.  **Batching:** Hashes are collected into batches (size configured by `KH_HASHLIST_BATCH_SIZE`, default: 1000).
-6.  **Database Insertion:** Each batch is processed:
-    *   The system checks if any hashes in the batch already exist in the central `hashes` table (based on hash value and hash type ID).
-    *   New, unique hashes are inserted into the `hashes` table.
+6.  **Database Insertion with Deduplication:** Each batch is processed:
+    *   **Deduplication Strategy:** The system deduplicates by `original_hash` (the complete input line), not just by `hash_value`. This ensures that different users with the same password hash are preserved as separate entries.
+        *   Example: Lines like `Administrator:...:hash123`, `Administrator1:...:hash123`, and `Administrator2:...:hash123` are all stored as distinct hash records.
+    *   The system checks if any hashes in the batch already exist in the central `hashes` table (based on `original_hash` and hash type ID).
+    *   New, unique hashes are inserted into the `hashes` table with both `hash_value` and `original_hash`.
     *   Entries are created in the `hashlist_hashes` join table to link both new and existing hashes from the batch to the current hashlist.
+    *   **Cross-Hashlist Crack Propagation:** When a hash is cracked, ALL hashes with the same `hash_value` (across all hashlists) are automatically marked as cracked. This means if "Administrator", "Administrator1", and "Administrator2" share the same password, cracking one updates all three.
     *   If a hash being added includes a pre-cracked password, the corresponding record in the `hashes` table is updated (`is_cracked`=true, `password`=...).
 7.  **Update Status:** Once the entire file is processed, the hashlist status is updated to `ready`, `ready_with_errors`, or `error`, along with the final `total_hashes` and `cracked_hashes` counts.
+
+### Efficient Hashcat Processing
+
+When generating hashlist files for hashcat:
+*   **DISTINCT Query:** The system uses a DISTINCT query on `hash_value` to prevent sending duplicate password hashes to hashcat. Even if multiple users share the same password, hashcat only needs to crack it once.
+*   **Ordering:** Results are ordered by `hash_value` for stable, consistent output.
 
 ## Supported Input Formats
 
@@ -95,7 +104,12 @@ The processor primarily expects:
 ![Hashlist Detail View](../assets/images/screenshots/hashlist_details.png)
 *Detailed view of a hashlist named 'Test' showing ready status, crack progress indicator, and sample hashes section with individual hash entries and their crack status*
 -   **Downloading:** Use the download icon on the dashboard or the `GET /api/hashlists/{id}/download` endpoint to retrieve the original uploaded hashlist file.
--   **Deleting:** Use the delete icon on the dashboard or the `DELETE /api/hashlists/{id}` endpoint. Deleting a hashlist removes its entry from the `hashlists` table, removes associated entries from the `hashlist_hashes` table, and **deletes the original hashlist file from the backend storage**. It does *not* delete the individual hashes from the central `hashes` table, as they might be referenced by other hashlists.
+-   **Deleting:**
+    *   Use the delete button in the hashlist detail view (with confirmation dialog) or the `DELETE /api/hashlists/{id}` endpoint.
+    *   Deleting a hashlist removes its entry from the `hashlists` table and removes associated entries from the `hashlist_hashes` table.
+    *   The original hashlist file is **securely deleted** from backend storage (overwritten with random data before removal).
+    *   Individual hashes in the central `hashes` table are *not* deleted if they are referenced by other hashlists.
+    *   Orphaned hashes (not linked to any hashlist) are automatically cleaned up.
 
 ## Data Retention
 

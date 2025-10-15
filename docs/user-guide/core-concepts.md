@@ -27,9 +27,10 @@ A **hashlist** is a collection of password hashes uploaded to the system for cra
 ### Hash
 A **hash** is an individual password hash within a hashlist. Each hash:
 - Contains the encrypted password value to be cracked
-- May include an associated username
+- May include an associated username (preserved from original line format)
 - Tracks whether it has been cracked and its plaintext value
-- Can appear in multiple hashlists (deduplication is handled automatically)
+- Can appear in multiple hashlists (deduplication handled by full line, not just hash value)
+- **Cross-hashlist updates**: When a hash value is cracked, ALL hashes with that same value are updated across all hashlists
 
 ### Preset Job
 A **preset job** is a pre-configured attack strategy that defines:
@@ -280,8 +281,9 @@ Each cracked hash stores:
 
 - **Centralized Pot**: Backend maintains master record of all cracks
 - **Agent Sync**: Agents receive relevant cracks for their current hashlist
-- **Deduplication**: Same hash cracked multiple times is recorded once
-- **Cross-Hashlist**: Cracks are automatically applied to all hashlists containing that hash
+- **Deduplication by Line**: Each unique input line preserved; duplicates by hash value automatically updated when cracked
+- **Cross-Hashlist**: Cracks are automatically applied to all hashlists containing that hash value
+- **Username Preservation**: Multiple users with same password (e.g., "Administrator", "Administrator1") tracked separately
 
 ### Result Access
 
