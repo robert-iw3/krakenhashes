@@ -362,6 +362,7 @@ type JobProgress struct {
 	Status                 string         `json:"status,omitempty"`                     // Task status (running, completed, failed)
 	ErrorMessage           string         `json:"error_message,omitempty"`              // Error message if status is failed
 	DeviceMetrics          []DeviceMetric `json:"device_metrics,omitempty"`              // Per-device metrics
+	AllHashesCracked       bool           `json:"all_hashes_cracked,omitempty"`         // Flag indicating all hashes in hashlist were cracked (exit code 6)
 }
 
 // CrackedHash represents a cracked hash with all available information

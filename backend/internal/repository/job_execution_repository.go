@@ -762,3 +762,49 @@ func (r *JobExecutionRepository) GetJobsWithPendingWork(ctx context.Context) ([]
 
 	return executions, nil
 }
+
+// GetNonCompletedJobsByHashlistID retrieves all non-completed job executions for a specific hashlist
+func (r *JobExecutionRepository) GetNonCompletedJobsByHashlistID(ctx context.Context, hashlistID int64) ([]models.JobExecution, error) {
+	query := `
+		SELECT
+			id, name, preset_job_id, hashlist_id, status, priority, max_agents, attack_mode,
+			hash_type, total_keyspace, effective_keyspace, base_keyspace, processed_keyspace,
+			dispatched_keyspace, multiplication_factor, uses_rule_splitting, overall_progress_percent,
+			chunk_size_seconds, allow_high_priority_override, wordlist_ids, rule_ids, mask,
+			additional_args, binary_version_id, started_at, completed_at, error_message, created_by,
+			created_at, updated_at
+		FROM job_executions
+		WHERE hashlist_id = $1 AND status != 'completed'
+		ORDER BY priority DESC, created_at ASC
+	`
+
+	rows, err := r.db.Query(query, hashlistID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query non-completed jobs by hashlist: %w", err)
+	}
+	defer rows.Close()
+
+	var executions []models.JobExecution
+	for rows.Next() {
+		var exec models.JobExecution
+		err := rows.Scan(
+			&exec.ID, &exec.Name, &exec.PresetJobID, &exec.HashlistID, &exec.Status, &exec.Priority, &exec.MaxAgents,
+			&exec.AttackMode, &exec.HashType, &exec.TotalKeyspace, &exec.EffectiveKeyspace, &exec.BaseKeyspace,
+			&exec.ProcessedKeyspace, &exec.DispatchedKeyspace, &exec.MultiplicationFactor, &exec.UsesRuleSplitting,
+			&exec.OverallProgressPercent, &exec.ChunkSizeSeconds, &exec.AllowHighPriorityOverride,
+			&exec.WordlistIDs, &exec.RuleIDs, &exec.Mask, &exec.AdditionalArgs, &exec.BinaryVersionID,
+			&exec.StartedAt, &exec.CompletedAt, &exec.ErrorMessage, &exec.CreatedBy,
+			&exec.CreatedAt, &exec.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan job execution: %w", err)
+		}
+		executions = append(executions, exec)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating job executions: %w", err)
+	}
+
+	return executions, nil
+}

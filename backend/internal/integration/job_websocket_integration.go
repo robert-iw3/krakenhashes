@@ -40,11 +40,12 @@ type JobWebSocketIntegration struct {
 	deviceRepo           *repository.AgentDeviceRepository
 	clientRepo           *repository.ClientRepository
 	systemSettingsRepo   *repository.SystemSettingsRepository
-	potfileService       *services.PotfileService
-	db                   *sql.DB
-	wordlistManager      wordlist.Manager
-	ruleManager          rule.Manager
-	binaryManager        binary.Manager
+	potfileService          *services.PotfileService
+	hashlistCompletionService *services.HashlistCompletionService
+	db                      *sql.DB
+	wordlistManager         wordlist.Manager
+	ruleManager             rule.Manager
+	binaryManager           binary.Manager
 
 	// Progress tracking
 	progressMutex   sync.RWMutex
@@ -69,31 +70,33 @@ func NewJobWebSocketIntegration(
 	clientRepo *repository.ClientRepository,
 	systemSettingsRepo *repository.SystemSettingsRepository,
 	potfileService *services.PotfileService,
+	hashlistCompletionService *services.HashlistCompletionService,
 	db *sql.DB,
 	wordlistManager wordlist.Manager,
 	ruleManager rule.Manager,
 	binaryManager binary.Manager,
 ) *JobWebSocketIntegration {
 	return &JobWebSocketIntegration{
-		wsHandler:            wsHandler,
-		jobSchedulingService: jobSchedulingService,
-		jobExecutionService:  jobExecutionService,
-		hashlistSyncService:  hashlistSyncService,
-		benchmarkRepo:        benchmarkRepo,
-		presetJobRepo:        presetJobRepo,
-		hashlistRepo:         hashlistRepo,
-		hashRepo:             hashRepo,
-		jobTaskRepo:          jobTaskRepo,
-		agentRepo:            agentRepo,
-		deviceRepo:           deviceRepo,
-		clientRepo:           clientRepo,
-		systemSettingsRepo:   systemSettingsRepo,
-		potfileService:       potfileService,
-		db:                   db,
-		wordlistManager:      wordlistManager,
-		ruleManager:          ruleManager,
-		binaryManager:        binaryManager,
-		taskProgressMap:      make(map[string]*models.JobProgress),
+		wsHandler:                 wsHandler,
+		jobSchedulingService:      jobSchedulingService,
+		jobExecutionService:       jobExecutionService,
+		hashlistSyncService:       hashlistSyncService,
+		benchmarkRepo:             benchmarkRepo,
+		presetJobRepo:             presetJobRepo,
+		hashlistRepo:              hashlistRepo,
+		hashRepo:                  hashRepo,
+		jobTaskRepo:               jobTaskRepo,
+		agentRepo:                 agentRepo,
+		deviceRepo:                deviceRepo,
+		clientRepo:                clientRepo,
+		systemSettingsRepo:        systemSettingsRepo,
+		potfileService:            potfileService,
+		hashlistCompletionService: hashlistCompletionService,
+		db:                        db,
+		wordlistManager:           wordlistManager,
+		ruleManager:               ruleManager,
+		binaryManager:             binaryManager,
+		taskProgressMap:           make(map[string]*models.JobProgress),
 	}
 }
 
@@ -763,6 +766,29 @@ func (s *JobWebSocketIntegration) HandleJobProgress(ctx context.Context, agentID
 		}
 
 		return nil
+	}
+
+	// Check if all hashes cracked flag is set (status code 6 from hashcat)
+	// This check must happen BEFORE status-specific processing because the agent sends this
+	// flag with status="running" when hashcat reports status code 6 in JSON output
+	if progress.AllHashesCracked {
+		debug.Info("Task %s reported all hashes cracked (hashcat status code 6) - triggering hashlist completion handler", progress.TaskID)
+		// Get job to find hashlist ID
+		job, err := s.jobExecutionService.GetJobExecutionByID(ctx, task.JobExecutionID)
+		if err != nil {
+			debug.Error("Failed to get job for hashlist completion check: %v", err)
+		} else if s.hashlistCompletionService != nil {
+			// Trigger hashlist completion handler in a goroutine to avoid blocking
+			go func() {
+				// Use a background context with timeout to avoid hanging
+				bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+				defer cancel()
+
+				if err := s.hashlistCompletionService.HandleHashlistFullyCracked(bgCtx, job.HashlistID); err != nil {
+					debug.Error("Failed to handle hashlist fully cracked: %v", err)
+				}
+			}()
+		}
 	}
 
 	// Check if this is a completion update

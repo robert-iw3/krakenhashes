@@ -88,6 +88,7 @@ type JobProgress struct {
 	Status                 string         `json:"status,omitempty"`                     // Task status (running, completed, failed)
 	ErrorMessage           string         `json:"error_message,omitempty"`              // Error message if status is failed
 	DeviceMetrics          []DeviceMetric `json:"device_metrics,omitempty"`              // Per-device metrics
+	AllHashesCracked       bool           `json:"all_hashes_cracked,omitempty"`         // Flag indicating all hashes in hashlist were cracked (exit code 6)
 }
 
 // CrackedHash represents a cracked hash with all available information
@@ -617,17 +618,24 @@ func (e *HashcatExecutor) runHashcatProcess(ctx context.Context, process *Hashca
 				
 				var status map[string]interface{}
 				if err := json.Unmarshal([]byte(fixedLine), &status); err == nil {
-					// Check if this is a final status update
+					// Check if this is a final status update and detect if all hashes are cracked
+					var allHashesCracked bool
 					if statusCode, ok := status["status"].(float64); ok {
 						debug.Info("[Hashcat status] Status code: %d (3=Running, 5=Exhausted, 6=Cracked)", int(statusCode))
-						
+
+						// Status code 6 means all hashes cracked with --remove flag
+						if int(statusCode) == 6 {
+							debug.Info("[Hashcat] Status code 6 detected - all hashes in hashlist are cracked")
+							allHashesCracked = true
+						}
+
 						// Status codes: 3=Running, 5=Exhausted, 6=Cracked, 7=Aborted, etc.
 						if int(statusCode) != 3 {
 							debug.Info("[Hashcat] Final status detected: %d", int(statusCode))
 							// This is a final status, make sure to process it
 						}
 					}
-					
+
 					// Extract key metrics from JSON
 					if progressArr, ok := status["progress"].([]interface{}); ok && len(progressArr) >= 2 {
 						// Extract restore point for resume capability (position in wordlist)
@@ -660,6 +668,7 @@ func (e *HashcatExecutor) runHashcatProcess(ctx context.Context, process *Hashca
 							EffectiveProgress: currentProgress,     // Actual effective progress
 							ProgressPercent:   progressPercent,     // Actual progress percentage
 							IsFirstUpdate:     isFirstUpdate,       // Flag indicating first update
+							AllHashesCracked:  allHashesCracked,    // Flag when status code 6 detected
 						}
 
 						// Always include total effective keyspace from hashcat
@@ -950,7 +959,7 @@ func (e *HashcatExecutor) runHashcatProcess(ctx context.Context, process *Hashca
 						ProgressPercent:   100.0, // Keyspace exhausted = 100% complete
 					}
 					e.sendProgressUpdate(process, finalProgress, "completed")
-					
+
 				case 2, 3, 4, 5:
 					// Various abort conditions
 					debug.Warning("Hashcat was aborted (exit code %d) for task %s", exitCode, process.TaskID)

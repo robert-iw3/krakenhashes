@@ -299,6 +299,19 @@ func (s *JobSchedulingService) assignWorkToAgent(ctx context.Context, agent *mod
 		"hashlist_id":      nextJob.HashlistID,
 	})
 
+	// PREVENTION: Check if hashlist is fully cracked before creating new tasks
+	hashlist, err := s.jobExecutionService.hashlistRepo.GetByID(ctx, nextJob.HashlistID)
+	if err != nil {
+		debug.Error("Failed to get hashlist %d for completion check: %v", nextJob.HashlistID, err)
+		// Continue anyway - this is a safety check
+	} else if hashlist.CrackedHashes >= hashlist.TotalHashes {
+		debug.Warning("Hashlist %d is fully cracked (%d/%d), skipping task assignment for job %s",
+			nextJob.HashlistID, hashlist.CrackedHashes, hashlist.TotalHashes, nextJob.ID)
+		// Don't create tasks for fully cracked hashlists
+		// The hashlist completion handler should clean this up
+		return nil, nil, nil
+	}
+
 	// Note: Interruption logic has been moved to main ScheduleJobs method
 	// and only runs when no agents are available
 	var interruptedJobs []uuid.UUID
@@ -380,10 +393,13 @@ func (s *JobSchedulingService) assignWorkToAgent(ctx context.Context, agent *mod
 		return nil, interruptedJobs, fmt.Errorf("failed to sync hashlist to agent: %w", err)
 	}
 
-	// Get hashlist to retrieve hash type
-	hashlist, err := s.jobExecutionService.hashlistRepo.GetByID(ctx, nextJob.HashlistID)
-	if err != nil {
-		return nil, interruptedJobs, fmt.Errorf("failed to get hashlist: %w", err)
+	// Hashlist was already retrieved in the prevention check above, so reuse it
+	// If there was an error getting it before, try again here
+	if hashlist == nil {
+		hashlist, err = s.jobExecutionService.hashlistRepo.GetByID(ctx, nextJob.HashlistID)
+		if err != nil {
+			return nil, interruptedJobs, fmt.Errorf("failed to get hashlist: %w", err)
+		}
 	}
 
 	// Check if agent has a benchmark for this attack mode and hash type

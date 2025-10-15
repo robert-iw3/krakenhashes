@@ -163,6 +163,19 @@ func SetupWebSocketWithJobRoutes(
 		UserJobsHandlerInstance.SetWSHandler(adapter)
 	}
 
+	// Create notification service for job completion
+	notificationService := services.NewNotificationService(sqlDB)
+
+	// Create hashlist completion service for handling fully cracked hashlists
+	hashlistCompletionService := services.NewHashlistCompletionService(
+		database,
+		jobExecutionRepo,
+		jobTaskRepo,
+		hashlistRepo,
+		notificationService,
+		&wsHandlerAdapter{handler: wsHandler},
+	)
+
 	// Create job integration manager
 	jobIntegration := integration.NewJobIntegrationManager(
 		wsHandler,
@@ -179,6 +192,7 @@ func SetupWebSocketWithJobRoutes(
 		clientRepo,
 		systemSettingsRepo,
 		potfileService,
+		hashlistCompletionService,
 		sqlDB,
 		wordlistManager,
 		ruleManager,
