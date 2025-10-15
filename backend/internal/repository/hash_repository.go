@@ -353,14 +353,15 @@ func (r *HashRepository) GetHashesByHashlistID(ctx context.Context, hashlistID i
 }
 
 // GetUncrackedHashValuesByHashlistID retrieves only the hash_value strings for uncracked hashes
-// associated with a specific hashlist.
+// associated with a specific hashlist. Uses DISTINCT to ensure unique hash values only
+// (e.g., when multiple users have the same password, only send the hash once to hashcat).
 func (r *HashRepository) GetUncrackedHashValuesByHashlistID(ctx context.Context, hashlistID int64) ([]string, error) {
 	query := `
-		SELECT h.hash_value
+		SELECT DISTINCT h.hash_value
 		FROM hashes h
 		JOIN hashlist_hashes hlh ON h.id = hlh.hash_id
 		WHERE hlh.hashlist_id = $1 AND h.is_cracked = FALSE
-		ORDER BY h.id -- Changed from hlh.rowid to h.id for stable ordering
+		ORDER BY h.hash_value
 	`
 
 	rows, err := r.db.QueryContext(ctx, query, hashlistID)

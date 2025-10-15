@@ -319,113 +319,114 @@ func (p *HashlistDBProcessor) processHashlist(hashlistID int64) {
 }
 
 // batchProcessHashes handles creating/updating hashes and preparing associations.
-// It ensures each input hash gets associated, handling duplicates by reusing existing hash IDs
-// but still creating a new association entry for the current hashlist.
+// It deduplicates by original_hash (full input line) to preserve unique entries
+// like different users with the same password hash. Each unique original_hash
+// gets its own hash record and association to the hashlist.
 func (p *HashlistDBProcessor) batchProcessHashes(ctx context.Context, hashes []*models.Hash, hashlistID int64) ([]*models.HashListHash, error) {
 	debug.Debug("[Processor:%d] batchProcessHashes received %d hashes", hashlistID, len(hashes))
 	if len(hashes) == 0 {
 		return nil, nil
 	}
 
-	// Group input hashes by their hash_value (after processing)
-	hashesByValue := make(map[string][]*models.Hash)
+	// Deduplicate by original_hash (exact duplicate input lines)
+	// This preserves all unique entries (e.g., different users with same password)
+	uniqueHashesByOriginal := make(map[string]*models.Hash) // Key: original_hash
 	uniqueHashValues := make([]string, 0)
-	for _, h := range hashes {
-		if _, exists := hashesByValue[h.HashValue]; !exists {
-			hashesByValue[h.HashValue] = []*models.Hash{}
-			uniqueHashValues = append(uniqueHashValues, h.HashValue)
-		}
-		hashesByValue[h.HashValue] = append(hashesByValue[h.HashValue], h)
-	}
-	debug.Debug("[Processor:%d] Grouped input into %d unique hash values.", hashlistID, len(uniqueHashValues))
+	uniqueHashValueSet := make(map[string]struct{})
 
-	// Find existing hashes in the DB for these unique values
+	for _, h := range hashes {
+		// Skip exact duplicate lines (same original_hash)
+		if _, alreadySeen := uniqueHashesByOriginal[h.OriginalHash]; alreadySeen {
+			debug.Debug("[Processor:%d] Skipping duplicate original_hash: %s", hashlistID, h.OriginalHash)
+			continue
+		}
+
+		// Store this unique original line
+		uniqueHashesByOriginal[h.OriginalHash] = h
+
+		// Collect unique hash_values for DB existence check
+		if _, exists := uniqueHashValueSet[h.HashValue]; !exists {
+			uniqueHashValues = append(uniqueHashValues, h.HashValue)
+			uniqueHashValueSet[h.HashValue] = struct{}{}
+		}
+	}
+	debug.Debug("[Processor:%d] After deduplication: %d unique original hashes from %d inputs, %d unique hash values",
+		hashlistID, len(uniqueHashesByOriginal), len(hashes), len(uniqueHashValues))
+
+	// Find existing hashes in DB by hash_values, then filter by original_hash
 	existingHashesFromDB, err := p.hashRepo.GetByHashValues(ctx, uniqueHashValues)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check existing hashes: %w", err)
 	}
-	existingHashMap := make(map[string]*models.Hash, len(existingHashesFromDB))
+
+	// Create map keyed by ORIGINAL_HASH for exact matching
+	existingHashMap := make(map[string]*models.Hash)
 	for _, eh := range existingHashesFromDB {
-		// If multiple rows exist for the same hash_value (due to no unique constraint),
-		// we just take the first one encountered. The goal is to link to *an* existing record.
-		if _, exists := existingHashMap[eh.HashValue]; !exists {
-			existingHashMap[eh.HashValue] = eh
-		}
+		existingHashMap[eh.OriginalHash] = eh
 	}
-	debug.Debug("[Processor:%d] Found %d existing hash records for %d unique values.", hashlistID, len(existingHashMap), len(uniqueHashValues))
+	debug.Debug("[Processor:%d] Found %d existing hash records in DB", hashlistID, len(existingHashMap))
 
 	// Prepare lists for creation, update, and final associations
 	newHashesToCreate := make([]*models.Hash, 0)
 	hashesToUpdate := make([]*models.Hash, 0)
-	finalAssociations := make([]*models.HashListHash, 0, len(hashes)) // Size based on original input count
+	finalAssociations := make([]*models.HashListHash, 0, len(uniqueHashesByOriginal))
 	newlyCrackedInBatch := 0
-	idsToUpdate := make(map[uuid.UUID]struct{}) // Track which existing hash IDs need updates
 
-	// Iterate through the unique hash values found in the input batch
-	for value, inputHashesForValue := range hashesByValue {
-		existingDBHash, valueExistsInDB := existingHashMap[value]
+	// Iterate through each unique original_hash
+	for originalHash, inputHash := range uniqueHashesByOriginal {
+		existingDBHash, existsInDB := existingHashMap[originalHash]
 
-		if valueExistsInDB {
-			// Value exists. All input hashes with this value should associate with existingDBHash.ID
-			hashIDToAssociate := existingDBHash.ID
-			debug.Debug("[Processor:%d] Value '%s' exists in DB (ID: %s). Creating %d associations.", hashlistID, value, hashIDToAssociate, len(inputHashesForValue))
+		if existsInDB {
+			// This exact original_hash already exists in DB
+			// Just create association, and potentially update crack status
+			debug.Debug("[Processor:%d] Original hash '%s' exists in DB (ID: %s)",
+				hashlistID, originalHash, existingDBHash.ID)
 
-			// Create an association for *each* input hash that had this value
-			for _, inputHash := range inputHashesForValue {
-				finalAssociations = append(finalAssociations, &models.HashListHash{
-					HashlistID: hashlistID,
-					HashID:     hashIDToAssociate,
-				})
+			finalAssociations = append(finalAssociations, &models.HashListHash{
+				HashlistID: hashlistID,
+				HashID:     existingDBHash.ID,
+			})
 
-				// --- Pre-cracking & Update Check ---
-				// Check if *any* of the input hashes for this value suggest a crack or username update
-				// Only need to check/update the single existingDBHash record once per value.
-				if _, alreadyChecked := idsToUpdate[existingDBHash.ID]; !alreadyChecked {
-					needsUpdate := false
-					if !existingDBHash.IsCracked && inputHash.IsCracked {
-						existingDBHash.IsCracked = true
-						existingDBHash.Password = inputHash.Password
-						needsUpdate = true
-						newlyCrackedInBatch++ // Count crack discovery
-					}
-					if existingDBHash.Username == nil && inputHash.Username != nil {
-						existingDBHash.Username = inputHash.Username
-						needsUpdate = true
-					}
-
-					if needsUpdate {
-						existingDBHash.LastUpdated = time.Now()
-						hashesToUpdate = append(hashesToUpdate, existingDBHash)
-						idsToUpdate[existingDBHash.ID] = struct{}{} // Mark as needing update
-					}
-				}
-				// --- End Update Check ---
+			// Check if we need to update crack status
+			needsUpdate := false
+			if !existingDBHash.IsCracked && inputHash.IsCracked {
+				existingDBHash.IsCracked = true
+				existingDBHash.Password = inputHash.Password
+				needsUpdate = true
+				newlyCrackedInBatch++
 			}
+			// Update username if existing is null and new one is provided
+			if existingDBHash.Username == nil && inputHash.Username != nil {
+				existingDBHash.Username = inputHash.Username
+				needsUpdate = true
+			}
+
+			if needsUpdate {
+				existingDBHash.LastUpdated = time.Now()
+				hashesToUpdate = append(hashesToUpdate, existingDBHash)
+			}
+
 		} else {
-			// Value does NOT exist. Create *one* new hash record for this value.
-			// We'll use the details from the first input hash encountered for this value.
-			hashToCreate := inputHashesForValue[0] // Use the first one as representative
-			hashToCreate.ID = uuid.New()           // Ensure it has a new UUID for creation
-			newHashesToCreate = append(newHashesToCreate, hashToCreate)
-			hashIDToAssociate := hashToCreate.ID // The ID we *will* create
+			// This is a NEW unique original_hash - create a new record
+			inputHash.ID = uuid.New()
+			newHashesToCreate = append(newHashesToCreate, inputHash)
 
-			debug.Debug("[Processor:%d] Value '%s' is new. Will create (ID: %s) and %d associations.", hashlistID, value, hashIDToAssociate, len(inputHashesForValue))
+			debug.Debug("[Processor:%d] Creating new hash record for original: '%s' (ID: %s)",
+				hashlistID, originalHash, inputHash.ID)
 
-			// Create an association for *each* input hash that had this value, using the *new* ID
-			for range inputHashesForValue { // Iterate based on count
-				finalAssociations = append(finalAssociations, &models.HashListHash{
-					HashlistID: hashlistID,
-					HashID:     hashIDToAssociate,
-				})
-			}
+			finalAssociations = append(finalAssociations, &models.HashListHash{
+				HashlistID: hashlistID,
+				HashID:     inputHash.ID,
+			})
 
-			// If the representative new hash is cracked, count it
-			if hashToCreate.IsCracked {
+			if inputHash.IsCracked {
 				newlyCrackedInBatch++
 			}
 		}
 	}
-	debug.Debug("[Processor:%d] Determined %d hashes to create, %d hashes to update, %d associations to make.", hashlistID, len(newHashesToCreate), len(hashesToUpdate), len(finalAssociations))
+
+	debug.Debug("[Processor:%d] Will create %d new hashes, update %d existing hashes, create %d associations",
+		hashlistID, len(newHashesToCreate), len(hashesToUpdate), len(finalAssociations))
 
 	// Create new hashes
 	if len(newHashesToCreate) > 0 {

@@ -569,10 +569,36 @@ func (h *hashlistHandler) handleGetHashlist(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Don't expose file path
-	hashlist.FilePath = ""
+	// Fetch hash type to enrich response
+	hashType, err := h.hashTypeRepo.GetByID(ctx, hashlist.HashTypeID)
+	if err != nil {
+		debug.Error("Error getting hash type %d for hashlist %d: %v", hashlist.HashTypeID, id, err)
+		// Don't fail the request, just won't have enriched data
+	}
 
-	jsonResponse(w, http.StatusOK, hashlist)
+	// Create enriched response
+	response := map[string]interface{}{
+		"id":                   hashlist.ID,
+		"name":                 hashlist.Name,
+		"user_id":              hashlist.UserID,
+		"client_id":            hashlist.ClientID,
+		"hash_type_id":         hashlist.HashTypeID,
+		"total_hashes":         hashlist.TotalHashes,
+		"cracked_hashes":       hashlist.CrackedHashes,
+		"status":               hashlist.Status,
+		"error_message":        hashlist.ErrorMessage,
+		"exclude_from_potfile": hashlist.ExcludeFromPotfile,
+		"createdAt":            hashlist.CreatedAt,
+		"updatedAt":            hashlist.UpdatedAt,
+	}
+
+	// Add enriched hash type field if available
+	if hashType != nil {
+		response["hashTypeName"] = fmt.Sprintf("%s (%d)", hashType.Name, hashType.ID)
+		response["hashTypeID"] = hashType.ID
+	}
+
+	jsonResponse(w, http.StatusOK, response)
 }
 
 func (h *hashlistHandler) handleDeleteHashlist(w http.ResponseWriter, r *http.Request) {

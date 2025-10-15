@@ -13,7 +13,12 @@ import {
   ListItemButton,
   Tooltip,
   IconButton,
-  Alert
+  Alert,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogContentText,
+  DialogTitle
 } from '@mui/material';
 import {
   Download as DownloadIcon,
@@ -24,10 +29,12 @@ import {
   PlayArrow as PlayArrowIcon
 } from '@mui/icons-material';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../services/api';
 import HashDetailModal from './HashDetailModal';
 import CreateJobDialog from './CreateJobDialog';
+import { useSnackbar } from 'notistack';
+import { AxiosResponse, AxiosError } from 'axios';
 
 interface HashDetail {
   id: string;
@@ -50,10 +57,28 @@ export default function HashlistDetailView() {
   const [selectedHash, setSelectedHash] = useState<HashDetail | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [createJobDialogOpen, setCreateJobDialogOpen] = useState(false);
-  
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const queryClient = useQueryClient();
+  const { enqueueSnackbar } = useSnackbar();
+
   const { data: hashlist, isLoading } = useQuery({
     queryKey: ['hashlist', id],
     queryFn: () => api.get(`/api/hashlists/${id}`).then(res => res.data)
+  });
+
+  // Delete Mutation
+  const deleteMutation = useMutation<AxiosResponse, AxiosError, string>({
+    mutationFn: (hashlistId: string) => api.delete(`/api/hashlists/${hashlistId}`),
+    onSuccess: () => {
+      enqueueSnackbar('Hashlist deleted successfully', { variant: 'success' });
+      queryClient.invalidateQueries({ queryKey: ['hashlists'] });
+      navigate('/hashlists'); // Redirect to list after deletion
+    },
+    onError: (error) => {
+      const errorMsg = (error.response?.data as any)?.error || error.message || 'Failed to delete hashlist';
+      enqueueSnackbar(errorMsg, { variant: 'error' });
+      setDeleteDialogOpen(false);
+    },
   });
 
   const { data: hashResponse, isLoading: loadingSamples, refetch: refetchHashes } = useQuery({
@@ -94,6 +119,20 @@ export default function HashlistDetailView() {
     refetchHashes();
   };
 
+  const handleDeleteClick = () => {
+    setDeleteDialogOpen(true);
+  };
+
+  const handleDeleteConfirm = () => {
+    if (id) {
+      deleteMutation.mutate(id);
+    }
+  };
+
+  const handleDeleteCancel = () => {
+    setDeleteDialogOpen(false);
+  };
+
   if (isLoading) return <LinearProgress />;
 
   return (
@@ -126,7 +165,7 @@ export default function HashlistDetailView() {
               </IconButton>
             </Tooltip>
             <Tooltip title="Delete">
-              <IconButton color="error">
+              <IconButton color="error" onClick={handleDeleteClick}>
                 <DeleteIcon />
               </IconButton>
             </Tooltip>
@@ -157,17 +196,23 @@ export default function HashlistDetailView() {
 
         <Box sx={{ mt: 3 }}>
           <Typography variant="subtitle2">
-            Crack Progress ({hashlist.crackedHashes || 0} of {hashlist.totalHashes || 0})
+            Crack Progress ({hashlist.cracked_hashes || 0} of {hashlist.total_hashes || 0})
           </Typography>
           <Box display="flex" alignItems="center" gap={2}>
             <Box width="100%">
-              <LinearProgress 
+              <LinearProgress
                 variant="determinate"
-                value={(hashlist.crackedHashes / hashlist.totalHashes) * 100}
+                value={hashlist.total_hashes > 0
+                  ? ((hashlist.cracked_hashes || 0) / hashlist.total_hashes) * 100
+                  : 0
+                }
               />
             </Box>
             <Typography>
-              {Math.round((hashlist.crackedHashes / hashlist.totalHashes) * 100)}%
+              {hashlist.total_hashes > 0
+                ? Math.round(((hashlist.cracked_hashes || 0) / hashlist.total_hashes) * 100)
+                : 0
+              }%
             </Typography>
           </Box>
         </Box>
@@ -257,6 +302,31 @@ export default function HashlistDetailView() {
           hashTypeId={hashlist.hashTypeID || hashlist.hash_type_id}
         />
       )}
+
+      <Dialog
+        open={deleteDialogOpen}
+        onClose={handleDeleteCancel}
+        aria-labelledby="alert-dialog-title"
+        aria-describedby="alert-dialog-description"
+      >
+        <DialogTitle id="alert-dialog-title">
+          Confirm Deletion
+        </DialogTitle>
+        <DialogContent>
+          <DialogContentText id="alert-dialog-description">
+            Are you sure you want to delete the hashlist "{hashlist?.name || ''}"?
+            This action cannot be undone.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleDeleteCancel} color="primary">
+            Cancel
+          </Button>
+          <Button onClick={handleDeleteConfirm} color="error" autoFocus disabled={deleteMutation.isPending}>
+            {deleteMutation.isPending ? 'Deleting...' : 'Delete'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

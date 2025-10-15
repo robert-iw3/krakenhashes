@@ -1118,39 +1118,43 @@ func (s *JobWebSocketIntegration) processCrackedHashes(ctx context.Context, task
 			continue
 		}
 
-		// For now, we'll use the first hash found
-		// In a production system, we'd need to verify this hash belongs to the correct hashlist
-		// by checking the hashlist_hashes junction table
-		hash := hashes[0]
+		// Update ALL hashes with this hash_value (e.g., multiple users with same password)
+		// This ensures that Administrator, Administrator1, Administrator2 all get marked as cracked
+		hashesUpdated := 0
+		for _, hash := range hashes {
+			// Check if hash is already cracked to prevent double counting
+			if hash.IsCracked {
+				debug.Log("Hash already cracked, skipping", map[string]interface{}{
+					"hash_id":     hash.ID,
+					"hash_value":  hashValue,
+					"hashlist_id": jobExecution.HashlistID,
+				})
+				continue
+			}
 
-		// Check if hash is already cracked to prevent double counting
-		if hash.IsCracked {
-			debug.Log("Hash already cracked, skipping", map[string]interface{}{
+			// Update crack status
+			err = s.hashRepo.UpdateCrackStatus(tx, hash.ID, password, crackedAt, nil)
+			if err != nil {
+				debug.Log("Failed to update crack status", map[string]interface{}{
+					"hash_id": hash.ID,
+					"error":   err.Error(),
+				})
+				continue
+			}
+
+			hashesUpdated++
+			debug.Log("Successfully cracked hash", map[string]interface{}{
 				"hash_id":     hash.ID,
 				"hash_value":  hashValue,
+				"username":    hash.Username,
 				"hashlist_id": jobExecution.HashlistID,
+				"crack_pos":   crackPos,
+				"password":    password,
 			})
-			continue
 		}
 
-		// Update crack status
-		err = s.hashRepo.UpdateCrackStatus(tx, hash.ID, password, crackedAt, nil)
-		if err != nil {
-			debug.Log("Failed to update crack status", map[string]interface{}{
-				"hash_id": hash.ID,
-				"error":   err.Error(),
-			})
-			continue
-		}
-
-		crackedCount++
-		debug.Log("Successfully cracked hash", map[string]interface{}{
-			"hash_id":     hash.ID,
-			"hash_value":  hashValue,
-			"hashlist_id": jobExecution.HashlistID,
-			"crack_pos":   crackPos,
-			"password":    password,
-		})
+		// Increment crack count by number of hashes actually updated
+		crackedCount += hashesUpdated
 
 		// Stage password for pot-file (non-blocking)
 		// Check global potfile setting, client-level exclusion, AND per-hashlist exclusion
