@@ -5,7 +5,8 @@ import {
     Alert, Grid, Card, CardContent, Divider, Chip, IconButton,
     Dialog, DialogTitle, DialogContent, DialogActions, FormControlLabel,
     Checkbox, List, ListItem, ListItemText, ListItemIcon, Select,
-    MenuItem, FormControl, InputLabel
+    MenuItem, FormControl, InputLabel, Table, TableBody, TableCell,
+    TableContainer, TableHead, TableRow, Badge, Tooltip
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import SaveIcon from '@mui/icons-material/Save';
@@ -17,18 +18,26 @@ import PersonIcon from '@mui/icons-material/Person';
 import EmailIcon from '@mui/icons-material/Email';
 import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
 import CloseIcon from '@mui/icons-material/Close';
+import DevicesIcon from '@mui/icons-material/Devices';
+import HistoryIcon from '@mui/icons-material/History';
+import DeleteIcon from '@mui/icons-material/Delete';
+import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
 import { useSnackbar, closeSnackbar } from 'notistack';
-import { format } from 'date-fns';
+import { format, formatDistanceToNow } from 'date-fns';
 
-import { User } from '../../types/user';
-import { 
-    getAdminUser, 
-    updateAdminUser, 
+import { User, LoginAttempt, ActiveSession } from '../../types/user';
+import {
+    getAdminUser,
+    updateAdminUser,
     resetAdminUserPassword,
     disableAdminUserMFA,
     enableAdminUser,
     disableAdminUser,
-    unlockAdminUser
+    unlockAdminUser,
+    getUserLoginAttempts,
+    getUserSessions,
+    terminateSession,
+    terminateAllUserSessions
 } from '../../services/api';
 
 const UserDetail: React.FC = () => {
@@ -56,6 +65,15 @@ const UserDetail: React.FC = () => {
     const [newPassword, setNewPassword] = useState('');
     const [temporaryPassword, setTemporaryPassword] = useState(true);
 
+    // Sessions and login attempts state
+    const [sessions, setSessions] = useState<ActiveSession[]>([]);
+    const [loginAttempts, setLoginAttempts] = useState<LoginAttempt[]>([]);
+    const [sessionsLoading, setSessionsLoading] = useState(false);
+    const [attemptsLoading, setAttemptsLoading] = useState(false);
+    const [terminateSessionId, setTerminateSessionId] = useState<string | null>(null);
+    const [terminateAllDialogOpen, setTerminateAllDialogOpen] = useState(false);
+    const [attemptFilter, setAttemptFilter] = useState<'all' | 'success' | 'failed'>('all');
+
     const fetchUser = useCallback(async () => {
         if (!id) return;
         
@@ -76,15 +94,47 @@ const UserDetail: React.FC = () => {
         }
     }, [id, enqueueSnackbar]);
 
+    const fetchSessions = useCallback(async () => {
+        if (!id) return;
+
+        setSessionsLoading(true);
+        try {
+            const response = await getUserSessions(id);
+            setSessions(response.data.data || []);
+        } catch (err) {
+            console.error("Failed to fetch sessions:", err);
+            enqueueSnackbar('Failed to load sessions', { variant: 'error' });
+        } finally {
+            setSessionsLoading(false);
+        }
+    }, [id, enqueueSnackbar]);
+
+    const fetchLoginAttempts = useCallback(async () => {
+        if (!id) return;
+
+        setAttemptsLoading(true);
+        try {
+            const response = await getUserLoginAttempts(id, 50);
+            setLoginAttempts(response.data.data || []);
+        } catch (err) {
+            console.error("Failed to fetch login attempts:", err);
+            enqueueSnackbar('Failed to load login attempts', { variant: 'error' });
+        } finally {
+            setAttemptsLoading(false);
+        }
+    }, [id, enqueueSnackbar]);
+
     useEffect(() => {
         fetchUser();
-    }, [fetchUser]);
+        fetchSessions();
+        fetchLoginAttempts();
+    }, [fetchUser, fetchSessions, fetchLoginAttempts]);
 
     useEffect(() => {
         if (user) {
             setHasChanges(
-                username !== user.username || 
-                email !== user.email || 
+                username !== user.username ||
+                email !== user.email ||
                 role !== user.role
             );
         }
@@ -235,6 +285,40 @@ const UserDetail: React.FC = () => {
         }
     };
 
+    const handleTerminateSession = async (sessionId: string) => {
+        if (!user) return;
+
+        setSaving(true);
+        try {
+            await terminateSession(user.id, sessionId);
+            enqueueSnackbar('Session terminated successfully', { variant: 'success' });
+            setTerminateSessionId(null);
+            fetchSessions(); // Refresh sessions
+        } catch (err) {
+            console.error('Failed to terminate session:', err);
+            enqueueSnackbar('Failed to terminate session', { variant: 'error' });
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const handleTerminateAllSessions = async () => {
+        if (!user) return;
+
+        setSaving(true);
+        try {
+            const response = await terminateAllUserSessions(user.id);
+            enqueueSnackbar(`Terminated ${response.data.data.count} session(s) successfully`, { variant: 'success' });
+            setTerminateAllDialogOpen(false);
+            fetchSessions(); // Refresh sessions
+        } catch (err) {
+            console.error('Failed to terminate all sessions:', err);
+            enqueueSnackbar('Failed to terminate all sessions', { variant: 'error' });
+        } finally {
+            setSaving(false);
+        }
+    };
+
     const formatDate = (dateString?: string) => {
         if (!dateString) return 'Never';
         try {
@@ -243,6 +327,22 @@ const UserDetail: React.FC = () => {
             return 'Invalid date';
         }
     };
+
+    const formatRelativeTime = (dateString?: string) => {
+        if (!dateString) return 'Never';
+        try {
+            return formatDistanceToNow(new Date(dateString), { addSuffix: true });
+        } catch {
+            return 'Invalid date';
+        }
+    };
+
+    const filteredAttempts = loginAttempts.filter(attempt => {
+        if (attemptFilter === 'all') return true;
+        if (attemptFilter === 'success') return attempt.success;
+        if (attemptFilter === 'failed') return !attempt.success;
+        return true;
+    });
 
     if (loading) {
         return (
@@ -503,6 +603,175 @@ const UserDetail: React.FC = () => {
                 </Grid>
             </Grid>
 
+            {/* Active Sessions Section */}
+            <Card sx={{ mt: 3 }}>
+                <CardContent>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <DevicesIcon />
+                            <Typography variant="h6">
+                                Active Sessions
+                                {sessions.length > 0 && (
+                                    <Badge badgeContent={sessions.length} color="primary" sx={{ ml: 2 }} />
+                                )}
+                            </Typography>
+                        </Box>
+                        {sessions.length > 0 && (
+                            <Button
+                                variant="outlined"
+                                color="error"
+                                size="small"
+                                startIcon={<DeleteSweepIcon />}
+                                onClick={() => setTerminateAllDialogOpen(true)}
+                            >
+                                Terminate All Sessions
+                            </Button>
+                        )}
+                    </Box>
+                    <Divider sx={{ mb: 2 }} />
+
+                    {sessionsLoading ? (
+                        <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
+                            <CircularProgress size={24} />
+                        </Box>
+                    ) : sessions.length === 0 ? (
+                        <Typography color="text.secondary" align="center" sx={{ py: 3 }}>
+                            No active sessions
+                        </Typography>
+                    ) : (
+                        <TableContainer>
+                            <Table size="small">
+                                <TableHead>
+                                    <TableRow>
+                                        <TableCell>IP Address</TableCell>
+                                        <TableCell>Device / Browser</TableCell>
+                                        <TableCell>Last Active</TableCell>
+                                        <TableCell>Created</TableCell>
+                                        <TableCell align="right">Actions</TableCell>
+                                    </TableRow>
+                                </TableHead>
+                                <TableBody>
+                                    {sessions.map((session) => (
+                                        <TableRow key={session.id}>
+                                            <TableCell>{session.ipAddress}</TableCell>
+                                            <TableCell>
+                                                <Tooltip title={session.userAgent}>
+                                                    <Typography variant="body2" noWrap sx={{ maxWidth: 200 }}>
+                                                        {session.userAgent}
+                                                    </Typography>
+                                                </Tooltip>
+                                            </TableCell>
+                                            <TableCell>{formatRelativeTime(session.lastActiveAt)}</TableCell>
+                                            <TableCell>{formatDate(session.createdAt)}</TableCell>
+                                            <TableCell align="right">
+                                                <IconButton
+                                                    size="small"
+                                                    color="error"
+                                                    onClick={() => setTerminateSessionId(session.id)}
+                                                    title="Terminate session"
+                                                >
+                                                    <DeleteIcon fontSize="small" />
+                                                </IconButton>
+                                            </TableCell>
+                                        </TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
+                        </TableContainer>
+                    )}
+                </CardContent>
+            </Card>
+
+            {/* Login History Section */}
+            <Card sx={{ mt: 3 }}>
+                <CardContent>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <HistoryIcon />
+                            <Typography variant="h6">Login History</Typography>
+                        </Box>
+                        <Box sx={{ display: 'flex', gap: 1 }}>
+                            <Button
+                                size="small"
+                                variant={attemptFilter === 'all' ? 'contained' : 'outlined'}
+                                onClick={() => setAttemptFilter('all')}
+                            >
+                                All
+                            </Button>
+                            <Button
+                                size="small"
+                                variant={attemptFilter === 'success' ? 'contained' : 'outlined'}
+                                color="success"
+                                onClick={() => setAttemptFilter('success')}
+                            >
+                                Success
+                            </Button>
+                            <Button
+                                size="small"
+                                variant={attemptFilter === 'failed' ? 'contained' : 'outlined'}
+                                color="error"
+                                onClick={() => setAttemptFilter('failed')}
+                            >
+                                Failed
+                            </Button>
+                        </Box>
+                    </Box>
+                    <Divider sx={{ mb: 2 }} />
+
+                    {attemptsLoading ? (
+                        <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
+                            <CircularProgress size={24} />
+                        </Box>
+                    ) : filteredAttempts.length === 0 ? (
+                        <Typography color="text.secondary" align="center" sx={{ py: 3 }}>
+                            No login attempts found
+                        </Typography>
+                    ) : (
+                        <TableContainer>
+                            <Table size="small">
+                                <TableHead>
+                                    <TableRow>
+                                        <TableCell>Timestamp</TableCell>
+                                        <TableCell>IP Address</TableCell>
+                                        <TableCell>Status</TableCell>
+                                        <TableCell>Failure Reason</TableCell>
+                                    </TableRow>
+                                </TableHead>
+                                <TableBody>
+                                    {filteredAttempts.map((attempt) => (
+                                        <TableRow key={attempt.id}>
+                                            <TableCell>{formatDate(attempt.attemptedAt)}</TableCell>
+                                            <TableCell>{attempt.ipAddress}</TableCell>
+                                            <TableCell>
+                                                <Chip
+                                                    size="small"
+                                                    icon={attempt.success ? <CheckCircleIcon /> : <CancelIcon />}
+                                                    label={attempt.success ? 'Success' : 'Failed'}
+                                                    color={attempt.success ? 'success' : 'error'}
+                                                />
+                                            </TableCell>
+                                            <TableCell>
+                                                {attempt.failureReason ? (
+                                                    <Typography
+                                                        variant="body2"
+                                                        color="error"
+                                                        sx={{ fontWeight: 'bold' }}
+                                                    >
+                                                        {attempt.failureReason.replace(/_/g, ' ')}
+                                                    </Typography>
+                                                ) : (
+                                                    '-'
+                                                )}
+                                            </TableCell>
+                                        </TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
+                        </TableContainer>
+                    )}
+                </CardContent>
+            </Card>
+
             {/* Reset Password Dialog */}
             <Dialog open={resetPasswordOpen} onClose={() => setResetPasswordOpen(false)} maxWidth="sm" fullWidth>
                 <DialogTitle>Reset User Password</DialogTitle>
@@ -580,6 +849,62 @@ const UserDetail: React.FC = () => {
                         disabled={saving || !user.disabledReason}
                     >
                         Disable Account
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Terminate Session Dialog */}
+            <Dialog
+                open={terminateSessionId !== null}
+                onClose={() => setTerminateSessionId(null)}
+                maxWidth="sm"
+                fullWidth
+            >
+                <DialogTitle>Terminate Session?</DialogTitle>
+                <DialogContent>
+                    <Typography>
+                        This will log the user out from this device. The user will need to log in again to continue using the application.
+                    </Typography>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setTerminateSessionId(null)}>Cancel</Button>
+                    <Button
+                        onClick={() => terminateSessionId && handleTerminateSession(terminateSessionId)}
+                        variant="contained"
+                        color="error"
+                        disabled={saving}
+                    >
+                        Terminate
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Terminate All Sessions Dialog */}
+            <Dialog
+                open={terminateAllDialogOpen}
+                onClose={() => setTerminateAllDialogOpen(false)}
+                maxWidth="sm"
+                fullWidth
+            >
+                <DialogTitle>Terminate All Sessions?</DialogTitle>
+                <DialogContent>
+                    <Typography gutterBottom>
+                        This will log the user out from <strong>ALL</strong> devices, including their current session.
+                        The user will need to log in again. This action cannot be undone.
+                    </Typography>
+                    <Alert severity="warning" sx={{ mt: 2 }}>
+                        ⚠️ This includes any active work sessions!
+                    </Alert>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setTerminateAllDialogOpen(false)}>Cancel</Button>
+                    <Button
+                        onClick={handleTerminateAllSessions}
+                        variant="contained"
+                        color="error"
+                        disabled={saving}
+                    >
+                        Terminate All
                     </Button>
                 </DialogActions>
             </Dialog>

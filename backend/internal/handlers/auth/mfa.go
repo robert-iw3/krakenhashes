@@ -11,7 +11,9 @@ import (
 
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/db"
 	"github.com/ZerkerEOD/krakenhashes/backend/internal/db/queries"
+	"github.com/ZerkerEOD/krakenhashes/backend/internal/models"
 	"github.com/ZerkerEOD/krakenhashes/backend/pkg/debug"
+	"github.com/google/uuid"
 	"github.com/lib/pq"
 	"github.com/pquerna/otp"
 	"github.com/pquerna/otp/totp"
@@ -412,8 +414,9 @@ func (h *Handler) VerifyMFAHandler(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			// Store the token
-			if err := h.db.StoreToken(userID, token); err != nil {
+			// Store the token and get token ID
+			tokenID, err := h.db.StoreToken(userID, token)
+			if err != nil {
 				debug.Error("Failed to store token: %v", err)
 				http.Error(w, "Internal server error", http.StatusInternalServerError)
 				return
@@ -423,6 +426,41 @@ func (h *Handler) VerifyMFAHandler(w http.ResponseWriter, r *http.Request) {
 			if err := h.db.ClearMFASession(req.SessionToken); err != nil {
 				debug.Error("Failed to clear MFA session: %v", err)
 				// Don't return error as token is already generated
+			}
+
+			// Update last login timestamp
+			userUUID, _ := uuid.Parse(userID)
+			if err := h.db.UpdateLastLogin(userUUID); err != nil {
+				debug.Error("Failed to update last login: %v", err)
+				// Don't fail the login for this
+			}
+
+			// Get client info for session and login attempt logging
+			ipAddress, userAgent := getClientInfo(r)
+
+			// Create active session linked to token
+			session := &models.ActiveSession{
+				UserID:    userUUID,
+				IPAddress: ipAddress,
+				UserAgent: userAgent,
+				TokenID:   &tokenID,
+			}
+			if err := h.db.CreateSession(session); err != nil {
+				debug.Error("Failed to create session: %v", err)
+				// Don't fail the login for this
+			}
+
+			// Log successful login attempt (MFA authenticator)
+			loginAttempt := &models.LoginAttempt{
+				UserID:    &userUUID,
+				Username:  user.Username,
+				IPAddress: ipAddress,
+				UserAgent: userAgent,
+				Success:   true,
+			}
+			if err := h.db.CreateLoginAttempt(loginAttempt); err != nil {
+				debug.Error("Failed to log login attempt: %v", err)
+				// Don't fail the login for this
 			}
 
 			// Set auth cookie
@@ -512,8 +550,9 @@ func (h *Handler) VerifyMFAHandler(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			// Store the token
-			if err := h.db.StoreToken(userID, token); err != nil {
+			// Store the token (ignore token ID - this is just for MFA initiation)
+			_, err = h.db.StoreToken(userID, token)
+			if err != nil {
 				debug.Error("Failed to store token: %v", err)
 				http.Error(w, "Internal server error", http.StatusInternalServerError)
 				return
@@ -588,8 +627,9 @@ func (h *Handler) VerifyMFAHandler(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			// Store the token
-			if err := h.db.StoreToken(userID, token); err != nil {
+			// Store the token and get token ID
+			tokenID, err := h.db.StoreToken(userID, token)
+			if err != nil {
 				debug.Error("Failed to store token: %v", err)
 				http.Error(w, "Internal server error", http.StatusInternalServerError)
 				return
@@ -599,6 +639,41 @@ func (h *Handler) VerifyMFAHandler(w http.ResponseWriter, r *http.Request) {
 			if err := h.db.ClearMFASession(req.SessionToken); err != nil {
 				debug.Error("Failed to clear MFA session: %v", err)
 				// Don't return error as token is already generated
+			}
+
+			// Update last login timestamp
+			userUUID, _ := uuid.Parse(userID)
+			if err := h.db.UpdateLastLogin(userUUID); err != nil {
+				debug.Error("Failed to update last login: %v", err)
+				// Don't fail the login for this
+			}
+
+			// Get client info for session and login attempt logging
+			ipAddress, userAgent := getClientInfo(r)
+
+			// Create active session linked to token
+			session := &models.ActiveSession{
+				UserID:    userUUID,
+				IPAddress: ipAddress,
+				UserAgent: userAgent,
+				TokenID:   &tokenID,
+			}
+			if err := h.db.CreateSession(session); err != nil {
+				debug.Error("Failed to create session: %v", err)
+				// Don't fail the login for this
+			}
+
+			// Log successful login attempt (MFA email)
+			loginAttempt := &models.LoginAttempt{
+				UserID:    &userUUID,
+				Username:  user.Username,
+				IPAddress: ipAddress,
+				UserAgent: userAgent,
+				Success:   true,
+			}
+			if err := h.db.CreateLoginAttempt(loginAttempt); err != nil {
+				debug.Error("Failed to log login attempt: %v", err)
+				// Don't fail the login for this
 			}
 
 			// Set auth cookie
@@ -717,8 +792,9 @@ func (h *Handler) VerifyMFAHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Store the token
-		if err := h.db.StoreToken(userID, token); err != nil {
+		// Store the token and get token ID
+		tokenID, err := h.db.StoreToken(userID, token)
+		if err != nil {
 			debug.Error("Failed to store token: %v", err)
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
@@ -728,6 +804,41 @@ func (h *Handler) VerifyMFAHandler(w http.ResponseWriter, r *http.Request) {
 		if err := h.db.ClearMFASession(req.SessionToken); err != nil {
 			debug.Error("Failed to clear MFA session: %v", err)
 			// Don't return error as token is already generated
+		}
+
+		// Update last login timestamp
+		userUUID, _ := uuid.Parse(userID)
+		if err := h.db.UpdateLastLogin(userUUID); err != nil {
+			debug.Error("Failed to update last login: %v", err)
+			// Don't fail the login for this
+		}
+
+		// Get client info for session and login attempt logging
+		ipAddress, userAgent := getClientInfo(r)
+
+		// Create active session linked to token
+		session := &models.ActiveSession{
+			UserID:    userUUID,
+			IPAddress: ipAddress,
+			UserAgent: userAgent,
+			TokenID:   &tokenID,
+		}
+		if err := h.db.CreateSession(session); err != nil {
+			debug.Error("Failed to create session: %v", err)
+			// Don't fail the login for this
+		}
+
+		// Log successful login attempt (MFA backup code)
+		loginAttempt := &models.LoginAttempt{
+			UserID:    &userUUID,
+			Username:  user.Username,
+			IPAddress: ipAddress,
+			UserAgent: userAgent,
+			Success:   true,
+		}
+		if err := h.db.CreateLoginAttempt(loginAttempt); err != nil {
+			debug.Error("Failed to log login attempt: %v", err)
+			// Don't fail the login for this
 		}
 
 		// Set auth cookie

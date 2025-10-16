@@ -50,20 +50,37 @@ func (db *DB) GetUserByUsername(username string) (*models.User, error) {
 	return user, nil
 }
 
-// StoreToken stores a JWT token for a user
-func (db *DB) StoreToken(userID, token string) error {
+// StoreToken stores a JWT token for a user and returns the token ID
+func (db *DB) StoreToken(userID, token string) (uuid.UUID, error) {
 	// Calculate expiration time (24 hours from now)
 	expiresAt := time.Now().Add(24 * time.Hour)
-	_, err := db.Exec(queries.StoreToken, userID, token, expiresAt)
+
+	var tokenID uuid.UUID
+	err := db.QueryRow(`
+		INSERT INTO tokens (user_id, token, expires_at)
+		VALUES ($1, $2, $3)
+		RETURNING id
+	`, userID, token, expiresAt).Scan(&tokenID)
+
 	if err != nil {
 		debug.Error("Failed to store token: %v", err)
+		return uuid.Nil, err
+	}
+	return tokenID, nil
+}
+
+// RemoveToken removes a JWT token from storage by token string
+func (db *DB) RemoveToken(tokenID uuid.UUID) error {
+	_, err := db.Exec(`DELETE FROM tokens WHERE id = $1`, tokenID)
+	if err != nil {
+		debug.Error("Failed to remove token: %v", err)
 		return err
 	}
 	return nil
 }
 
-// RemoveToken removes a JWT token from storage
-func (db *DB) RemoveToken(token string) error {
+// RemoveTokenByString removes a JWT token from storage by token string
+func (db *DB) RemoveTokenByString(token string) error {
 	_, err := db.Exec(queries.RemoveToken, token)
 	if err != nil {
 		debug.Error("Failed to remove token: %v", err)
@@ -182,12 +199,12 @@ func (db *DB) MarkAttemptsAsNotified(ids []uuid.UUID) error {
 	return err
 }
 
-// CreateSession creates a new active session
+// CreateSession creates a new active session linked to a token
 func (db *DB) CreateSession(session *models.ActiveSession) error {
-	_, err := db.Exec(queries.CreateSession,
-		session.UserID,
-		session.IPAddress,
-		session.UserAgent)
+	_, err := db.Exec(`
+		INSERT INTO active_sessions (user_id, ip_address, user_agent, token_id)
+		VALUES ($1, $2, $3, $4)
+	`, session.UserID, session.IPAddress, session.UserAgent, session.TokenID)
 	return err
 }
 
@@ -227,6 +244,7 @@ func (db *DB) GetUserSessions(userID uuid.UUID) ([]*models.ActiveSession, error)
 			&session.UserAgent,
 			&session.CreatedAt,
 			&session.LastActiveAt,
+			&session.TokenID,
 		)
 		if err != nil {
 			return nil, err

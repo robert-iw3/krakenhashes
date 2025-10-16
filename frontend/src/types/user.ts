@@ -74,3 +74,45 @@ export interface NotificationPreferences {
   notifyOnJobCompletion: boolean;
   emailConfigured: boolean;
 }
+
+export interface LoginAttempt {
+  id: string;
+  userId?: string;
+  username: string;
+  ipAddress: string;
+  userAgent: string;
+  success: boolean;
+  failureReason?: string;
+  attemptedAt: string;
+  notified: boolean;
+}
+
+export interface ActiveSession {
+  id: string;
+  userId: string;
+  ipAddress: string;
+  userAgent: string;
+  createdAt: string;
+  lastActiveAt: string;
+}
+
+export interface LoginAttemptsResponse {
+  data: LoginAttempt[];
+}
+
+export interface ActiveSessionsResponse {
+  data: ActiveSession[];
+}
+
+export interface TerminateSessionResponse {
+  data: {
+    message: string;
+  };
+}
+
+export interface TerminateAllSessionsResponse {
+  data: {
+    message: string;
+    count: number;
+  };
+}

@@ -19,6 +19,40 @@ type LoginRequest struct {
 	Password string `json:"password"`
 }
 
+// Helper function to extract client IP address and User-Agent from request
+func getClientInfo(r *http.Request) (ipAddress string, userAgent string) {
+	// Try to get real IP from X-Forwarded-For header (for proxied requests)
+	ipAddress = r.Header.Get("X-Forwarded-For")
+	if ipAddress != "" {
+		// X-Forwarded-For can contain multiple IPs, take the first one
+		if idx := strings.Index(ipAddress, ","); idx != -1 {
+			ipAddress = strings.TrimSpace(ipAddress[:idx])
+		}
+	}
+
+	// Fallback to X-Real-IP header
+	if ipAddress == "" {
+		ipAddress = r.Header.Get("X-Real-IP")
+	}
+
+	// Fallback to RemoteAddr
+	if ipAddress == "" {
+		ipAddress = r.RemoteAddr
+		// Remove port if present
+		if idx := strings.LastIndex(ipAddress, ":"); idx != -1 {
+			ipAddress = ipAddress[:idx]
+		}
+	}
+
+	// Get User-Agent
+	userAgent = r.Header.Get("User-Agent")
+	if userAgent == "" {
+		userAgent = "Unknown"
+	}
+
+	return ipAddress, userAgent
+}
+
 // Helper function to get cookie domain from request host
 func getCookieDomain(host string) string {
 	debug.Debug("Getting cookie domain from host: %s", host)
@@ -138,6 +172,20 @@ func (h *Handler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 	user, err := h.db.GetUserByUsername(req.Username)
 	if err != nil {
 		debug.Info("Failed login attempt for user '%s': %v", req.Username, err)
+
+		// Log failed login attempt (user not found)
+		ipAddress, userAgent := getClientInfo(r)
+		loginAttempt := &models.LoginAttempt{
+			Username:      req.Username,
+			IPAddress:     ipAddress,
+			UserAgent:     userAgent,
+			Success:       false,
+			FailureReason: "user_not_found",
+		}
+		if err := h.db.CreateLoginAttempt(loginAttempt); err != nil {
+			debug.Error("Failed to log login attempt: %v", err)
+		}
+
 		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
 		return
 	}
@@ -145,6 +193,21 @@ func (h *Handler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 	// Prevent login with system user by ID
 	if user.ID.String() == "00000000-0000-0000-0000-000000000000" || user.Role == "system" {
 		debug.Warning("Attempted login with system user account")
+
+		// Log failed login attempt (system user)
+		ipAddress, userAgent := getClientInfo(r)
+		loginAttempt := &models.LoginAttempt{
+			UserID:        &user.ID,
+			Username:      req.Username,
+			IPAddress:     ipAddress,
+			UserAgent:     userAgent,
+			Success:       false,
+			FailureReason: "system_user_login_blocked",
+		}
+		if err := h.db.CreateLoginAttempt(loginAttempt); err != nil {
+			debug.Error("Failed to log login attempt: %v", err)
+		}
+
 		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
 		return
 	}
@@ -152,6 +215,21 @@ func (h *Handler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 	// Check if account is disabled
 	if !user.AccountEnabled {
 		debug.Warning("Login attempt for disabled account: %s", req.Username)
+
+		// Log failed login attempt (account disabled)
+		ipAddress, userAgent := getClientInfo(r)
+		loginAttempt := &models.LoginAttempt{
+			UserID:        &user.ID,
+			Username:      req.Username,
+			IPAddress:     ipAddress,
+			UserAgent:     userAgent,
+			Success:       false,
+			FailureReason: "account_disabled",
+		}
+		if err := h.db.CreateLoginAttempt(loginAttempt); err != nil {
+			debug.Error("Failed to log login attempt: %v", err)
+		}
+
 		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
 		return
 	}
@@ -170,6 +248,21 @@ func (h *Handler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 			user.AccountLockedUntil = nil
 		} else {
 			debug.Warning("Login attempt for locked account: %s", req.Username)
+
+			// Log failed login attempt (account locked)
+			ipAddress, userAgent := getClientInfo(r)
+			loginAttempt := &models.LoginAttempt{
+				UserID:        &user.ID,
+				Username:      req.Username,
+				IPAddress:     ipAddress,
+				UserAgent:     userAgent,
+				Success:       false,
+				FailureReason: "account_locked",
+			}
+			if err := h.db.CreateLoginAttempt(loginAttempt); err != nil {
+				debug.Error("Failed to log login attempt: %v", err)
+			}
+
 			http.Error(w, "Account temporarily locked due to multiple failed login attempts", http.StatusUnauthorized)
 			return
 		}
@@ -178,7 +271,7 @@ func (h *Handler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 	// Check password
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
 		debug.Info("Invalid password for user '%s'", req.Username)
-		
+
 		// Increment failed login attempts
 		attempts, err := h.db.IncrementFailedAttempts(user.ID)
 		if err != nil {
@@ -192,7 +285,21 @@ func (h *Handler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 				debug.Warning("Account locked after %d failed attempts: %s", attempts, req.Username)
 			}
 		}
-		
+
+		// Log failed login attempt (invalid password)
+		ipAddress, userAgent := getClientInfo(r)
+		loginAttempt := &models.LoginAttempt{
+			UserID:        &user.ID,
+			Username:      req.Username,
+			IPAddress:     ipAddress,
+			UserAgent:     userAgent,
+			Success:       false,
+			FailureReason: "invalid_password",
+		}
+		if err := h.db.CreateLoginAttempt(loginAttempt); err != nil {
+			debug.Error("Failed to log login attempt: %v", err)
+		}
+
 		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
 		return
 	}
@@ -306,10 +413,46 @@ func (h *Handler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.db.StoreToken(user.ID.String(), token); err != nil {
+	// Store token and get token ID
+	tokenID, err := h.db.StoreToken(user.ID.String(), token)
+	if err != nil {
 		debug.Error("Failed to store token: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
+	}
+
+	// Update last login timestamp
+	if err := h.db.UpdateLastLogin(user.ID); err != nil {
+		debug.Error("Failed to update last login: %v", err)
+		// Don't fail the login for this
+	}
+
+	// Get client info for session and login attempt logging
+	ipAddress, userAgent := getClientInfo(r)
+
+	// Create active session linked to token
+	session := &models.ActiveSession{
+		UserID:    user.ID,
+		IPAddress: ipAddress,
+		UserAgent: userAgent,
+		TokenID:   &tokenID,
+	}
+	if err := h.db.CreateSession(session); err != nil {
+		debug.Error("Failed to create session: %v", err)
+		// Don't fail the login for this
+	}
+
+	// Log successful login attempt
+	loginAttempt := &models.LoginAttempt{
+		UserID:    &user.ID,
+		Username:  req.Username,
+		IPAddress: ipAddress,
+		UserAgent: userAgent,
+		Success:   true,
+	}
+	if err := h.db.CreateLoginAttempt(loginAttempt); err != nil {
+		debug.Error("Failed to log login attempt: %v", err)
+		// Don't fail the login for this
 	}
 
 	setAuthCookie(w, r, token, authSettings.JWTExpiryMinutes*60) // Convert minutes to seconds
@@ -335,7 +478,7 @@ func (h *Handler) LogoutHandler(w http.ResponseWriter, r *http.Request) {
 	cookie, err := r.Cookie("token")
 	if err == nil {
 		debug.Debug("Found token cookie, removing from database")
-		if err := h.db.RemoveToken(cookie.Value); err != nil {
+		if err := h.db.RemoveTokenByString(cookie.Value); err != nil {
 			debug.Error("Failed to remove token from database: %v", err)
 			http.Error(w, "Error removing token", http.StatusInternalServerError)
 			return
@@ -395,8 +538,9 @@ func (h *Handler) RefreshTokenHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Store new token in database
-	if err := h.db.StoreToken(userID.(string), token); err != nil {
+	// Store new token in database (ignore token ID for refresh)
+	_, err = h.db.StoreToken(userID.(string), token)
+	if err != nil {
 		debug.Error("Failed to store refresh token: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return

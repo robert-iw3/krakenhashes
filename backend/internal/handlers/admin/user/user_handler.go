@@ -715,3 +715,242 @@ func (h *UserHandler) UnlockUser(w http.ResponseWriter, r *http.Request) {
 		"data": map[string]string{"message": "User account unlocked successfully"},
 	})
 }
+
+// GetUserLoginAttempts godoc
+// @Summary Get user login attempts
+// @Description Retrieves login attempt history for a specific user
+// @Tags Admin Users
+// @Produce json
+// @Param id path string true "User ID"
+// @Param limit query int false "Number of attempts to retrieve (default: 50, max: 100)"
+// @Success 200 {object} httputil.SuccessResponse{data=[]models.LoginAttempt}
+// @Failure 400 {object} httputil.ErrorResponse
+// @Failure 404 {object} httputil.ErrorResponse
+// @Failure 500 {object} httputil.ErrorResponse
+// @Router /admin/users/{id}/login-attempts [get]
+// @Security ApiKeyAuth
+func (h *UserHandler) GetUserLoginAttempts(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	userIDStr := vars["id"]
+
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		httputil.RespondWithError(w, http.StatusBadRequest, "Invalid user ID")
+		return
+	}
+
+	// Parse limit from query params (default 50, max 100)
+	limit := 50
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if parsedLimit, err := fmt.Sscanf(limitStr, "%d", &limit); err == nil && parsedLimit == 1 {
+			if limit > 100 {
+				limit = 100
+			} else if limit < 1 {
+				limit = 50
+			}
+		}
+	}
+
+	attempts, err := h.db.GetUserLoginAttempts(userID, limit)
+	if err != nil {
+		debug.Error("Failed to get login attempts for user %s: %v", userID, err)
+		httputil.RespondWithError(w, http.StatusInternalServerError, "Failed to retrieve login attempts")
+		return
+	}
+
+	httputil.RespondWithJSON(w, http.StatusOK, map[string]interface{}{
+		"data": attempts,
+	})
+}
+
+// GetUserSessions godoc
+// @Summary Get user active sessions
+// @Description Retrieves all active sessions for a specific user
+// @Tags Admin Users
+// @Produce json
+// @Param id path string true "User ID"
+// @Success 200 {object} httputil.SuccessResponse{data=[]models.ActiveSession}
+// @Failure 400 {object} httputil.ErrorResponse
+// @Failure 404 {object} httputil.ErrorResponse
+// @Failure 500 {object} httputil.ErrorResponse
+// @Router /admin/users/{id}/sessions [get]
+// @Security ApiKeyAuth
+func (h *UserHandler) GetUserSessions(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	userIDStr := vars["id"]
+
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		httputil.RespondWithError(w, http.StatusBadRequest, "Invalid user ID")
+		return
+	}
+
+	sessions, err := h.db.GetUserSessions(userID)
+	if err != nil {
+		debug.Error("Failed to get sessions for user %s: %v", userID, err)
+		httputil.RespondWithError(w, http.StatusInternalServerError, "Failed to retrieve sessions")
+		return
+	}
+
+	httputil.RespondWithJSON(w, http.StatusOK, map[string]interface{}{
+		"data": sessions,
+	})
+}
+
+// TerminateSession godoc
+// @Summary Terminate a specific user session
+// @Description Terminates a specific active session for a user
+// @Tags Admin Users
+// @Produce json
+// @Param id path string true "User ID"
+// @Param sessionId path string true "Session ID"
+// @Success 200 {object} httputil.SuccessResponse{data=object{message=string}}
+// @Failure 400 {object} httputil.ErrorResponse
+// @Failure 403 {object} httputil.ErrorResponse
+// @Failure 404 {object} httputil.ErrorResponse
+// @Failure 500 {object} httputil.ErrorResponse
+// @Router /admin/users/{id}/sessions/{sessionId} [delete]
+// @Security ApiKeyAuth
+func (h *UserHandler) TerminateSession(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	userIDStr := vars["id"]
+	sessionIDStr := vars["sessionId"]
+
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		httputil.RespondWithError(w, http.StatusBadRequest, "Invalid user ID")
+		return
+	}
+
+	sessionID, err := uuid.Parse(sessionIDStr)
+	if err != nil {
+		httputil.RespondWithError(w, http.StatusBadRequest, "Invalid session ID")
+		return
+	}
+
+	// Verify session belongs to user and get token_id (security check)
+	sessions, err := h.db.GetUserSessions(userID)
+	if err != nil {
+		debug.Error("Failed to get sessions for user %s: %v", userID, err)
+		httputil.RespondWithError(w, http.StatusInternalServerError, "Failed to verify session")
+		return
+	}
+
+	var tokenID *uuid.UUID
+	sessionBelongsToUser := false
+	for _, session := range sessions {
+		if session.ID == sessionID {
+			sessionBelongsToUser = true
+			tokenID = session.TokenID
+			break
+		}
+	}
+
+	if !sessionBelongsToUser {
+		httputil.RespondWithError(w, http.StatusForbidden, "Session does not belong to user")
+		return
+	}
+
+	// Delete the token (which will cascade delete the session)
+	if tokenID != nil {
+		err = h.db.RemoveToken(*tokenID)
+		if err != nil {
+			debug.Error("Failed to delete token for session %s: %v", sessionID, err)
+			httputil.RespondWithError(w, http.StatusInternalServerError, "Failed to terminate session")
+			return
+		}
+	} else {
+		// Fallback for sessions without token_id (backwards compatibility)
+		err = h.db.DeleteSession(sessionID)
+		if err != nil {
+			debug.Error("Failed to terminate session %s: %v", sessionID, err)
+			httputil.RespondWithError(w, http.StatusInternalServerError, "Failed to terminate session")
+			return
+		}
+	}
+
+	// Get admin ID from context
+	adminIDStr, ok := r.Context().Value("user_id").(string)
+	if ok {
+		adminID, err := uuid.Parse(adminIDStr)
+		if err == nil {
+			debug.Info("Admin %s terminated session %s for user %s", adminID, sessionID, userID)
+		}
+	}
+
+	httputil.RespondWithJSON(w, http.StatusOK, map[string]interface{}{
+		"data": map[string]string{"message": "Session terminated successfully"},
+	})
+}
+
+// TerminateAllUserSessions godoc
+// @Summary Terminate all user sessions
+// @Description Terminates all active sessions for a specific user
+// @Tags Admin Users
+// @Produce json
+// @Param id path string true "User ID"
+// @Success 200 {object} httputil.SuccessResponse{data=object{message=string,count=int}}
+// @Failure 400 {object} httputil.ErrorResponse
+// @Failure 404 {object} httputil.ErrorResponse
+// @Failure 500 {object} httputil.ErrorResponse
+// @Router /admin/users/{id}/sessions [delete]
+// @Security ApiKeyAuth
+func (h *UserHandler) TerminateAllUserSessions(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	userIDStr := vars["id"]
+
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		httputil.RespondWithError(w, http.StatusBadRequest, "Invalid user ID")
+		return
+	}
+
+	// Get sessions and extract token IDs
+	sessions, err := h.db.GetUserSessions(userID)
+	if err != nil {
+		debug.Error("Failed to get sessions for user %s: %v", userID, err)
+		httputil.RespondWithError(w, http.StatusInternalServerError, "Failed to retrieve sessions")
+		return
+	}
+	count := len(sessions)
+
+	// Delete all tokens (which will cascade delete sessions)
+	var deleteErrors []error
+	for _, session := range sessions {
+		if session.TokenID != nil {
+			if err := h.db.RemoveToken(*session.TokenID); err != nil {
+				debug.Error("Failed to delete token %s: %v", *session.TokenID, err)
+				deleteErrors = append(deleteErrors, err)
+			}
+		}
+	}
+
+	// Also clean up any sessions without token_id (backwards compatibility)
+	if err := h.db.DeleteUserSessions(userID); err != nil {
+		debug.Error("Failed to delete orphaned sessions for user %s: %v", userID, err)
+		// Don't fail the request for this
+	}
+
+	// If we had errors deleting tokens, report it
+	if len(deleteErrors) > 0 {
+		debug.Error("Failed to terminate %d/%d sessions for user %s", len(deleteErrors), count, userID)
+		httputil.RespondWithError(w, http.StatusInternalServerError, "Failed to terminate some sessions")
+		return
+	}
+
+	// Get admin ID from context
+	adminIDStr, ok := r.Context().Value("user_id").(string)
+	if ok {
+		adminID, err := uuid.Parse(adminIDStr)
+		if err == nil {
+			debug.Info("Admin %s terminated all %d sessions for user %s", adminID, count, userID)
+		}
+	}
+
+	httputil.RespondWithJSON(w, http.StatusOK, map[string]interface{}{
+		"data": map[string]interface{}{
+			"message": "All sessions terminated successfully",
+			"count":   count,
+		},
+	})
+}

@@ -4,8 +4,8 @@
 import axios from 'axios';
 import type { AxiosError } from 'axios';
 import { Client } from '../types/client'; // Moved import to top
-import { User, UserUpdateRequest, DisableUserRequest, ResetPasswordRequest, UserListResponse, UserDetailResponse } from '../types/user';
-import { transformUserResponse, transformUserListResponse } from '../utils/userTransform';
+import { User, UserUpdateRequest, DisableUserRequest, ResetPasswordRequest, UserListResponse, UserDetailResponse, LoginAttemptsResponse, ActiveSessionsResponse, TerminateSessionResponse, TerminateAllSessionsResponse } from '../types/user';
+import { transformUserResponse, transformUserListResponse, transformLoginAttempt, transformActiveSession } from '../utils/userTransform';
 import {
   PresetJob,
   JobWorkflow,
@@ -358,8 +358,41 @@ export const disableAdminUserMFA = (id: string) =>
   api.post<{data: {message: string}}>(`/api/admin/users/${id}/disable-mfa`);
 
 // Unlock user account
-export const unlockAdminUser = (id: string) => 
+export const unlockAdminUser = (id: string) =>
   api.post<{data: {message: string}}>(`/api/admin/users/${id}/unlock`);
+
+// Get user login attempts
+export const getUserLoginAttempts = async (userId: string, limit?: number) => {
+  const params = limit ? `?limit=${limit}` : '';
+  const response = await api.get<LoginAttemptsResponse>(`/api/admin/users/${userId}/login-attempts${params}`);
+  return {
+    ...response,
+    data: {
+      data: response.data.data.map(transformLoginAttempt)
+    }
+  };
+};
+
+// Get user active sessions
+export const getUserSessions = async (userId: string) => {
+  const response = await api.get<ActiveSessionsResponse>(`/api/admin/users/${userId}/sessions`);
+  return {
+    ...response,
+    data: {
+      data: response.data.data.map(transformActiveSession)
+    }
+  };
+};
+
+// Terminate a specific session
+export const terminateSession = async (userId: string, sessionId: string) => {
+  return api.delete<TerminateSessionResponse>(`/api/admin/users/${userId}/sessions/${sessionId}`);
+};
+
+// Terminate all user sessions
+export const terminateAllUserSessions = async (userId: string) => {
+  return api.delete<TerminateAllSessionsResponse>(`/api/admin/users/${userId}/sessions`);
+};
 
 // --- Admin: Preset Jobs ---
 

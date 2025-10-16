@@ -37,12 +37,13 @@ type LoginAttempt struct {
 
 // ActiveSession represents an active user session
 type ActiveSession struct {
-	ID           uuid.UUID `json:"id" db:"id"`
-	UserID       uuid.UUID `json:"user_id" db:"user_id"`
-	IPAddress    string    `json:"ip_address" db:"ip_address"`
-	UserAgent    string    `json:"user_agent" db:"user_agent"`
-	CreatedAt    time.Time `json:"created_at" db:"created_at"`
-	LastActiveAt time.Time `json:"last_active_at" db:"last_active_at"`
+	ID           uuid.UUID  `json:"id" db:"id"`
+	UserID       uuid.UUID  `json:"user_id" db:"user_id"`
+	IPAddress    string     `json:"ip_address" db:"ip_address"`
+	UserAgent    string     `json:"user_agent" db:"user_agent"`
+	CreatedAt    time.Time  `json:"created_at" db:"created_at"`
+	LastActiveAt time.Time  `json:"last_active_at" db:"last_active_at"`
+	TokenID      *uuid.UUID `json:"token_id,omitempty" db:"token_id"` // Nullable for backwards compatibility
 }
 
 // MFAType represents the type of MFA enabled for a user

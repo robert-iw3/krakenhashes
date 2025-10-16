@@ -96,6 +96,11 @@ func SetupAdminRoutes(router *mux.Router, database *db.DB, emailService *email.S
 	adminRouter.HandleFunc("/users/{id:[0-9a-fA-F-]+}/reset-password", userHandler.ResetUserPassword).Methods(http.MethodPost, http.MethodOptions)
 	adminRouter.HandleFunc("/users/{id:[0-9a-fA-F-]+}/disable-mfa", userHandler.DisableUserMFA).Methods(http.MethodPost, http.MethodOptions)
 	adminRouter.HandleFunc("/users/{id:[0-9a-fA-F-]+}/unlock", userHandler.UnlockUser).Methods(http.MethodPost, http.MethodOptions)
+	// Login attempts and session management routes
+	adminRouter.HandleFunc("/users/{id:[0-9a-fA-F-]+}/login-attempts", userHandler.GetUserLoginAttempts).Methods(http.MethodGet, http.MethodOptions)
+	adminRouter.HandleFunc("/users/{id:[0-9a-fA-F-]+}/sessions", userHandler.GetUserSessions).Methods(http.MethodGet, http.MethodOptions)
+	adminRouter.HandleFunc("/users/{id:[0-9a-fA-F-]+}/sessions", userHandler.TerminateAllUserSessions).Methods(http.MethodDelete, http.MethodOptions)
+	adminRouter.HandleFunc("/users/{id:[0-9a-fA-F-]+}/sessions/{sessionId:[0-9a-fA-F-]+}", userHandler.TerminateSession).Methods(http.MethodDelete, http.MethodOptions)
 
 	// Email configuration endpoints
 	adminRouter.HandleFunc("/email/config", emailHandler.GetConfig).Methods("GET", "OPTIONS")

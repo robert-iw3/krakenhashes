@@ -1,4 +1,4 @@
-import { User } from '../types/user';
+import { User, LoginAttempt, ActiveSession } from '../types/user';
 
 // Transform snake_case backend response to camelCase frontend type
 export const transformUserResponse = (backendUser: any): User => {
@@ -43,4 +43,31 @@ export const transformUserListResponse = (response: any): User[] => {
     return [];
   }
   return response.data.map(transformUserResponse);
+};
+
+// Transform login attempt from snake_case to camelCase
+export const transformLoginAttempt = (backendAttempt: any): LoginAttempt => {
+  return {
+    id: backendAttempt.id,
+    userId: backendAttempt.user_id,
+    username: backendAttempt.username,
+    ipAddress: backendAttempt.ip_address,
+    userAgent: backendAttempt.user_agent,
+    success: backendAttempt.success,
+    failureReason: backendAttempt.failure_reason,
+    attemptedAt: backendAttempt.attempted_at,
+    notified: backendAttempt.notified,
+  };
+};
+
+// Transform active session from snake_case to camelCase
+export const transformActiveSession = (backendSession: any): ActiveSession => {
+  return {
+    id: backendSession.id,
+    userId: backendSession.user_id,
+    ipAddress: backendSession.ip_address,
+    userAgent: backendSession.user_agent,
+    createdAt: backendSession.created_at,
+    lastActiveAt: backendSession.last_active_at,
+  };
 };
