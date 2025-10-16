@@ -151,6 +151,18 @@ System roles with increasing privileges:
 - **Secure Storage**: Tokens never logged or stored in plaintext
 - **Revocation Support**: Immediate token invalidation
 
+#### Session-Token Linking
+
+KrakenHashes enforces true session termination through a database-backed token-session relationship:
+
+- **Bound Sessions**: Each active session is linked to its JWT token via foreign key constraint
+- **CASCADE Delete**: Terminating a session automatically revokes the associated JWT token from the database
+- **True Logout**: Session termination immediately invalidates authentication - users cannot continue accessing resources
+- **No Orphaned Tokens**: Database constraints prevent tokens from persisting after session removal
+- **Security Enforcement**: Authentication middleware validates both token existence and session validity
+
+This architecture ensures that when a user or administrator terminates a session through the UI, the action has immediate effect. The JWT token is removed from the database, causing the authentication middleware to reject subsequent requests with that token.
+
 ## Network Security
 
 ### TLS/SSL Configuration

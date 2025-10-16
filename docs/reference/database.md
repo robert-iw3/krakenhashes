@@ -1038,6 +1038,10 @@ JWT token storage (added in migration 7).
 | revoked_at | TIMESTAMP WITH TIME ZONE | | | Revocation time |
 | revoked_reason | TEXT | | | Revocation reason |
 
+**Relationships:**
+- Referenced by `active_sessions(token_id)` with CASCADE delete (migration 65)
+- Deleting a token automatically removes all associated sessions
+
 **Indexes:**
 - idx_tokens_token (token)
 - idx_tokens_user_id (user_id)
@@ -1091,7 +1095,7 @@ Tracks login attempts for security monitoring.
 
 ### active_sessions
 
-Tracks active user sessions.
+Tracks active user sessions linked to JWT tokens (updated in migration 65).
 
 | Column | Type | Constraints | Default | Description |
 |--------|------|-------------|---------|-------------|
@@ -1101,10 +1105,18 @@ Tracks active user sessions.
 | user_agent | TEXT | | | Client user agent |
 | created_at | TIMESTAMP WITH TIME ZONE | | CURRENT_TIMESTAMP | Session start |
 | last_active_at | TIMESTAMP WITH TIME ZONE | | CURRENT_TIMESTAMP | Last activity |
+| token_id | UUID | FK → tokens(id) ON DELETE CASCADE | | Linked JWT token (migration 65) |
+
+**Security Features:**
+- **Session-Token Binding**: Each session is linked to its authentication token via foreign key
+- **CASCADE Delete**: Deleting the token automatically removes the session
+- **True Logout**: Terminating a session deletes the token, immediately invalidating authentication
+- **No Orphaned Sessions**: Sessions cannot exist without valid tokens after migration 65
 
 **Indexes:**
 - idx_active_sessions_user_id (user_id)
 - idx_active_sessions_last_active (last_active_at)
+- idx_active_sessions_token_id (token_id)
 
 ### pending_mfa_setup
 
@@ -1310,6 +1322,7 @@ The database schema has evolved through 63 migrations:
 62. **000062**: Add client potfile exclusion
 63. **000063**: Add accurate keyspace tracking
 64. **000064**: Add chunk_actual_keyspace tracking
+65. **000065**: Link sessions to tokens with CASCADE delete for session security
 
 ---
 
@@ -1361,6 +1374,7 @@ The database schema has evolved through 63 migrations:
 4. **Job System**: preset_jobs → binary_versions, job_executions → preset_jobs + hashlists, job_tasks → job_executions + agents
 5. **Resource Management**: wordlists/rules → users (created_by), rules ↔ wordlists (compatibility)
 6. **Authentication**: Various MFA and security tables → users
+7. **Session Security**: tokens (parent) → active_sessions (child) with CASCADE delete - ensures session termination revokes authentication
 
 ---
 

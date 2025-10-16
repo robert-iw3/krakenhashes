@@ -373,6 +373,7 @@ job_workflows ──┬─── preset_jobs
    - Username/password with bcrypt hashing
    - JWT access/refresh token pattern
    - Session management with token rotation
+   - Session-token binding with CASCADE delete for security
 
 2. **Multi-Factor Authentication**
    - TOTP (Time-based One-Time Passwords)
@@ -384,6 +385,18 @@ job_workflows ──┬─── preset_jobs
    - Claim code registration
    - API key authentication
    - Certificate-based trust
+
+#### Session Security Architecture
+
+KrakenHashes implements a database-backed session-token relationship to ensure true session termination:
+
+- **Foreign Key Binding**: `active_sessions.token_id` → `tokens.id` with ON DELETE CASCADE
+- **Atomic Revocation**: Deleting a token automatically removes associated sessions
+- **True Logout**: Session termination immediately invalidates JWT authentication
+- **Security Enforcement**: Auth middleware validates both token existence and session validity
+- **No Orphaned Tokens**: Database constraints prevent tokens from persisting after logout
+
+This architecture prevents a critical vulnerability where session termination would only remove UI state but leave JWT tokens active in the database.
 
 #### Role-Based Access Control (RBAC)
 
