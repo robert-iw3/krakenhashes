@@ -68,6 +68,10 @@ jobs:
         id: agent_version
         run: echo "VERSION=$(jq -r .agent versions.json)" >> $GITHUB_OUTPUT
 
+      - name: Get short commit SHA
+        id: commit_agent
+        run: echo "short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
       - name: Build agent binary
         env:
           GOOS: ${{ matrix.os }}
@@ -77,8 +81,9 @@ jobs:
         working-directory: ./agent
         run: |
           VERSION=${{ steps.agent_version.outputs.VERSION }}
+          COMMIT=${{ steps.commit_agent.outputs.short }}
           BINARY_NAME=krakenhashes-agent${{ matrix.ext }}
-          go build -v -ldflags="-s -w -X github.com/ZerkerEOD/krakenhashes/agent/internal/version.Version=${VERSION}-dev" \
+          go build -v -ldflags="-s -w -X github.com/ZerkerEOD/krakenhashes/agent/internal/version.Version=${VERSION}-${COMMIT}-dev" \
             -o ${BINARY_NAME} ./cmd/agent
 
       - name: Upload binary for Docker build
@@ -150,6 +155,10 @@ jobs:
         id: image
         run: echo "name=$(echo ${{ env.IMAGE_NAME }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
 
+      - name: Get short commit SHA
+        id: commit
+        run: echo "short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
       - name: Build and push dev Docker image
         uses: docker/build-push-action@v5
         with:
@@ -157,6 +166,9 @@ jobs:
           file: ./Dockerfile.prod
           push: true
           tags: ${{ env.REGISTRY }}/${{ steps.image.outputs.name }}:dev
+          build-args: |
+            COMMIT_SHA=${{ steps.commit.outputs.short }}
+            BUILD_TYPE=dev
           labels: |
             org.opencontainers.image.description=KrakenHashes - Password Cracking Management System (Development Build)
             org.opencontainers.image.source=https://github.com/${{ github.repository }}

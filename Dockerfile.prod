@@ -1,5 +1,11 @@
+# Build arguments for version tagging
+ARG COMMIT_SHA=unknown
+ARG BUILD_TYPE=release
+
 # Build stage for frontend
 FROM node:20-alpine AS frontend-builder
+ARG COMMIT_SHA
+ARG BUILD_TYPE
 WORKDIR /app/frontend
 # Install jq for version extraction
 RUN apk add --no-cache jq
@@ -10,7 +16,12 @@ COPY frontend/package*.json ./
 RUN npm install --save-dev @babel/plugin-proposal-private-property-in-object && \
     npm ci
 COPY frontend/ ./
-RUN VERSION=$(jq -r .frontend versions.json) && \
+RUN BASE_VERSION=$(jq -r .frontend versions.json) && \
+    if [ "$BUILD_TYPE" = "dev" ]; then \
+      VERSION="${BASE_VERSION}-${COMMIT_SHA}-dev"; \
+    else \
+      VERSION="${BASE_VERSION}"; \
+    fi && \
     jq ".version = \"$VERSION\"" package.json > package.tmp.json && \
     mv package.tmp.json package.json && \
     echo "REACT_APP_VERSION=$VERSION" >> .env && \
@@ -18,6 +29,8 @@ RUN VERSION=$(jq -r .frontend versions.json) && \
 
 # Build stage for backend
 FROM golang:1.23.1-alpine AS backend-builder
+ARG COMMIT_SHA
+ARG BUILD_TYPE
 WORKDIR /app/backend
 # Install jq for version extraction
 RUN apk add --no-cache jq
@@ -26,7 +39,12 @@ COPY versions.json ./
 COPY backend/go.* ./
 RUN go mod download
 COPY backend/ ./
-RUN VERSION=$(jq -r .backend versions.json) && \
+RUN BASE_VERSION=$(jq -r .backend versions.json) && \
+    if [ "$BUILD_TYPE" = "dev" ]; then \
+      VERSION="${BASE_VERSION}-${COMMIT_SHA}-dev"; \
+    else \
+      VERSION="${BASE_VERSION}"; \
+    fi && \
     CGO_ENABLED=0 GOOS=linux go build -ldflags="-X main.Version=$VERSION" -o krakenhashes ./cmd/server
 
 # Final stage - Debian without PostgreSQL
