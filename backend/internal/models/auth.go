@@ -20,6 +20,9 @@ type AuthSettings struct {
 	JWTExpiryMinutes               int       `json:"jwt_expiry_minutes" db:"jwt_expiry_minutes"`
 	DisplayTimezone                string    `json:"display_timezone" db:"display_timezone"`
 	NotificationAggregationMinutes int       `json:"notification_aggregation_minutes" db:"notification_aggregation_minutes"`
+	TokenCleanupIntervalSeconds    int       `json:"token_cleanup_interval_seconds" db:"token_cleanup_interval_seconds"`
+	MaxConcurrentSessions          int       `json:"max_concurrent_sessions" db:"max_concurrent_sessions"`
+	SessionAbsoluteTimeoutHours    int       `json:"session_absolute_timeout_hours" db:"session_absolute_timeout_hours"`
 }
 
 // LoginAttempt represents a user login attempt
@@ -37,13 +40,14 @@ type LoginAttempt struct {
 
 // ActiveSession represents an active user session
 type ActiveSession struct {
-	ID           uuid.UUID  `json:"id" db:"id"`
-	UserID       uuid.UUID  `json:"user_id" db:"user_id"`
-	IPAddress    string     `json:"ip_address" db:"ip_address"`
-	UserAgent    string     `json:"user_agent" db:"user_agent"`
-	CreatedAt    time.Time  `json:"created_at" db:"created_at"`
-	LastActiveAt time.Time  `json:"last_active_at" db:"last_active_at"`
-	TokenID      *uuid.UUID `json:"token_id,omitempty" db:"token_id"` // Nullable for backwards compatibility
+	ID               uuid.UUID  `json:"id" db:"id"`
+	UserID           uuid.UUID  `json:"user_id" db:"user_id"`
+	IPAddress        string     `json:"ip_address" db:"ip_address"`
+	UserAgent        string     `json:"user_agent" db:"user_agent"`
+	CreatedAt        time.Time  `json:"created_at" db:"created_at"`
+	LastActiveAt     time.Time  `json:"last_active_at" db:"last_active_at"`
+	TokenID          *uuid.UUID `json:"token_id,omitempty" db:"token_id"`      // Nullable for backwards compatibility
+	SessionStartedAt time.Time  `json:"session_started_at" db:"session_started_at"` // Original session start time, persists across token refreshes
 }
 
 // MFAType represents the type of MFA enabled for a user

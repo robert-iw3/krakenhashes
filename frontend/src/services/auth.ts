@@ -44,9 +44,10 @@ export const isAuthenticated = async (): Promise<AuthCheckResponse> => {
   }
 };
 
-export const refreshToken = async (): Promise<LoginResponse> => {
+export const refreshToken = async (isAutomatic = false): Promise<LoginResponse> => {
   try {
-    const response = await api.post<LoginResponse>('/api/refresh-token');
+    const config = isAutomatic ? { headers: { 'X-Auto-Refresh': 'true' } } : {};
+    const response = await api.post<LoginResponse>('/api/refresh-token', {}, config);
     return response.data;
   } catch (error: unknown) {
     if (error && typeof error === 'object' && 'response' in error) {

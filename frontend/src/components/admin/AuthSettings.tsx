@@ -155,7 +155,10 @@ const AuthSettingsForm: React.FC<AuthSettingsFormProps> = ({ onSave, loading = f
       maxFailedAttempts: accountSecurity.maxFailedAttempts === '' ? 5 : accountSecurity.maxFailedAttempts,
       lockoutDuration: accountSecurity.lockoutDuration === '' ? 30 : accountSecurity.lockoutDuration,
       jwtExpiryMinutes: accountSecurity.jwtExpiryMinutes === '' ? 60 : accountSecurity.jwtExpiryMinutes,
-      notificationAggregationMinutes: accountSecurity.notificationAggregationMinutes === '' ? 60 : accountSecurity.notificationAggregationMinutes
+      notificationAggregationMinutes: accountSecurity.notificationAggregationMinutes === '' ? 60 : accountSecurity.notificationAggregationMinutes,
+      tokenCleanupIntervalSeconds: accountSecurity.tokenCleanupIntervalSeconds === '' ? 60 : accountSecurity.tokenCleanupIntervalSeconds,
+      maxConcurrentSessions: accountSecurity.maxConcurrentSessions === '' ? 0 : accountSecurity.maxConcurrentSessions,
+      sessionAbsoluteTimeoutHours: accountSecurity.sessionAbsoluteTimeoutHours === '' ? 0 : accountSecurity.sessionAbsoluteTimeoutHours
     };
 
     // Validate MFA settings
@@ -562,6 +565,68 @@ const AuthSettingsForm: React.FC<AuthSettingsFormProps> = ({ onSave, loading = f
                   autoComplete="off"
                   inputProps={{ min: 1 }}
                   helperText="Must be at least 1 code"
+                />
+              </FormGroup>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        {/* Session Management */}
+        <Grid item xs={12}>
+          <Card sx={{
+            backgroundColor: 'background.paper',
+            boxShadow: (theme) => `0 0 10px ${theme.palette.divider}`,
+            mt: 2
+          }}>
+            <CardContent>
+              <Typography variant="h6" gutterBottom sx={{
+                pb: 2,
+                borderBottom: (theme) => `1px solid ${theme.palette.divider}`
+              }}>
+                Session Management
+              </Typography>
+              <FormGroup>
+                <TextField
+                  label="Token Cleanup Interval (seconds)"
+                  type="number"
+                  value={accountSecurity?.tokenCleanupIntervalSeconds ?? 60}
+                  onChange={e => setAccountSecurity(prev => ({
+                    ...prev!,
+                    tokenCleanupIntervalSeconds: e.target.value === '' ? '' as any : parseInt(e.target.value)
+                  }))}
+                  fullWidth
+                  margin="normal"
+                  autoComplete="off"
+                  inputProps={{ min: 10 }}
+                  helperText="How often expired tokens are removed from the database (default: 60 seconds)"
+                />
+                <TextField
+                  label="Max Concurrent Sessions per User"
+                  type="number"
+                  value={accountSecurity?.maxConcurrentSessions ?? 0}
+                  onChange={e => setAccountSecurity(prev => ({
+                    ...prev!,
+                    maxConcurrentSessions: e.target.value === '' ? '' as any : parseInt(e.target.value)
+                  }))}
+                  fullWidth
+                  margin="normal"
+                  autoComplete="off"
+                  inputProps={{ min: 0 }}
+                  helperText="Maximum concurrent sessions allowed per user (0 = unlimited, oldest session revoked when limit exceeded)"
+                />
+                <TextField
+                  label="Session Absolute Timeout (hours)"
+                  type="number"
+                  value={accountSecurity?.sessionAbsoluteTimeoutHours ?? 0}
+                  onChange={e => setAccountSecurity(prev => ({
+                    ...prev!,
+                    sessionAbsoluteTimeoutHours: e.target.value === '' ? '' as any : parseInt(e.target.value)
+                  }))}
+                  fullWidth
+                  margin="normal"
+                  autoComplete="off"
+                  inputProps={{ min: 0 }}
+                  helperText="Maximum session lifetime regardless of activity (0 = disabled, users must re-login after this time)"
                 />
               </FormGroup>
             </CardContent>

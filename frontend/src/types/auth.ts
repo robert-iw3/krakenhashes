@@ -100,6 +100,9 @@ export interface AccountSecurity {
   lockoutDuration: number | '';
   jwtExpiryMinutes: number | '';
   notificationAggregationMinutes: number | '';
+  tokenCleanupIntervalSeconds?: number | '';
+  maxConcurrentSessions?: number | '';
+  sessionAbsoluteTimeoutHours?: number | '';
 }
 
 export interface AuthSettingsUpdate {
@@ -112,6 +115,9 @@ export interface AuthSettingsUpdate {
   lockoutDuration: number;
   jwtExpiryMinutes: number;
   notificationAggregationMinutes: number;
+  tokenCleanupIntervalSeconds?: number;
+  maxConcurrentSessions?: number;
+  sessionAbsoluteTimeoutHours?: number;
 }
 
 export interface MFAVerifyRequest {

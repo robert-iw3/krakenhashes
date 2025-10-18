@@ -324,6 +324,14 @@ func main() {
 		}
 	}()
 
+	// Initialize and start token cleanup service
+	debug.Info("Creating token cleanup service...")
+	tokenCleanupService := services.NewTokenCleanupService(dbWrapper)
+	debug.Info("Starting token cleanup service...")
+	tokenCleanupService.Start(context.Background())
+	defer tokenCleanupService.Stop()
+	debug.Info("Token cleanup service started")
+
 	// Initialize pot-file service
 	debug.Info("=== POT-FILE SERVICE INITIALIZATION STARTING ===")
 	debug.Info("About to initialize pot-file service")

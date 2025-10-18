@@ -26,18 +26,18 @@ const (
 
 	// Update last activity for a token (for non-auto-refresh requests)
 	UpdateTokenActivity = `
-		UPDATE auth_tokens
+		UPDATE tokens
 		SET last_activity = CURRENT_TIMESTAMP
 		WHERE token = $1`
 
 	// Check if token is expired based on idle timeout
 	IsTokenExpiredByIdleTimeout = `
 		SELECT EXISTS(
-			SELECT 1 FROM auth_tokens at
+			SELECT 1 FROM tokens t
 			JOIN auth_settings as
 			ON true
-			WHERE at.token = $1
-			AND at.last_activity < CURRENT_TIMESTAMP - INTERVAL '1 minute' * as.jwt_expiry_minutes
+			WHERE t.token = $1
+			AND t.last_activity < CURRENT_TIMESTAMP - INTERVAL '1 minute' * as.jwt_expiry_minutes
 		)`
 
 	// User MFA Data Query

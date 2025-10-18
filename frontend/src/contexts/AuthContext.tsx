@@ -116,7 +116,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const refreshInterval = setInterval(async () => {
       try {
         console.debug('[Auth] Performing periodic token refresh...');
-        await refreshToken();
+        await refreshToken(true); // Pass true to indicate automatic refresh (won't update last_activity)
         console.debug('[Auth] Periodic token refresh successful');
       } catch (error) {
         console.error('[Auth] Periodic token refresh failed:', error);

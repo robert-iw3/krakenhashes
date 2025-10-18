@@ -498,9 +498,15 @@ func (h *Handler) LogoutHandler(w http.ResponseWriter, r *http.Request) {
  * RefreshTokenHandler generates a new JWT token for the authenticated user.
  * This extends the session without requiring re-login.
  *
+ * This handler now:
+ * - Deletes the old token (CASCADE deletes linked session)
+ * - Checks concurrent session limits and revokes oldest if needed
+ * - Checks absolute session timeout
+ * - Creates new token and session while preserving session_started_at
+ *
  * Responses:
  *   - 200: New token generated and cookie set
- *   - 401: Authentication required
+ *   - 401: Authentication required or session expired
  *   - 500: Internal server error
  */
 func (h *Handler) RefreshTokenHandler(w http.ResponseWriter, r *http.Request) {
@@ -522,12 +528,84 @@ func (h *Handler) RefreshTokenHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get current token from cookie
+	cookie, err := r.Cookie("token")
+	if err != nil {
+		debug.Warning("No token cookie found during refresh: %v", err)
+		http.Error(w, "Authentication required", http.StatusUnauthorized)
+		return
+	}
+	oldToken := cookie.Value
+
 	// Get JWT expiry from auth settings
 	authSettings, err := h.db.GetAuthSettings()
 	if err != nil {
 		debug.Error("Failed to get auth settings: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
+	}
+
+	// Get old session to preserve session_started_at
+	oldSession, err := h.db.GetSessionByToken(oldToken)
+	if err != nil {
+		debug.Warning("Could not find session for token during refresh: %v", err)
+		// Continue anyway, will create new session with current time
+		oldSession = nil
+	}
+
+	// Check absolute session timeout if configured
+	if authSettings.SessionAbsoluteTimeoutHours > 0 && oldSession != nil {
+		sessionAge := time.Since(oldSession.SessionStartedAt).Hours()
+		if sessionAge >= float64(authSettings.SessionAbsoluteTimeoutHours) {
+			debug.Info("Session exceeded absolute timeout (%d hours) for user: %s",
+				authSettings.SessionAbsoluteTimeoutHours, userID)
+			// Delete old token (will CASCADE delete session)
+			h.db.RemoveTokenByString(oldToken)
+			http.Error(w, "Session expired - please log in again", http.StatusUnauthorized)
+			return
+		}
+		debug.Debug("Session age: %.2f hours, limit: %d hours", sessionAge, authSettings.SessionAbsoluteTimeoutHours)
+	}
+
+	// Parse userID to UUID for session queries
+	userUUID, err := uuid.Parse(userID.(string))
+	if err != nil {
+		debug.Error("Failed to parse user ID: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Check concurrent session limit if configured
+	if authSettings.MaxConcurrentSessions > 0 {
+		userSessions, err := h.db.GetUserSessions(userUUID)
+		if err != nil {
+			debug.Error("Failed to get user sessions: %v", err)
+			// Continue anyway, don't fail the refresh
+		} else if len(userSessions) >= authSettings.MaxConcurrentSessions {
+			// Find oldest session (by created_at)
+			var oldestSession *models.ActiveSession
+			for _, s := range userSessions {
+				if oldestSession == nil || s.CreatedAt.Before(oldestSession.CreatedAt) {
+					oldestSession = s
+				}
+			}
+
+			// Revoke oldest session's token
+			if oldestSession != nil && oldestSession.TokenID != nil {
+				debug.Info("Revoking oldest session (token: %s) due to max concurrent sessions limit for user: %s",
+					oldestSession.TokenID, userID)
+				if err := h.db.RevokeToken(*oldestSession.TokenID, "max_sessions_exceeded"); err != nil {
+					debug.Error("Failed to revoke oldest token: %v", err)
+				}
+			}
+		}
+	}
+
+	// Delete old token (CASCADE deletes linked session)
+	debug.Debug("Removing old token during refresh")
+	if err := h.db.RemoveTokenByString(oldToken); err != nil {
+		debug.Error("Failed to remove old token: %v", err)
+		// Continue anyway, we'll create the new token
 	}
 
 	// Generate new token
@@ -538,12 +616,34 @@ func (h *Handler) RefreshTokenHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Store new token in database (ignore token ID for refresh)
-	_, err = h.db.StoreToken(userID.(string), token)
+	// Store new token in database
+	tokenID, err := h.db.StoreToken(userID.(string), token)
 	if err != nil {
 		debug.Error("Failed to store refresh token: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
+	}
+
+	// Get client info for new session
+	ipAddress, userAgent := getClientInfo(r)
+
+	// Create new session, preserving session_started_at from old session
+	sessionStartedAt := time.Now()
+	if oldSession != nil {
+		sessionStartedAt = oldSession.SessionStartedAt
+		debug.Debug("Preserving session_started_at: %s", sessionStartedAt)
+	}
+
+	session := &models.ActiveSession{
+		UserID:           userUUID,
+		IPAddress:        ipAddress,
+		UserAgent:        userAgent,
+		TokenID:          &tokenID,
+		SessionStartedAt: sessionStartedAt,
+	}
+	if err := h.db.CreateSession(session); err != nil {
+		debug.Error("Failed to create session during refresh: %v", err)
+		// Don't fail the refresh for this
 	}
 
 	// Set new auth cookie

@@ -52,11 +52,18 @@ func (db *DB) GetUserByUsername(username string) (*models.User, error) {
 
 // StoreToken stores a JWT token for a user and returns the token ID
 func (db *DB) StoreToken(userID, token string) (uuid.UUID, error) {
-	// Calculate expiration time (24 hours from now)
-	expiresAt := time.Now().Add(24 * time.Hour)
+	// Get JWT expiry from auth settings
+	authSettings, err := db.GetAuthSettings()
+	if err != nil {
+		debug.Error("Failed to get auth settings for token storage: %v", err)
+		return uuid.Nil, err
+	}
+
+	// Calculate expiration time based on JWT expiry setting
+	expiresAt := time.Now().Add(time.Duration(authSettings.JWTExpiryMinutes) * time.Minute)
 
 	var tokenID uuid.UUID
-	err := db.QueryRow(`
+	err = db.QueryRow(`
 		INSERT INTO tokens (user_id, token, expires_at)
 		VALUES ($1, $2, $3)
 		RETURNING id
@@ -201,10 +208,15 @@ func (db *DB) MarkAttemptsAsNotified(ids []uuid.UUID) error {
 
 // CreateSession creates a new active session linked to a token
 func (db *DB) CreateSession(session *models.ActiveSession) error {
+	// If SessionStartedAt is not set, use current time
+	if session.SessionStartedAt.IsZero() {
+		session.SessionStartedAt = time.Now()
+	}
+
 	_, err := db.Exec(`
-		INSERT INTO active_sessions (user_id, ip_address, user_agent, token_id)
-		VALUES ($1, $2, $3, $4)
-	`, session.UserID, session.IPAddress, session.UserAgent, session.TokenID)
+		INSERT INTO active_sessions (user_id, ip_address, user_agent, token_id, session_started_at)
+		VALUES ($1, $2, $3, $4, $5)
+	`, session.UserID, session.IPAddress, session.UserAgent, session.TokenID, session.SessionStartedAt)
 	return err
 }
 
@@ -245,6 +257,7 @@ func (db *DB) GetUserSessions(userID uuid.UUID) ([]*models.ActiveSession, error)
 			&session.CreatedAt,
 			&session.LastActiveAt,
 			&session.TokenID,
+			&session.SessionStartedAt,
 		)
 		if err != nil {
 			return nil, err
@@ -472,7 +485,7 @@ func (db *DB) GetUserIDFromMFASession(sessionToken string) (string, error) {
 // ClearMFASession removes an MFA session after successful verification
 func (db *DB) ClearMFASession(sessionToken string) error {
 	_, err := db.Exec(`
-		DELETE FROM mfa_sessions 
+		DELETE FROM mfa_sessions
 		WHERE session_token = $1`,
 		sessionToken,
 	)
@@ -480,4 +493,68 @@ func (db *DB) ClearMFASession(sessionToken string) error {
 		return fmt.Errorf("failed to clear MFA session: %w", err)
 	}
 	return nil
+}
+
+// RevokeToken marks a token as revoked with a reason
+func (db *DB) RevokeToken(tokenID uuid.UUID, reason string) error {
+	_, err := db.Exec(`
+		UPDATE tokens
+		SET revoked = true,
+			revoked_at = CURRENT_TIMESTAMP,
+			revoked_reason = $1
+		WHERE id = $2`,
+		reason, tokenID,
+	)
+	if err != nil {
+		debug.Error("Failed to revoke token: %v", err)
+		return err
+	}
+	return nil
+}
+
+// GetSessionByToken retrieves a session by its token value
+func (db *DB) GetSessionByToken(token string) (*models.ActiveSession, error) {
+	session := &models.ActiveSession{}
+	err := db.QueryRow(`
+		SELECT s.id, s.user_id, s.ip_address, s.user_agent,
+			   s.created_at, s.last_active_at, s.token_id, s.session_started_at
+		FROM active_sessions s
+		JOIN tokens t ON s.token_id = t.id
+		WHERE t.token = $1`,
+		token,
+	).Scan(
+		&session.ID,
+		&session.UserID,
+		&session.IPAddress,
+		&session.UserAgent,
+		&session.CreatedAt,
+		&session.LastActiveAt,
+		&session.TokenID,
+		&session.SessionStartedAt,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("session not found for token")
+		}
+		debug.Error("Failed to get session by token: %v", err)
+		return nil, err
+	}
+	return session, nil
+}
+
+// GetTokenByValue retrieves a token ID by its value
+func (db *DB) GetTokenByValue(token string) (uuid.UUID, error) {
+	var tokenID uuid.UUID
+	err := db.QueryRow(`
+		SELECT id FROM tokens WHERE token = $1`,
+		token,
+	).Scan(&tokenID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return uuid.Nil, fmt.Errorf("token not found")
+		}
+		debug.Error("Failed to get token by value: %v", err)
+		return uuid.Nil, err
+	}
+	return tokenID, nil
 }
