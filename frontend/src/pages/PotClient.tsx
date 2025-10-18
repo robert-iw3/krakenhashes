@@ -24,7 +24,7 @@ export default function PotClient() {
       
       try {
         setLoading(true);
-        const response = await api.get<{ data: Client }>(`/api/admin/clients/${id}`);
+        const response = await api.get<{ data: Client }>(`/api/clients/${id}`);
         setClientName(response.data.data.name);
       } catch (err) {
         console.error('Error loading client info:', err);
