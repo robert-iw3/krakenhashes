@@ -71,6 +71,7 @@ import {
   ListAlt as ListAltIcon,
   Lock as LockIcon,
   People as PeopleIcon,
+  Analytics as AnalyticsIcon,
 } from '@mui/icons-material';
 import { logout } from '../services/auth';
 import { useAuth } from '../contexts/AuthContext';
@@ -97,6 +98,7 @@ const menuItems: MenuItem[] = [
   { text: 'Wordlists', icon: <DescriptionIcon />, path: '/wordlists' },
   { text: 'Rules', icon: <RuleIcon />, path: '/rules' },
   { text: 'Client Management', icon: <PeopleIcon />, path: '/clients' },
+  { text: 'Analytics', icon: <AnalyticsIcon />, path: '/analytics' },
 ];
 
 const bottomMenuItems: MenuItem[] = [

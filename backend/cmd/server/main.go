@@ -355,6 +355,21 @@ func main() {
 		defer potfileService.Stop()
 	}
 
+	// Initialize analytics queue service
+	debug.Info("Initializing analytics queue service...")
+	analyticsRepo := repository.NewAnalyticsRepository(dbWrapper)
+	analyticsService := services.NewAnalyticsService(analyticsRepo)
+	analyticsQueueService := services.NewAnalyticsQueueService(analyticsService, analyticsRepo)
+
+	// Start analytics queue service
+	if err := analyticsQueueService.Start(); err != nil {
+		debug.Error("Failed to start analytics queue service: %v", err)
+		// Continue without analytics queue service - not fatal
+	} else {
+		debug.Info("Analytics queue service started successfully")
+		defer analyticsQueueService.Stop()
+	}
+
 	// Create routers
 	debug.Info("Creating routers")
 	httpRouter := mux.NewRouter()  // For HTTP server (CA certificate)
@@ -366,7 +381,7 @@ func main() {
 
 	// Setup routes
 	debug.Info("Setting up routes")
-	routes.SetupRoutes(httpsRouter, sqlDB, tlsProvider, agentService, wordlistManager, ruleManager, binaryManager, potfileService)
+	routes.SetupRoutes(httpsRouter, sqlDB, tlsProvider, agentService, wordlistManager, ruleManager, binaryManager, potfileService, analyticsQueueService)
 
 	// Setup CA certificate route on HTTP router
 	debug.Info("Setting up CA certificate route")

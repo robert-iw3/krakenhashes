@@ -71,6 +71,7 @@ const PotPage = lazy(() => import('./pages/Pot'));
 const PotHashlistPage = lazy(() => import('./pages/PotHashlist'));
 const PotClientPage = lazy(() => import('./pages/PotClient'));
 const PotJobPage = lazy(() => import('./pages/PotJob'));
+const AnalyticsPage = lazy(() => import('./pages/Analytics'));
 
 // Lazy load pages - Clients page moved to regular auth section
 const ClientsPage = lazy(() => import('./pages/AdminClients').then(module => ({ default: module.AdminClients })));
@@ -142,6 +143,7 @@ const App: React.FC = () => {
                     <Route path="/wordlists" element={<WordlistsManagementPage />} />
                     <Route path="/rules" element={<RulesManagementPage />} />
                     <Route path="/clients" element={<ClientsPage />} />
+                    <Route path="/analytics" element={<AnalyticsPage />} />
                     <Route path="/pot" element={<PotPage />} />
                     <Route path="/pot/hashlist/:id" element={<PotHashlistPage />} />
                     <Route path="/pot/client/:id" element={<PotClientPage />} />
