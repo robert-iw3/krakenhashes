@@ -111,6 +111,40 @@ The processor primarily expects:
     *   Individual hashes in the central `hashes` table are *not* deleted if they are referenced by other hashlists.
     *   Orphaned hashes (not linked to any hashlist) are automatically cleaned up.
 
+### Viewing Individual Hashes
+
+The hashlist detail page provides a comprehensive paginated table view of all hashes:
+
+![Hashlist Hash Table](../assets/images/screenshots/hsahlist-hash-table.png)
+*Paginated table showing individual hashes with username, domain, original hash, cracked password, and status*
+
+**Table Features:**
+- **Automatic Sorting**: Cracked hashes appear first for easy review
+- **Flexible Pagination**: Choose 500, 1000, 1500, 2000, or view all hashes at once
+- **Search Functionality**: Filter hashes across all fields in real-time
+- **Quick Copy**: Click the copy icon to copy cracked passwords (or hash if not yet cracked)
+- **Status Indicators**: Color-coded chips show crack status at a glance
+
+**Table Columns:**
+- **Original Hash**: The complete hash line as it was uploaded
+- **Username**: Automatically extracted username (when available)
+- **Domain**: Automatically extracted domain information (when available)
+- **Password**: The cracked plaintext password (displayed only when cracked)
+- **Status**: Visual indicator showing "Cracked" or "Pending"
+- **Actions**: Copy button for quick clipboard access
+
+**Username and Domain Extraction:**
+
+KrakenHashes automatically extracts username and domain information from supported hash formats:
+
+- **NTLM (1000)**: Parses pwdump format `DOMAIN\username:sid:LM:NT:::`
+- **NetNTLMv1/v2 (5500, 5600)**: Extracts from `username::domain:challenge:response`
+- **Kerberos (18200)**: Parses `$krb5asrep$23$user@domain.com:hash`
+- **LastPass (6800)**: Extracts email from `hash:iterations:email`
+- **DCC/MS Cache (1100)**: Extracts from `hash:username`
+
+Machine accounts (with `$` suffix) are fully preserved: `COMPUTER01$`, `WKS01$`, etc.
+
 ## Data Retention
 
 Uploaded hashlists and their associated data are subject to the system's data retention policies. Old hashlists may be automatically purged based on client-specific or default retention settings configured by an administrator. See Admin Settings documentation for details. 

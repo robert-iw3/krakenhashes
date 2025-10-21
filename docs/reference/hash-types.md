@@ -148,6 +148,59 @@ Django:         pbkdf2_sha256$20000$H0dPx8NeajVu$GiC4k5kqbbR9qWBlsRgDywNqC2vd9kq
 NetNTLMv2:      admin::N46iSNekpT:08ca45b7d7ea58ee:88dcbe4446168966a153a0064958dac6
 ```
 
+### Username and Domain Extraction
+
+KrakenHashes v1.1+ automatically extracts username and domain information from hash formats that contain identity data. This enables better client reporting, user tracking, and prioritization of high-value accounts.
+
+#### Supported Hash Types
+
+| Hash Type | Mode | Extraction Pattern | Example |
+|-----------|------|-------------------|---------|
+| NTLM | 1000 | `DOMAIN\username:sid:LM:NT:::` | `CONTOSO\Administrator:500:...` |
+| NetNTLMv1 | 5500 | `username::domain:challenge:response` | `alice::CORP:1122334455667788:...` |
+| NetNTLMv2 | 5600 | `username::domain:challenge:response` | `bob::ENTERPRISE:abcdef01:...` |
+| Kerberos AS-REP | 18200 | `$krb5asrep$23$user@domain:hash` | `$krb5asrep$23$john@CORP.COM:...` |
+| LastPass | 6800 | `hash:iterations:email` | `a1b2c3...:500:user@example.com` |
+| DCC/MS Cache | 1100 | `hash:username` | `a1b2c3...:jsmith` |
+
+#### Domain Formats
+
+The system recognizes two standard domain notation formats:
+
+**Windows/NetBIOS Style:**
+```
+DOMAIN\username    →    username: "username", domain: "DOMAIN"
+CORP\alice         →    username: "alice", domain: "CORP"
+```
+
+**Kerberos/Email Style:**
+```
+user@domain.com         →    username: "user", domain: "domain.com"
+john@CORP.LOCAL         →    username: "john", domain: "CORP.LOCAL"
+admin@sales.corp.com    →    username: "admin", domain: "sales.corp.com"
+```
+
+#### Machine Account Support
+
+Machine accounts (computer accounts) are identified by a trailing `$` character. The extraction system preserves this indicator:
+
+```
+CONTOSO\COMPUTER01$     →    username: "COMPUTER01$", domain: "CONTOSO"
+WKS01$::DOMAIN:...      →    username: "WKS01$", domain: "DOMAIN"
+SRV-WEB$@CORP.LOCAL     →    username: "SRV-WEB$", domain: "CORP.LOCAL"
+```
+
+**Note**: Machine accounts are important security indicators as they can provide lateral movement opportunities in domain environments.
+
+#### Fallback Extraction
+
+For hash types without custom extractors, a heuristic approach attempts extraction:
+
+1. Checks for common separators (`:`, `\`, `@`)
+2. Identifies potential username patterns
+3. Preserves special characters like `$` for machine accounts
+4. Stores `NULL` for domain when not detected
+
 ## Hash Type Identification
 
 ### Automatic Detection
