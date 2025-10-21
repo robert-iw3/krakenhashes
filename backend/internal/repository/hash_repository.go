@@ -317,12 +317,13 @@ func (r *HashRepository) GetHashesByHashlistID(ctx context.Context, hashlistID i
 	}
 
 	// Query to retrieve the paginated hashes
+	// Sort by is_cracked DESC to show cracked hashes first, then by id for consistency
 	query := `
 		SELECT h.id, h.hash_value, h.original_hash, h.username, h.domain, h.hash_type_id, h.is_cracked, h.password, h.last_updated
 		FROM hashes h
 		JOIN hashlist_hashes hlh ON h.id = hlh.hash_id
 		WHERE hlh.hashlist_id = $1
-		ORDER BY h.id -- Or some other consistent ordering, maybe original_hash?
+		ORDER BY h.is_cracked DESC, h.id
 		LIMIT $2 OFFSET $3
 	`
 	rows, err := r.db.QueryContext(ctx, query, hashlistID, limit, offset)

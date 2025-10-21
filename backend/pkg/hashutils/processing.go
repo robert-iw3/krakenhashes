@@ -125,21 +125,42 @@ func extractNetNTLMv2(rawHash string) *UsernameAndDomain {
 
 // extractKerberos extracts username and domain from Kerberos AS-REP
 // Format: $krb5asrep$23$user@domain.com:...
+// Handles machine accounts with $ in username (e.g., COMPUTER$@domain.com)
 func extractKerberos(rawHash string) *UsernameAndDomain {
-	// Skip past the format prefix
-	parts := strings.Split(rawHash, "$")
-	if len(parts) < 4 {
+	// Format: $krb5asrep$23$user@domain:hash...
+	// Need to find the 3rd $ and extract everything after it
+	// This preserves any $ in machine account names (e.g., WKS01$)
+
+	// Find first $
+	idx1 := strings.Index(rawHash, "$")
+	if idx1 == -1 {
 		return nil
 	}
 
-	// The username@domain should be in parts[3], before the colon
-	userDomainPart := parts[3]
+	// Find second $ (after first)
+	idx2 := strings.Index(rawHash[idx1+1:], "$")
+	if idx2 == -1 {
+		return nil
+	}
+	idx2 += idx1 + 1 // Adjust to absolute position
+
+	// Find third $ (after second)
+	idx3 := strings.Index(rawHash[idx2+1:], "$")
+	if idx3 == -1 {
+		return nil
+	}
+	idx3 += idx2 + 1 // Adjust to absolute position
+
+	// Everything after the 3rd $ is the user@domain:hash part
+	userDomainPart := rawHash[idx3+1:]
+
+	// Find the colon that separates user@domain from hash
 	colonIdx := strings.Index(userDomainPart, ":")
 	if colonIdx != -1 {
 		userDomainPart = userDomainPart[:colonIdx]
 	}
 
-	// Parse username@domain
+	// Parse username@domain (handles @ separator)
 	username, domain := ParseDomainUsername(userDomainPart)
 	return &UsernameAndDomain{
 		Username: &username,

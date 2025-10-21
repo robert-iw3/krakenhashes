@@ -761,11 +761,14 @@ func (h *hashlistHandler) handleGetHashlistHashes(w http.ResponseWriter, r *http
 	// This will change when teams are implemented
 
 	// Parse pagination parameters
-	limit := 10
+	limit := 500 // Default limit increased to 500 for better UX
 	offset := 0
 	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
-		if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 && parsedLimit <= 100 {
-			limit = parsedLimit
+		// Support -1 for "all results" (similar to pot table)
+		if limitStr == "-1" {
+			limit = 999999 // Effectively unlimited
+		} else if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 && parsedLimit <= 2000 {
+			limit = parsedLimit // Max limit increased from 100 to 2000
 		}
 	}
 	if offsetStr := r.URL.Query().Get("offset"); offsetStr != "" {

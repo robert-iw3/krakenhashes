@@ -241,6 +241,132 @@ const FormComponent: React.FC = () => {
 };
 ```
 
+### Paginated Table Components
+
+#### HashlistHashesTable Component
+
+**File**: `frontend/src/components/hashlist/HashlistHashesTable.tsx`
+
+A full-featured paginated table component demonstrating best practices for large dataset display.
+
+**Key Features:**
+- React Query integration with automatic caching and refetching
+- Material-UI TablePagination with custom page size options [500, 1000, 1500, 2000, All]
+- Real-time search with debouncing (300ms delay)
+- Dynamic column widths for responsive layout
+- Copy-to-clipboard functionality with visual feedback
+- Automatic sorting (cracked hashes first)
+
+**Usage Example:**
+```tsx
+<HashlistHashesTable
+  hashlistId="uuid-here"
+  hashlistName="My Hashlist"
+  totalHashes={1000}
+  crackedHashes={250}
+/>
+```
+
+**Table Layout Best Practice:**
+
+Use dynamic layout with min/max width constraints instead of fixed percentages:
+
+```tsx
+<Table size="small">
+  <TableHead>
+    <TableRow>
+      {/* Long content with flexible width */}
+      <TableCell sx={{ minWidth: 300, maxWidth: 600 }}>
+        Original Hash
+      </TableCell>
+
+      {/* Fixed width columns */}
+      <TableCell sx={{ minWidth: 120, width: 150 }}>
+        Username
+      </TableCell>
+
+      {/* Icon-only column */}
+      <TableCell sx={{ width: 80 }} align="center">
+        Actions
+      </TableCell>
+    </TableRow>
+  </TableHead>
+</Table>
+```
+
+**Pagination with "All" Option:**
+
+```tsx
+const rowsPerPageOptions = [
+  500,
+  1000,
+  1500,
+  2000,
+  { label: 'All', value: -1 }
+];
+
+// Backend API supports -1 for unlimited results
+const limit = rowsPerPage === -1 ? -1 : rowsPerPage;
+```
+
+**Search Implementation:**
+
+```tsx
+const [searchTerm, setSearchTerm] = useState('');
+const debouncedSearch = useDebounce(searchTerm, 300);
+
+// Use debounced value in API query
+const { data } = useQuery(['hashes', hashlistId, debouncedSearch], ...);
+```
+
+**Copy Button Pattern:**
+
+```tsx
+// Copy password if cracked, otherwise copy hash
+<Tooltip title={hash.is_cracked ? 'Copy password' : 'Copy hash'}>
+  <IconButton
+    onClick={() => copyToClipboard(
+      hash.is_cracked && hash.password
+        ? hash.password
+        : hash.original_hash
+    )}
+  >
+    <ContentCopyIcon fontSize="small" />
+  </IconButton>
+</Tooltip>
+```
+
+#### Integration Pattern
+
+**File**: `frontend/src/components/hashlist/HashlistDetailView.tsx`
+
+Shows how to integrate paginated table components:
+
+```tsx
+// Add domain field to interface
+interface HashDetail {
+  id: string;
+  hash_value: string;
+  original_hash: string;
+  username?: string;
+  domain?: string;        // Added in v1.1+
+  hash_type_id: number;
+  is_cracked: boolean;
+  password?: string;
+  last_updated: string;
+}
+
+// Replace simple list with paginated table
+{hashlist && (
+  <HashlistHashesTable
+    hashlistId={id!}
+    hashlistName={hashlist.name}
+    totalHashes={hashlist.total_hashes || 0}
+    crackedHashes={hashlist.cracked_hashes || 0}
+  />
+)}
+```
+
 ## State Management with React Query
 
 ### Query Client Configuration

@@ -7,13 +7,8 @@ import {
   LinearProgress,
   Button,
   Divider,
-  List,
-  ListItem,
-  ListItemText,
-  ListItemButton,
   Tooltip,
   IconButton,
-  Alert,
   Dialog,
   DialogActions,
   DialogContent,
@@ -23,7 +18,6 @@ import {
 import {
   Download as DownloadIcon,
   Delete as DeleteIcon,
-  Refresh as RefreshIcon,
   History as HistoryIcon,
   ArrowBack as ArrowBackIcon,
   PlayArrow as PlayArrowIcon
@@ -31,8 +25,8 @@ import {
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../services/api';
-import HashDetailModal from './HashDetailModal';
 import CreateJobDialog from './CreateJobDialog';
+import HashlistHashesTable from './HashlistHashesTable';
 import { useSnackbar } from 'notistack';
 import { AxiosResponse, AxiosError } from 'axios';
 
@@ -41,6 +35,7 @@ interface HashDetail {
   hash_value: string;
   original_hash: string;
   username?: string;
+  domain?: string;
   hash_type_id: number;
   is_cracked: boolean;
   password?: string;
@@ -54,8 +49,6 @@ interface HashDetail {
 export default function HashlistDetailView() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const [selectedHash, setSelectedHash] = useState<HashDetail | null>(null);
-  const [modalOpen, setModalOpen] = useState(false);
   const [createJobDialogOpen, setCreateJobDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const queryClient = useQueryClient();
@@ -80,44 +73,6 @@ export default function HashlistDetailView() {
       setDeleteDialogOpen(false);
     },
   });
-
-  const { data: hashResponse, isLoading: loadingSamples, refetch: refetchHashes } = useQuery({
-    queryKey: ['hashlist-samples', id],
-    queryFn: () => api.get(`/api/hashlists/${id}/hashes?limit=10`).then(res => res.data),
-    enabled: !!hashlist
-  });
-
-  // Extract hashes from response and normalize the data
-  const hashSamples: HashDetail[] = React.useMemo(() => {
-    if (!hashResponse?.hashes) return [];
-    return hashResponse.hashes.map((hash: HashDetail) => ({
-      ...hash,
-      // Add frontend-friendly aliases
-      hash: hash.hash_value,
-      isCracked: hash.is_cracked,
-      crackedText: hash.password
-    }));
-  }, [hashResponse]);
-
-  const handleHashClick = (hash: HashDetail) => {
-    // Enrich the hash detail with hashlist info
-    const enrichedHash = {
-      ...hash,
-      hashlistName: hashlist?.name,
-      hashType: hashlist?.hashTypeName
-    };
-    setSelectedHash(enrichedHash);
-    setModalOpen(true);
-  };
-
-  const handleCloseModal = () => {
-    setModalOpen(false);
-    setSelectedHash(null);
-  };
-
-  const handleRefreshHashes = () => {
-    refetchHashes();
-  };
 
   const handleDeleteClick = () => {
     setDeleteDialogOpen(true);
@@ -218,63 +173,14 @@ export default function HashlistDetailView() {
         </Box>
       </Paper>
 
-      <Paper sx={{ p: 3, mb: 3 }}>
-        <Box display="flex" justifyContent="space-between" alignItems="center">
-          <Typography variant="h6">Sample Hashes</Typography>
-          <Button startIcon={<RefreshIcon />} size="small" onClick={handleRefreshHashes}>Refresh</Button>
-        </Box>
-        <Divider sx={{ my: 2 }} />
-        {loadingSamples ? (
-          <LinearProgress />
-        ) : hashSamples.length === 0 ? (
-          <Alert severity="info">No hashes found in this hashlist.</Alert>
-        ) : (
-          <List>
-            {hashSamples.map((hash: HashDetail) => (
-            <ListItemButton 
-              key={hash.id}
-              onClick={() => handleHashClick(hash)}
-              sx={{ 
-                borderRadius: 1,
-                mb: 0.5,
-                '&:hover': {
-                  backgroundColor: 'action.hover'
-                }
-              }}
-            >
-              <ListItemText 
-                primary={
-                  <Typography 
-                    variant="body2" 
-                    sx={{ 
-                      fontFamily: 'monospace',
-                      wordBreak: 'break-all',
-                      cursor: 'pointer',
-                      '&:hover': {
-                        textDecoration: 'underline'
-                      }
-                    }}
-                  >
-                    {hash.hash_value}
-                  </Typography>
-                }
-                secondary={
-                  <Box>
-                    {hash.username && <Typography variant="caption" display="block">User: {hash.username}</Typography>}
-                    {hash.is_cracked ? `Cracked: ${hash.password}` : 'Not cracked'}
-                  </Box>
-                }
-              />
-              <Chip 
-                label={hash.is_cracked ? 'Cracked' : 'Pending'}
-                color={hash.is_cracked ? 'success' : 'default'}
-                size="small"
-              />
-            </ListItemButton>
-            ))}
-          </List>
-        )}
-      </Paper>
+      {hashlist && (
+        <HashlistHashesTable
+          hashlistId={id!}
+          hashlistName={hashlist.name}
+          totalHashes={hashlist.total_hashes || 0}
+          crackedHashes={hashlist.cracked_hashes || 0}
+        />
+      )}
 
       <Paper sx={{ p: 3 }}>
         <Typography variant="h6" gutterBottom>
@@ -287,12 +193,6 @@ export default function HashlistDetailView() {
         </Typography>
       </Paper>
 
-      <HashDetailModal 
-        open={modalOpen}
-        onClose={handleCloseModal}
-        hash={selectedHash}
-      />
-      
       {hashlist && (
         <CreateJobDialog
           open={createJobDialogOpen}
