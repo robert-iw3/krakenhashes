@@ -123,13 +123,26 @@ func (p *HashlistDBProcessor) processHashlist(hashlistID int64) {
 
 		// --- New Processing Logic ---
 		originalHash := line // Store the raw line
-		username := hashutils.ExtractUsername(originalHash, hashType.ID)
+		usernameAndDomain := hashutils.ExtractUsernameAndDomain(originalHash, hashType.ID)
 		hashValue := hashutils.ProcessHashIfNeeded(originalHash, hashType.ID, needsProcessing)
+
+		// Extract username and domain from result
+		var username *string
+		var domain *string
+		if usernameAndDomain != nil {
+			username = usernameAndDomain.Username
+			domain = usernameAndDomain.Domain
+		}
+
 		usernameStr := ""
+		domainStr := ""
 		if username != nil {
 			usernameStr = *username
 		}
-		debug.Debug("[Processor:%d] Line %d: Original='%s', ProcessedValue='%s', User='%s'", hashlistID, lineNumber, originalHash, hashValue, usernameStr)
+		if domain != nil {
+			domainStr = *domain
+		}
+		debug.Debug("[Processor:%d] Line %d: Original='%s', ProcessedValue='%s', User='%s', Domain='%s'", hashlistID, lineNumber, originalHash, hashValue, usernameStr, domainStr)
 		// --- End New Processing Logic ---
 
 		// Determine if cracked (e.g., from input format like hash:pass)
@@ -161,6 +174,7 @@ func (p *HashlistDBProcessor) processHashlist(hashlistID int64) {
 			HashValue:    hashValue,    // The value to crack (potentially processed)
 			OriginalHash: originalHash, // Always store the original line
 			Username:     username,     // Store the extracted username (or nil)
+			Domain:       domain,       // Store the extracted domain (or nil)
 			HashTypeID:   hashlist.HashTypeID,
 			IsCracked:    isCracked,  // Mark cracked based on heuristic above
 			Password:     password,   // Store potential password from heuristic
@@ -398,6 +412,11 @@ func (p *HashlistDBProcessor) batchProcessHashes(ctx context.Context, hashes []*
 			// Update username if existing is null and new one is provided
 			if existingDBHash.Username == nil && inputHash.Username != nil {
 				existingDBHash.Username = inputHash.Username
+				needsUpdate = true
+			}
+			// Update domain if existing is null and new one is provided
+			if existingDBHash.Domain == nil && inputHash.Domain != nil {
+				existingDBHash.Domain = inputHash.Domain
 				needsUpdate = true
 			}
 

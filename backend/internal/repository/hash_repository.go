@@ -32,7 +32,7 @@ func (r *HashRepository) GetByHashValues(ctx context.Context, hashValues []strin
 	}
 
 	query := `
-		SELECT id, hash_value, original_hash, hash_type_id, is_cracked, password, last_updated, username
+		SELECT id, hash_value, original_hash, hash_type_id, is_cracked, password, last_updated, username, domain
 		FROM hashes
 		WHERE hash_value = ANY($1)
 	`
@@ -54,6 +54,7 @@ func (r *HashRepository) GetByHashValues(ctx context.Context, hashValues []strin
 			&hash.Password,
 			&hash.LastUpdated,
 			&hash.Username,
+			&hash.Domain,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan hash row: %w", err)
 		}
@@ -81,8 +82,8 @@ func (r *HashRepository) CreateBatch(ctx context.Context, hashes []*models.Hash)
 	defer txn.Rollback() // Rollback if commit isn't reached
 
 	stmt, err := txn.PrepareContext(ctx, `
-		INSERT INTO hashes (id, hash_value, original_hash, username, hash_type_id, is_cracked, password, last_updated)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO hashes (id, hash_value, original_hash, username, domain, hash_type_id, is_cracked, password, last_updated)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare statement for batch hash create: %w", err)
@@ -103,6 +104,7 @@ func (r *HashRepository) CreateBatch(ctx context.Context, hashes []*models.Hash)
 			hash.HashValue,
 			hash.OriginalHash,
 			hash.Username,
+			hash.Domain,
 			hash.HashTypeID,
 			hash.IsCracked,
 			hash.Password,
@@ -139,8 +141,8 @@ func (r *HashRepository) UpdateBatch(ctx context.Context, hashes []*models.Hash)
 
 	stmt, err := txn.PrepareContext(ctx, `
 		UPDATE hashes
-		SET is_cracked = $1, password = $2, username = COALESCE(username, $3), last_updated = $4
-		WHERE id = $5
+		SET is_cracked = $1, password = $2, username = COALESCE(username, $3), domain = COALESCE(domain, $4), last_updated = $5
+		WHERE id = $6
 	`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement for batch hash update: %w", err)
@@ -156,6 +158,7 @@ func (r *HashRepository) UpdateBatch(ctx context.Context, hashes []*models.Hash)
 			hash.IsCracked,
 			hash.Password,
 			hash.Username, // Add username argument (COALESCE handles NULL case in SQL)
+			hash.Domain,   // Add domain argument (COALESCE handles NULL case in SQL)
 			time.Now(),    // Update last_updated time
 			hash.ID,
 		)
@@ -315,7 +318,7 @@ func (r *HashRepository) GetHashesByHashlistID(ctx context.Context, hashlistID i
 
 	// Query to retrieve the paginated hashes
 	query := `
-		SELECT h.id, h.hash_value, h.original_hash, h.username, h.hash_type_id, h.is_cracked, h.password, h.last_updated
+		SELECT h.id, h.hash_value, h.original_hash, h.username, h.domain, h.hash_type_id, h.is_cracked, h.password, h.last_updated
 		FROM hashes h
 		JOIN hashlist_hashes hlh ON h.id = hlh.hash_id
 		WHERE hlh.hashlist_id = $1
@@ -336,6 +339,7 @@ func (r *HashRepository) GetHashesByHashlistID(ctx context.Context, hashlistID i
 			&hash.HashValue,
 			&hash.OriginalHash,
 			&hash.Username,
+			&hash.Domain,
 			&hash.HashTypeID,
 			&hash.IsCracked,
 			&hash.Password,
@@ -388,7 +392,7 @@ func (r *HashRepository) GetUncrackedHashValuesByHashlistID(ctx context.Context,
 // GetByHashValueForUpdate retrieves a hash by its value within a transaction, locking the row.
 func (r *HashRepository) GetByHashValueForUpdate(tx *sql.Tx, hashValue string) (*models.Hash, error) {
 	query := `
-		SELECT id, hash_value, original_hash, hash_type_id, is_cracked, password, last_updated, username
+		SELECT id, hash_value, original_hash, hash_type_id, is_cracked, password, last_updated, username, domain
 		FROM hashes
 		WHERE hash_value = $1
 		FOR UPDATE -- Lock the row
@@ -405,6 +409,7 @@ func (r *HashRepository) GetByHashValueForUpdate(tx *sql.Tx, hashValue string) (
 		&hash.Password,
 		&hash.LastUpdated,
 		&hash.Username,
+		&hash.Domain,
 	)
 
 	if err != nil {
@@ -545,13 +550,13 @@ func (r *HashRepository) GetCrackedHashes(ctx context.Context, params CrackedHas
 
 	// Then get the paginated results
 	query := `
-		SELECT id, hash_value, original_hash, username, hash_type_id, is_cracked, password, last_updated
+		SELECT id, hash_value, original_hash, username, domain, hash_type_id, is_cracked, password, last_updated
 		FROM hashes
 		WHERE is_cracked = true
 		ORDER BY last_updated DESC
 		LIMIT $1 OFFSET $2
 	`
-	
+
 	rows, err := r.db.QueryContext(ctx, query, params.Limit, params.Offset)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to query cracked hashes: %w", err)
@@ -566,6 +571,7 @@ func (r *HashRepository) GetCrackedHashes(ctx context.Context, params CrackedHas
 			&hash.HashValue,
 			&hash.OriginalHash,
 			&hash.Username,
+			&hash.Domain,
 			&hash.HashTypeID,
 			&hash.IsCracked,
 			&hash.Password,
@@ -600,7 +606,7 @@ func (r *HashRepository) GetCrackedHashesByHashlist(ctx context.Context, hashlis
 
 	// Then get the paginated results
 	query := `
-		SELECT h.id, h.hash_value, h.original_hash, h.username, h.hash_type_id, h.is_cracked, h.password, h.last_updated
+		SELECT h.id, h.hash_value, h.original_hash, h.username, h.domain, h.hash_type_id, h.is_cracked, h.password, h.last_updated
 		FROM hashes h
 		JOIN hashlist_hashes hh ON h.id = hh.hash_id
 		WHERE hh.hashlist_id = $1 AND h.is_cracked = true
@@ -622,6 +628,7 @@ func (r *HashRepository) GetCrackedHashesByHashlist(ctx context.Context, hashlis
 			&hash.HashValue,
 			&hash.OriginalHash,
 			&hash.Username,
+			&hash.Domain,
 			&hash.HashTypeID,
 			&hash.IsCracked,
 			&hash.Password,
@@ -657,7 +664,7 @@ func (r *HashRepository) GetCrackedHashesByClient(ctx context.Context, clientID 
 
 	// Then get the paginated results
 	query := `
-		SELECT h.id, h.hash_value, h.original_hash, h.username, h.hash_type_id, h.is_cracked, h.password, h.last_updated
+		SELECT h.id, h.hash_value, h.original_hash, h.username, h.domain, h.hash_type_id, h.is_cracked, h.password, h.last_updated
 		FROM hashes h
 		JOIN hashlist_hashes hh ON h.id = hh.hash_id
 		JOIN hashlists hl ON hh.hashlist_id = hl.id
@@ -680,6 +687,7 @@ func (r *HashRepository) GetCrackedHashesByClient(ctx context.Context, clientID 
 			&hash.HashValue,
 			&hash.OriginalHash,
 			&hash.Username,
+			&hash.Domain,
 			&hash.HashTypeID,
 			&hash.IsCracked,
 			&hash.Password,
@@ -689,7 +697,7 @@ func (r *HashRepository) GetCrackedHashesByClient(ctx context.Context, clientID 
 		}
 		hashes = append(hashes, &hash)
 	}
-	
+
 	if err = rows.Err(); err != nil {
 		return nil, 0, fmt.Errorf("error iterating cracked hash rows for client %s: %w", clientID, err)
 	}
@@ -715,7 +723,7 @@ func (r *HashRepository) GetCrackedHashesByJob(ctx context.Context, jobID uuid.U
 
 	// Then get the paginated results
 	query := `
-		SELECT h.id, h.hash_value, h.original_hash, h.username, h.hash_type_id, h.is_cracked, h.password, h.last_updated
+		SELECT h.id, h.hash_value, h.original_hash, h.username, h.domain, h.hash_type_id, h.is_cracked, h.password, h.last_updated
 		FROM hashes h
 		JOIN hashlist_hashes hh ON h.id = hh.hash_id
 		JOIN job_executions j ON j.hashlist_id = hh.hashlist_id
@@ -738,6 +746,7 @@ func (r *HashRepository) GetCrackedHashesByJob(ctx context.Context, jobID uuid.U
 			&hash.HashValue,
 			&hash.OriginalHash,
 			&hash.Username,
+			&hash.Domain,
 			&hash.HashTypeID,
 			&hash.IsCracked,
 			&hash.Password,

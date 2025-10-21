@@ -5,6 +5,35 @@ import (
 	"unicode"
 )
 
+// --- Username and Domain Extraction ---
+
+// UsernameAndDomain holds extracted username and optional domain
+type UsernameAndDomain struct {
+	Username *string
+	Domain   *string
+}
+
+// ParseDomainUsername attempts to parse domain from username
+// Supports formats: DOMAIN\username and username@domain
+func ParseDomainUsername(rawUsername string) (username string, domain *string) {
+	// Check for DOMAIN\username format
+	if idx := strings.Index(rawUsername, `\`); idx != -1 {
+		domainPart := rawUsername[:idx]
+		usernamePart := rawUsername[idx+1:]
+		return usernamePart, &domainPart
+	}
+
+	// Check for username@domain format
+	if idx := strings.Index(rawUsername, "@"); idx != -1 {
+		usernamePart := rawUsername[:idx]
+		domainPart := rawUsername[idx+1:]
+		return usernamePart, &domainPart
+	}
+
+	// No domain found
+	return rawUsername, nil
+}
+
 // --- Username Extraction ---
 
 // UsernameRule defines how to extract a username from a hash string
@@ -13,8 +42,128 @@ type UsernameRule struct {
 	UsernameIndex int // 0 for first, -1 for last relative to separator splits.
 }
 
+// --- Custom Username/Domain Extractors ---
+
+// CustomExtractor is a function that extracts username and domain from a hash
+type CustomExtractor func(rawHash string) *UsernameAndDomain
+
+// customUsernameExtractors maps hash_type_id to custom extraction functions
+var customUsernameExtractors = map[int]CustomExtractor{
+	1000:  extractNTLM,         // NTLM
+	1100:  extractDCC,           // Domain Cached Credentials
+	5500:  extractNetNTLMv1,     // NetNTLMv1
+	5600:  extractNetNTLMv2,     // NetNTLMv2
+	6800:  extractLastPass,      // LastPass
+	18200: extractKerberos,      // Kerberos AS-REP
+	27000: extractNetNTLMv1,     // NetNTLMv1 (NT) - same format as 5500
+	27100: extractNetNTLMv2,     // NetNTLMv2 (NT) - same format as 5600
+	35400: extractKerberos,      // Kerberos AS-REP (NT) - same format as 18200
+}
+
+// extractNTLM extracts username and domain from NTLM pwdump format
+// Format: [DOMAIN\]username:rid:LMHASH:NTHASH:::
+// Only extracts from pwdump format (4+ parts), not from LM:NT or bare hash
+func extractNTLM(rawHash string) *UsernameAndDomain {
+	parts := strings.Split(rawHash, ":")
+	// Only extract from pwdump format with 4+ parts
+	if len(parts) >= 4 && len(parts[3]) == 32 && isHexString(parts[3]) {
+		rawUsername := parts[0]
+		username, domain := ParseDomainUsername(rawUsername)
+		return &UsernameAndDomain{
+			Username: &username,
+			Domain:   domain,
+		}
+	}
+	return nil // LM:NT or bare hash formats have no username
+}
+
+// extractDCC extracts username from Domain Cached Credentials
+// Format: hash:username
+func extractDCC(rawHash string) *UsernameAndDomain {
+	parts := strings.Split(rawHash, ":")
+	if len(parts) >= 2 {
+		username := parts[len(parts)-1] // Last part is username
+		return &UsernameAndDomain{
+			Username: &username,
+			Domain:   nil,
+		}
+	}
+	return nil
+}
+
+// extractNetNTLMv1 extracts username and domain from NetNTLMv1
+// Format: username::domain:challenge:response
+func extractNetNTLMv1(rawHash string) *UsernameAndDomain {
+	// Find the :: separator
+	idx := strings.Index(rawHash, "::")
+	if idx == -1 {
+		return nil
+	}
+
+	username := rawHash[:idx]
+
+	// Try to extract domain (after ::)
+	remainder := rawHash[idx+2:]
+	parts := strings.Split(remainder, ":")
+	var domain *string
+	if len(parts) > 0 && parts[0] != "" {
+		domain = &parts[0]
+	}
+
+	return &UsernameAndDomain{
+		Username: &username,
+		Domain:   domain,
+	}
+}
+
+// extractNetNTLMv2 extracts username and domain from NetNTLMv2
+// Format: username::domain:challenge:response
+// Same format as NetNTLMv1
+func extractNetNTLMv2(rawHash string) *UsernameAndDomain {
+	return extractNetNTLMv1(rawHash) // Same format
+}
+
+// extractKerberos extracts username and domain from Kerberos AS-REP
+// Format: $krb5asrep$23$user@domain.com:...
+func extractKerberos(rawHash string) *UsernameAndDomain {
+	// Skip past the format prefix
+	parts := strings.Split(rawHash, "$")
+	if len(parts) < 4 {
+		return nil
+	}
+
+	// The username@domain should be in parts[3], before the colon
+	userDomainPart := parts[3]
+	colonIdx := strings.Index(userDomainPart, ":")
+	if colonIdx != -1 {
+		userDomainPart = userDomainPart[:colonIdx]
+	}
+
+	// Parse username@domain
+	username, domain := ParseDomainUsername(userDomainPart)
+	return &UsernameAndDomain{
+		Username: &username,
+		Domain:   domain,
+	}
+}
+
+// extractLastPass extracts username (email) from LastPass
+// Format: hash:iterations:email
+func extractLastPass(rawHash string) *UsernameAndDomain {
+	parts := strings.Split(rawHash, ":")
+	if len(parts) >= 3 {
+		email := parts[2] // Email is third field
+		return &UsernameAndDomain{
+			Username: &email,
+			Domain:   nil,
+		}
+	}
+	return nil
+}
+
 // usernameExtractionRules maps hash_type_id to a specific extraction rule.
 // Add more rules here as specific hash types are analyzed.
+// NOTE: Custom extractors (above) take precedence over these simple rules
 var usernameExtractionRules = map[int]UsernameRule{
 	// Rules based on known formats (username often last after ':')
 	12:   {Separator: ":", UsernameIndex: -1}, // PostgreSQL
@@ -22,10 +171,6 @@ var usernameExtractionRules = map[int]UsernameRule{
 	23:   {Separator: ":", UsernameIndex: -1}, // Skype
 	4711: {Separator: ":", UsernameIndex: -1}, // Huawei sha1(md5($pass).$salt)
 	// Add more rules as needed...
-	// 21: {Separator: ":", UsernameIndex: -1}, // osCommerce - Verify format if username is expected
-
-	// Example for NTLM where user might be first (user:rid:lm:nt)
-	1000: {Separator: ":", UsernameIndex: 0},
 }
 
 // isValidUsernameCandidate performs basic checks on a potential username found by heuristic.
@@ -56,11 +201,23 @@ func isValidUsernameCandidate(candidate string) bool {
 	return true
 }
 
-// ExtractUsername attempts to extract a username based on defined rules
-// or a heuristic focusing on the start of the hash.
+// ExtractUsernameAndDomain attempts to extract username and domain based on custom extractors,
+// defined rules, or a heuristic focusing on the start of the hash.
 // Returns nil if no username is confidently found.
-func ExtractUsername(rawHash string, hashTypeID int) *string {
-	// 1. Check for specific rules first
+func ExtractUsernameAndDomain(rawHash string, hashTypeID int) *UsernameAndDomain {
+	// 1. Check for custom extractors first (highest priority)
+	if extractor, exists := customUsernameExtractors[hashTypeID]; exists {
+		result := extractor(rawHash)
+		// If extractor found username, parse domain from it if not already extracted
+		if result != nil && result.Username != nil && result.Domain == nil {
+			username, domain := ParseDomainUsername(*result.Username)
+			result.Username = &username
+			result.Domain = domain
+		}
+		return result
+	}
+
+	// 2. Check for specific rules
 	rule, exists := usernameExtractionRules[hashTypeID]
 	if exists {
 		parts := strings.Split(rawHash, rule.Separator)
@@ -77,46 +234,47 @@ func ExtractUsername(rawHash string, hashTypeID int) *string {
 			isValidIndex = true
 		}
 
-		// If rule existed and we extracted based on index, return it (even if empty for now)
-		// We might add validation here later if needed for rule-based extractions.
+		// If rule existed and we extracted based on index, return it
 		if isValidIndex {
-			// Return the extracted part. If it's empty, it's still the result of the rule.
-			return &username
+			// Parse domain from username if present
+			finalUsername, domain := ParseDomainUsername(username)
+			return &UsernameAndDomain{
+				Username: &finalUsername,
+				Domain:   domain,
+			}
 		}
 		// If rule existed but index was out of bounds, don't proceed to heuristic.
-		return nil // Rule was defined but didn't apply cleanly to this input format.
+		return nil
+	}
 
-	} else {
-		// 2. Apply Heuristic: Check start of string if no rule exists
-		firstColon := strings.Index(rawHash, ":")
-		firstDollar := strings.Index(rawHash, "$") // Common in formats like $type$salt$hash
+	// 3. Apply Heuristic: Check start of string if no rule exists
+	// NOTE: Only use colon as separator to preserve machine account $ suffix
+	firstColon := strings.Index(rawHash, ":")
 
-		sepIndex := -1
-
-		// Find the earliest separator index
-		if firstColon != -1 && firstDollar != -1 {
-			if firstColon < firstDollar {
-				sepIndex = firstColon
-			} else {
-				sepIndex = firstDollar
-			}
-		} else if firstColon != -1 {
-			sepIndex = firstColon
-		} else if firstDollar != -1 {
-			sepIndex = firstDollar
-		}
-
-		// If a separator exists and is not the very first character
-		if sepIndex > 0 {
-			potentialUsername := rawHash[0:sepIndex]
-			if isValidUsernameCandidate(potentialUsername) {
-				// Log potentially? logging.Debugf("Heuristically extracted username '%s' from hash type %d", potentialUsername, hashTypeID)
-				return &potentialUsername
+	// If a colon exists and is not the very first character
+	if firstColon > 0 {
+		potentialUsername := rawHash[0:firstColon]
+		if isValidUsernameCandidate(potentialUsername) {
+			// Parse domain from username if present
+			finalUsername, domain := ParseDomainUsername(potentialUsername)
+			return &UsernameAndDomain{
+				Username: &finalUsername,
+				Domain:   domain,
 			}
 		}
 	}
 
-	// 3. No username found by rule or heuristic
+	// 4. No username found by any method
+	return nil
+}
+
+// ExtractUsername is a convenience wrapper that returns just the username
+// Kept for backward compatibility with existing code
+func ExtractUsername(rawHash string, hashTypeID int) *string {
+	result := ExtractUsernameAndDomain(rawHash, hashTypeID)
+	if result != nil {
+		return result.Username
+	}
 	return nil
 }
 
