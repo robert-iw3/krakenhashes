@@ -589,6 +589,66 @@ func (r *AnalyticsRepository) GetHashTypesByIDs(ctx context.Context, hashTypeIDs
 	return hashTypes, nil
 }
 
+// List retrieves all analytics reports with pagination support
+func (r *AnalyticsRepository) List(ctx context.Context, limit, offset int) ([]*models.AnalyticsReport, int, error) {
+	// Get total count
+	var total int
+	countQuery := `SELECT COUNT(*) FROM analytics_reports`
+	err := r.db.QueryRowContext(ctx, countQuery).Scan(&total)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to count analytics reports: %w", err)
+	}
+
+	// Get paginated results
+	query := `
+		SELECT id, client_id, user_id, start_date, end_date, status,
+			analytics_data, total_hashlists, total_hashes, total_cracked,
+			queue_position, custom_patterns, created_at, started_at, completed_at, error_message
+		FROM analytics_reports
+		ORDER BY created_at DESC
+		LIMIT $1 OFFSET $2
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, limit, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to query analytics reports: %w", err)
+	}
+	defer rows.Close()
+
+	var reports []*models.AnalyticsReport
+	for rows.Next() {
+		var report models.AnalyticsReport
+		err := rows.Scan(
+			&report.ID,
+			&report.ClientID,
+			&report.UserID,
+			&report.StartDate,
+			&report.EndDate,
+			&report.Status,
+			&report.AnalyticsData,
+			&report.TotalHashlists,
+			&report.TotalHashes,
+			&report.TotalCracked,
+			&report.QueuePosition,
+			&report.CustomPatterns,
+			&report.CreatedAt,
+			&report.StartedAt,
+			&report.CompletedAt,
+			&report.ErrorMessage,
+		)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to scan analytics report row: %w", err)
+		}
+		reports = append(reports, &report)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("error iterating analytics report rows: %w", err)
+	}
+
+	return reports, total, nil
+}
+
 // UpdateSummaryFields updates the summary fields in the analytics report
 func (r *AnalyticsRepository) UpdateSummaryFields(ctx context.Context, reportID uuid.UUID, totalHashlists, totalHashes, totalCracked int) error {
 	query := `

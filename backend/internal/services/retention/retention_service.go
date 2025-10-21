@@ -15,23 +15,25 @@ import (
 	"github.com/google/uuid"
 )
 
-// RetentionService handles the automatic purging of old hashlists based on retention policies.
+// RetentionService handles the automatic purging of old hashlists and analytics reports based on retention policies.
 type RetentionService struct {
 	db                 *db.DB // Needed for transactions
 	hashlistRepo       *repository.HashListRepository
 	hashRepo           *repository.HashRepository
 	clientRepo         *repository.ClientRepository
 	clientSettingsRepo *repository.ClientSettingsRepository
+	analyticsRepo      *repository.AnalyticsRepository
 }
 
 // NewRetentionService creates a new RetentionService.
-func NewRetentionService(database *db.DB, hr *repository.HashListRepository, hshr *repository.HashRepository, cr *repository.ClientRepository, sr *repository.ClientSettingsRepository) *RetentionService {
+func NewRetentionService(database *db.DB, hr *repository.HashListRepository, hshr *repository.HashRepository, cr *repository.ClientRepository, sr *repository.ClientSettingsRepository, ar *repository.AnalyticsRepository) *RetentionService {
 	return &RetentionService{
 		db:                 database,
 		hashlistRepo:       hr,
 		hashRepo:           hshr,
 		clientRepo:         cr,
 		clientSettingsRepo: sr,
+		analyticsRepo:      ar,
 	}
 }
 
@@ -146,6 +148,116 @@ func (s *RetentionService) PurgeOldHashlists(ctx context.Context) error {
 	}
 
 	debug.Info("Data retention purge completed. Processed: %d, Deleted: %d", processedCount, deletedCount)
+	return nil
+}
+
+// PurgeOldAnalyticsReports finds and deletes analytics reports that have exceeded their retention period.
+func (s *RetentionService) PurgeOldAnalyticsReports(ctx context.Context) error {
+	debug.Info("Starting analytics report retention purge process...")
+
+	// 1. Get default retention policy
+	defaultRetentionSetting, err := s.clientSettingsRepo.GetSetting(ctx, "default_data_retention_months")
+	if err != nil || defaultRetentionSetting.Value == nil {
+		debug.Error("Failed to get default client retention setting during analytics purge: %v", err)
+		return fmt.Errorf("analytics purge failed: could not retrieve default client retention setting")
+	}
+	defaultRetentionMonths, err := strconv.Atoi(*defaultRetentionSetting.Value)
+	if err != nil {
+		debug.Error("Invalid default client retention setting value '%s': %v", *defaultRetentionSetting.Value, err)
+		return fmt.Errorf("analytics purge failed: invalid default client retention setting value")
+	}
+	debug.Debug("Analytics Purge: Default retention is %d months.", defaultRetentionMonths)
+
+	// 2. Get all clients to check their specific policies
+	clients, err := s.clientRepo.List(ctx)
+	if err != nil {
+		debug.Error("Failed to list clients during analytics purge: %v", err)
+		return fmt.Errorf("analytics purge failed: could not list clients")
+	}
+	clientRetentionMap := make(map[string]int)
+	for _, client := range clients {
+		if client.DataRetentionMonths != nil {
+			clientRetentionMap[client.ID.String()] = *client.DataRetentionMonths
+		} // Clients with NULL will use the default later
+	}
+
+	// 3. Find and process analytics reports eligible for purging
+	limit := 1000 // Process in batches
+	offset := 0
+	processedCount := 0
+	deletedCount := 0
+
+	for {
+		reports, total, err := s.analyticsRepo.List(ctx, limit, offset)
+		if err != nil {
+			debug.Error("Failed to list analytics reports batch (offset %d) during purge: %v", offset, err)
+			return fmt.Errorf("analytics purge failed: could not list analytics reports batch")
+		}
+		if len(reports) == 0 {
+			debug.Debug("Analytics Purge: No more reports found.")
+			break // Exit loop when no more reports are found
+		}
+		offset += len(reports)
+
+		for _, report := range reports {
+			processedCount++
+			retentionMonths := defaultRetentionMonths
+			clientIsSet := report.ClientID != uuid.Nil
+			if clientIsSet {
+				if specificRetention, ok := clientRetentionMap[report.ClientID.String()]; ok {
+					retentionMonths = specificRetention
+				}
+			}
+
+			// Skip if retention is set to 0 (keep forever)
+			if retentionMonths == 0 {
+				debug.Debug("Analytics Purge: Skipping report %s (Client: %s) - Retention is 0 (Keep Forever)", report.ID, report.ClientID)
+				continue
+			}
+
+			// Calculate expiration date
+			retentionDuration := time.Duration(retentionMonths) * 30 * 24 * time.Hour // Approx. months
+			expirationDate := report.CreatedAt.Add(retentionDuration)
+
+			// Check if expired
+			if time.Now().After(expirationDate) {
+				debug.Info("Analytics Purge: Report %s (Created: %s, Client: %s, Retention: %d months) has expired (Expiry: %s). Deleting...", report.ID, report.CreatedAt, report.ClientID, retentionMonths, expirationDate)
+				err := s.analyticsRepo.Delete(ctx, report.ID)
+				if err != nil {
+					debug.Error("Analytics Purge: Failed to delete expired report %s: %v", report.ID, err)
+					// Continue processing other reports even if one fails
+					continue
+				}
+				deletedCount++
+			} else {
+				debug.Debug("Analytics Purge: Report %s (Client: %s) has not expired yet (Expiry: %s)", report.ID, report.ClientID, expirationDate)
+			}
+		}
+
+		// Safety break if List doesn't behave as expected or total is weird
+		if offset >= total && total > 0 {
+			break
+		}
+	}
+
+	// 4. Run VACUUM on affected tables if any reports were deleted
+	if deletedCount > 0 {
+		debug.Info("Running VACUUM after deleting %d analytics reports...", deletedCount)
+		if err := s.VacuumTables(ctx); err != nil {
+			debug.Error("Analytics Purge: Failed to run VACUUM after deletion: %v", err)
+			// Continue - VACUUM failure shouldn't fail the whole operation
+		}
+	}
+
+	// 5. Update last purge run timestamp
+	nowStr := time.Now().Format(time.RFC3339Nano)
+	err = s.clientSettingsRepo.SetSetting(ctx, "last_purge_run", &nowStr)
+	if err != nil {
+		debug.Error("Analytics Purge: Failed to update last_purge_run timestamp: %v", err)
+		// Log error but don't fail the whole operation
+	}
+
+	debug.Info("Analytics report retention purge completed. Processed: %d, Deleted: %d", processedCount, deletedCount)
 	return nil
 }
 
@@ -298,7 +410,7 @@ func (s *RetentionService) VacuumTables(ctx context.Context) error {
 	debug.Info("Running VACUUM on retention-affected tables...")
 
 	// List of tables to vacuum
-	tables := []string{"hashlists", "hashlist_hashes", "hashes", "agent_hashlists", "job_executions"}
+	tables := []string{"hashlists", "hashlist_hashes", "hashes", "agent_hashlists", "job_executions", "analytics_reports"}
 
 	for _, table := range tables {
 		// VACUUM cannot run inside a transaction, so we execute directly

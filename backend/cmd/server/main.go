@@ -182,7 +182,8 @@ func main() {
 	// Initialize services with dependencies
 	agentService := services.NewAgentService(agentRepo, repository.NewClaimVoucherRepository(dbWrapper), repository.NewFileRepository(dbWrapper, appConfig.DataDir), deviceRepo, jobTaskRepo, jobExecutionRepo)
 
-	retentionService := retentionsvc.NewRetentionService(dbWrapper, hashlistRepo, hashRepo, clientRepo, clientSettingsRepo)
+	analyticsRepo := repository.NewAnalyticsRepository(dbWrapper)
+	retentionService := retentionsvc.NewRetentionService(dbWrapper, hashlistRepo, hashRepo, clientRepo, clientSettingsRepo, analyticsRepo)
 
 	// Initialize wordlist and rule managers for monitoring
 	wordlistStore := wordlist.NewStore(sqlDB)
@@ -305,7 +306,10 @@ func main() {
 	_, err = cr.AddFunc("@daily", func() { // Run once a day at midnight
 		debug.Info("Running scheduled data retention purge...")
 		if err := retentionService.PurgeOldHashlists(context.Background()); err != nil {
-			debug.Error("Scheduled data retention purge failed: %v", err)
+			debug.Error("Scheduled hashlist retention purge failed: %v", err)
+		}
+		if err := retentionService.PurgeOldAnalyticsReports(context.Background()); err != nil {
+			debug.Error("Scheduled analytics report retention purge failed: %v", err)
 		}
 	})
 	if err != nil {
@@ -320,7 +324,10 @@ func main() {
 		debug.Info("Running initial data retention purge on startup...")
 		time.Sleep(15 * time.Second) // Small delay after startup
 		if err := retentionService.PurgeOldHashlists(context.Background()); err != nil {
-			debug.Error("Initial data retention purge failed: %v", err)
+			debug.Error("Initial hashlist retention purge failed: %v", err)
+		}
+		if err := retentionService.PurgeOldAnalyticsReports(context.Background()); err != nil {
+			debug.Error("Initial analytics report retention purge failed: %v", err)
 		}
 	}()
 
@@ -357,7 +364,6 @@ func main() {
 
 	// Initialize analytics queue service
 	debug.Info("Initializing analytics queue service...")
-	analyticsRepo := repository.NewAnalyticsRepository(dbWrapper)
 	analyticsService := services.NewAnalyticsService(analyticsRepo)
 	analyticsQueueService := services.NewAnalyticsQueueService(analyticsService, analyticsRepo)
 

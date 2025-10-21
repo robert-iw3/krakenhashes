@@ -129,7 +129,8 @@ func registerHashlistRoutes(r *mux.Router, sqlDB *sql.DB, cfg *config.Config, ag
 	// Create the admin client handler with full functionality (including cracked counts)
 	clientRepoForHandler := repository.NewClientRepository(database)
 	clientSettingsRepoForHandler := repository.NewClientSettingsRepository(database)
-	retentionService := retentionsvc.NewRetentionService(database, hashlistRepo, hashRepo, clientRepoForHandler, clientSettingsRepoForHandler)
+	analyticsRepoForHandler := repository.NewAnalyticsRepository(database)
+	retentionService := retentionsvc.NewRetentionService(database, hashlistRepo, hashRepo, clientRepoForHandler, clientSettingsRepoForHandler, analyticsRepoForHandler)
 	clientService := clientsvc.NewClientService(clientRepoForHandler, hashlistRepo, clientSettingsRepoForHandler, retentionService)
 	clientHandler := adminclient.NewClientHandler(clientRepoForHandler, clientService)
 
