@@ -35,10 +35,11 @@ import {
   Alert,
   Link,
 } from '@mui/material';
-import { 
+import {
   Delete as DeleteIcon,
   CheckCircle as CheckCircleIcon,
-  Cancel as CancelIcon 
+  Cancel as CancelIcon,
+  Clear as ClearIcon
 } from '@mui/icons-material';
 import { Agent, ClaimVoucher, AgentDevice } from '../types/agent';
 import { api } from '../services/api';
@@ -67,6 +68,9 @@ export default function AgentManagement() {
   const [claimCode, setClaimCode] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [clearBusyDialogOpen, setClearBusyDialogOpen] = useState(false);
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   // Fetch data
   const fetchData = async () => {
@@ -158,6 +162,32 @@ export default function AgentManagement() {
     }
   };
 
+  // Handle clear busy status
+  const handleClearBusyStatus = async () => {
+    if (!selectedAgentId) return;
+
+    try {
+      setError(null);
+      setSuccessMessage(null);
+      await api.post(`/api/agents/${selectedAgentId}/clear-busy-status`);
+      setSuccessMessage('Agent busy status cleared successfully');
+      setClearBusyDialogOpen(false);
+      setSelectedAgentId(null);
+      await fetchData();
+    } catch (error) {
+      console.error('Failed to clear busy status:', error);
+      setError('Failed to clear busy status. Please try again.');
+      setClearBusyDialogOpen(false);
+    }
+  };
+
+  // Check if agent is stuck (busy but no active tasks)
+  const isAgentStuck = (agent: Agent): boolean => {
+    const busyStatus = agent.metadata?.busy_status;
+    const currentTaskId = agent.metadata?.current_task_id;
+    return busyStatus === 'true' && !currentTaskId;
+  };
+
   if (loading) {
     return (
       <Box sx={{ p: 3, display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
@@ -187,8 +217,14 @@ export default function AgentManagement() {
         </Box>
 
         {error && (
-          <Alert severity="error" sx={{ mb: 2 }}>
+          <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
             {error}
+          </Alert>
+        )}
+
+        {successMessage && (
+          <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccessMessage(null)}>
+            {successMessage}
           </Alert>
         )}
 
@@ -322,6 +358,19 @@ export default function AgentManagement() {
                       />
                     </TableCell>
                     <TableCell>
+                      {isAgentStuck(agent) && (
+                        <IconButton
+                          onClick={() => {
+                            setSelectedAgentId(agent.id);
+                            setClearBusyDialogOpen(true);
+                          }}
+                          color="warning"
+                          title="Clear stuck busy status"
+                          sx={{ mr: 1 }}
+                        >
+                          <ClearIcon />
+                        </IconButton>
+                      )}
                       <IconButton
                         onClick={() => handleRemoveAgent(agent.id)}
                         color="error"
@@ -337,9 +386,46 @@ export default function AgentManagement() {
           </Table>
         </TableContainer>
 
+        {/* Clear Busy Status Confirmation Dialog */}
+        <Dialog
+          open={clearBusyDialogOpen}
+          onClose={() => {
+            setClearBusyDialogOpen(false);
+            setSelectedAgentId(null);
+          }}
+        >
+          <DialogTitle>Clear Agent Busy Status</DialogTitle>
+          <DialogContent>
+            <Typography>
+              This will clear the stuck busy status for this agent, allowing it to receive new tasks.
+              Only use this if the agent is truly idle and not running any jobs.
+            </Typography>
+            <Typography sx={{ mt: 2, fontWeight: 'bold', color: 'warning.main' }}>
+              Are you sure you want to proceed?
+            </Typography>
+          </DialogContent>
+          <DialogActions>
+            <Button
+              onClick={() => {
+                setClearBusyDialogOpen(false);
+                setSelectedAgentId(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleClearBusyStatus}
+              variant="contained"
+              color="warning"
+            >
+              Clear Status
+            </Button>
+          </DialogActions>
+        </Dialog>
+
         {/* Registration Dialog */}
-        <Dialog 
-          open={openDialog} 
+        <Dialog
+          open={openDialog}
           onClose={() => {
             setOpenDialog(false);
             setClaimCode('');

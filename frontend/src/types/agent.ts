@@ -40,6 +40,12 @@ export interface Agent {
     isEnabled?: boolean;
     ownerId?: string;
     extraParameters?: string;
+    metadata?: {
+        busy_status?: string;
+        current_task_id?: string;
+        current_job_id?: string;
+        [key: string]: any;
+    };
 }
 
 /**
