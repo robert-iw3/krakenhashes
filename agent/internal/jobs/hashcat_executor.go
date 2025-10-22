@@ -930,17 +930,24 @@ func (e *HashcatExecutor) runHashcatProcess(ctx context.Context, process *Hashca
 					// Use the last progress percentage if available, otherwise 100%
 					progressPercent := 100.0
 					var effectiveProgress int64
+					var totalEffectiveKeyspace *int64
 					if process.LastProgress != nil {
 						if process.LastProgress.ProgressPercent > 0 {
 							progressPercent = process.LastProgress.ProgressPercent
 						}
 						effectiveProgress = process.LastProgress.EffectiveProgress
+						// Include the total effective keyspace from last hashcat status
+						// This ensures the backend can adjust dispatched_keyspace even if this is the first/only message
+						if process.LastProgress.TotalEffectiveKeyspace != nil {
+							totalEffectiveKeyspace = process.LastProgress.TotalEffectiveKeyspace
+						}
 					}
 					finalProgress := &JobProgress{
-						TaskID:            process.TaskID,
-						KeyspaceProcessed: process.Assignment.KeyspaceEnd - process.Assignment.KeyspaceStart,
-						EffectiveProgress: effectiveProgress,
-						ProgressPercent:   progressPercent,
+						TaskID:                 process.TaskID,
+						KeyspaceProcessed:      process.Assignment.KeyspaceEnd - process.Assignment.KeyspaceStart,
+						EffectiveProgress:      effectiveProgress,
+						ProgressPercent:        progressPercent,
+						TotalEffectiveKeyspace: totalEffectiveKeyspace, // Always include for backend adjustment
 					}
 					e.sendProgressUpdate(process, finalProgress, "completed")
 					
@@ -949,14 +956,21 @@ func (e *HashcatExecutor) runHashcatProcess(ctx context.Context, process *Hashca
 					debug.Info("Hashcat exhausted keyspace for task %s", process.TaskID)
 					// Exhausted means 100% complete
 					var effectiveProgress int64
+					var totalEffectiveKeyspace *int64
 					if process.LastProgress != nil {
 						effectiveProgress = process.LastProgress.EffectiveProgress
+						// Include the total effective keyspace from last hashcat status
+						// This ensures the backend can adjust dispatched_keyspace even if this is the first/only message
+						if process.LastProgress.TotalEffectiveKeyspace != nil {
+							totalEffectiveKeyspace = process.LastProgress.TotalEffectiveKeyspace
+						}
 					}
 					finalProgress := &JobProgress{
-						TaskID:            process.TaskID,
-						KeyspaceProcessed: process.Assignment.KeyspaceEnd - process.Assignment.KeyspaceStart,
-						EffectiveProgress: effectiveProgress,
-						ProgressPercent:   100.0, // Keyspace exhausted = 100% complete
+						TaskID:                 process.TaskID,
+						KeyspaceProcessed:      process.Assignment.KeyspaceEnd - process.Assignment.KeyspaceStart,
+						EffectiveProgress:      effectiveProgress,
+						ProgressPercent:        100.0, // Keyspace exhausted = 100% complete
+						TotalEffectiveKeyspace: totalEffectiveKeyspace, // Always include for backend adjustment
 					}
 					e.sendProgressUpdate(process, finalProgress, "completed")
 
