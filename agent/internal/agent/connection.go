@@ -643,7 +643,7 @@ func NewConnection(urlConfig *config.URLConfig) (*Connection, error) {
 	conn := &Connection{
 		urlConfig:  urlConfig,
 		hwMonitor:  hwMonitor,
-		outbound:   make(chan *WSMessage, 256),
+		outbound:   make(chan *WSMessage, 4096),
 		done:       make(chan struct{}),
 		tlsConfig:  tlsConfig,
 		syncStatus: "pending",
@@ -1952,7 +1952,7 @@ func (c *Connection) reinitializeChannels() {
 		if !ok {
 			// Channel is closed, create new one
 			debug.Info("Outbound channel was closed, creating new channel")
-			c.outbound = make(chan *WSMessage, 256)
+			c.outbound = make(chan *WSMessage, 4096)
 			// Reset channel closed flag for the new channel
 			c.channelClosed.Store(false)
 		}
@@ -1995,13 +1995,31 @@ func (c *Connection) safeSendMessage(msg *WSMessage, timeoutMs int) (sent bool) 
 			return false
 		}
 	}
-	
+
+	// Monitor channel fullness
+	channelLen := len(c.outbound)
+	channelCap := cap(c.outbound)
+	if channelCap > 0 {
+		fullnessPercent := float64(channelLen) / float64(channelCap) * 100
+		if fullnessPercent >= 90 {
+			debug.Error("Outbound channel critically full: %d/%d (%.1f%%) - message type: %s",
+				channelLen, channelCap, fullnessPercent, msg.Type)
+		} else if fullnessPercent >= 75 {
+			debug.Warning("Outbound channel high: %d/%d (%.1f%%) - message type: %s",
+				channelLen, channelCap, fullnessPercent, msg.Type)
+		}
+	}
+
 	// Non-blocking send
 	select {
 	case c.outbound <- msg:
 		return true
 	default:
-		debug.Warning("Outbound channel full, dropping message of type %s", msg.Type)
+		channelLen := len(c.outbound)
+		channelCap := cap(c.outbound)
+		fullnessPercent := float64(channelLen) / float64(channelCap) * 100
+		debug.Warning("Outbound channel full (%d/%d, %.1f%%), dropping message of type %s",
+			channelLen, channelCap, fullnessPercent, msg.Type)
 		return false
 	}
 }
