@@ -570,8 +570,56 @@ export default function CreateJobDialog({
                     </FormControl>
                   </Grid>
 
-                  {/* Wordlists - for attack modes 0, 1, 6, 7 */}
-                  {[0, 1, 6, 7].includes(customJob.attack_mode) && (
+                  {/* Attack mode 0 (Dictionary): Wordlists → Rules */}
+                  {customJob.attack_mode === 0 && (
+                    <>
+                      <Grid item xs={12}>
+                        <Autocomplete
+                          multiple
+                          options={formData?.wordlists || []}
+                          getOptionLabel={(option) => `${option.name} (${(option.file_size / 1024 / 1024).toFixed(2)} MB)`}
+                          value={formData?.wordlists?.filter(w => customJob.wordlist_ids.includes(String(w.id))) || []}
+                          onChange={(e, newValue) => {
+                            setCustomJob(prev => ({
+                              ...prev,
+                              wordlist_ids: newValue.map(w => String(w.id))
+                            }));
+                          }}
+                          renderInput={(params) => (
+                            <TextField
+                              {...params}
+                              label="Wordlists"
+                              placeholder="Select wordlists"
+                            />
+                          )}
+                        />
+                      </Grid>
+                      <Grid item xs={12}>
+                        <Autocomplete
+                          multiple
+                          options={formData?.rules || []}
+                          getOptionLabel={(option) => `${option.name} (${option.rule_count} rules)`}
+                          value={formData?.rules?.filter(r => customJob.rule_ids.includes(String(r.id))) || []}
+                          onChange={(e, newValue) => {
+                            setCustomJob(prev => ({
+                              ...prev,
+                              rule_ids: newValue.map(r => String(r.id))
+                            }));
+                          }}
+                          renderInput={(params) => (
+                            <TextField
+                              {...params}
+                              label="Rules (Optional)"
+                              placeholder="Select rules"
+                            />
+                          )}
+                        />
+                      </Grid>
+                    </>
+                  )}
+
+                  {/* Attack mode 1 (Combination): Wordlists only */}
+                  {customJob.attack_mode === 1 && (
                     <Grid item xs={12}>
                       <Autocomplete
                         multiple
@@ -579,9 +627,9 @@ export default function CreateJobDialog({
                         getOptionLabel={(option) => `${option.name} (${(option.file_size / 1024 / 1024).toFixed(2)} MB)`}
                         value={formData?.wordlists?.filter(w => customJob.wordlist_ids.includes(String(w.id))) || []}
                         onChange={(e, newValue) => {
-                          setCustomJob(prev => ({ 
-                            ...prev, 
-                            wordlist_ids: newValue.map(w => String(w.id)) 
+                          setCustomJob(prev => ({
+                            ...prev,
+                            wordlist_ids: newValue.map(w => String(w.id))
                           }));
                         }}
                         renderInput={(params) => (
@@ -595,33 +643,8 @@ export default function CreateJobDialog({
                     </Grid>
                   )}
 
-                  {/* Rules - for attack mode 0 */}
-                  {customJob.attack_mode === 0 && (
-                    <Grid item xs={12}>
-                      <Autocomplete
-                        multiple
-                        options={formData?.rules || []}
-                        getOptionLabel={(option) => `${option.name} (${option.rule_count} rules)`}
-                        value={formData?.rules?.filter(r => customJob.rule_ids.includes(String(r.id))) || []}
-                        onChange={(e, newValue) => {
-                          setCustomJob(prev => ({ 
-                            ...prev, 
-                            rule_ids: newValue.map(r => String(r.id)) 
-                          }));
-                        }}
-                        renderInput={(params) => (
-                          <TextField
-                            {...params}
-                            label="Rules (Optional)"
-                            placeholder="Select rules"
-                          />
-                        )}
-                      />
-                    </Grid>
-                  )}
-
-                  {/* Mask - for attack modes 3, 6, 7 */}
-                  {[3, 6, 7].includes(customJob.attack_mode) && (
+                  {/* Attack mode 3 (Brute Force): Mask only */}
+                  {customJob.attack_mode === 3 && (
                     <Grid item xs={12}>
                       <TextField
                         fullWidth
@@ -633,6 +656,82 @@ export default function CreateJobDialog({
                         required
                       />
                     </Grid>
+                  )}
+
+                  {/* Attack mode 6 (Hybrid Wordlist + Mask): Wordlists → Mask */}
+                  {customJob.attack_mode === 6 && (
+                    <>
+                      <Grid item xs={12}>
+                        <Autocomplete
+                          multiple
+                          options={formData?.wordlists || []}
+                          getOptionLabel={(option) => `${option.name} (${(option.file_size / 1024 / 1024).toFixed(2)} MB)`}
+                          value={formData?.wordlists?.filter(w => customJob.wordlist_ids.includes(String(w.id))) || []}
+                          onChange={(e, newValue) => {
+                            setCustomJob(prev => ({
+                              ...prev,
+                              wordlist_ids: newValue.map(w => String(w.id))
+                            }));
+                          }}
+                          renderInput={(params) => (
+                            <TextField
+                              {...params}
+                              label="Wordlists"
+                              placeholder="Select wordlists"
+                            />
+                          )}
+                        />
+                      </Grid>
+                      <Grid item xs={12}>
+                        <TextField
+                          fullWidth
+                          label="Mask"
+                          value={customJob.mask}
+                          onChange={(e) => setCustomJob(prev => ({ ...prev, mask: e.target.value }))}
+                          placeholder="e.g., ?u?l?l?l?l?d?d"
+                          helperText="?l = lowercase, ?u = uppercase, ?d = digit, ?s = special"
+                          required
+                        />
+                      </Grid>
+                    </>
+                  )}
+
+                  {/* Attack mode 7 (Hybrid Mask + Wordlist): Mask → Wordlists */}
+                  {customJob.attack_mode === 7 && (
+                    <>
+                      <Grid item xs={12}>
+                        <TextField
+                          fullWidth
+                          label="Mask"
+                          value={customJob.mask}
+                          onChange={(e) => setCustomJob(prev => ({ ...prev, mask: e.target.value }))}
+                          placeholder="e.g., ?u?l?l?l?l?d?d"
+                          helperText="?l = lowercase, ?u = uppercase, ?d = digit, ?s = special"
+                          required
+                        />
+                      </Grid>
+                      <Grid item xs={12}>
+                        <Autocomplete
+                          multiple
+                          options={formData?.wordlists || []}
+                          getOptionLabel={(option) => `${option.name} (${(option.file_size / 1024 / 1024).toFixed(2)} MB)`}
+                          value={formData?.wordlists?.filter(w => customJob.wordlist_ids.includes(String(w.id))) || []}
+                          onChange={(e, newValue) => {
+                            setCustomJob(prev => ({
+                              ...prev,
+                              wordlist_ids: newValue.map(w => String(w.id))
+                            }));
+                          }}
+                          renderInput={(params) => (
+                            <TextField
+                              {...params}
+                              label="Wordlists"
+                              placeholder="Select wordlists"
+                            />
+                          )}
+                        />
+                      </Grid>
+                    </>
                   )}
 
                   <Grid item xs={12} sm={6}>
