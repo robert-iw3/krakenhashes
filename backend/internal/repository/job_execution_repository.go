@@ -673,6 +673,31 @@ func (r *JobExecutionRepository) IncrementDispatchedKeyspace(ctx context.Context
 	return nil
 }
 
+// DecrementDispatchedKeyspace atomically decrements the dispatched keyspace by the given amount
+func (r *JobExecutionRepository) DecrementDispatchedKeyspace(ctx context.Context, id uuid.UUID, decrement int64) error {
+	query := `
+		UPDATE job_executions
+		SET dispatched_keyspace = GREATEST(dispatched_keyspace - $1, 0),
+		    updated_at = CURRENT_TIMESTAMP
+		WHERE id = $2`
+
+	result, err := r.db.ExecContext(ctx, query, decrement, id)
+	if err != nil {
+		return fmt.Errorf("failed to decrement job execution dispatched keyspace: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return ErrNotFound
+	}
+
+	return nil
+}
+
 // GetJobsWithPendingWork returns jobs that have work available and are not at max agent capacity
 func (r *JobExecutionRepository) GetJobsWithPendingWork(ctx context.Context) ([]models.JobExecutionWithWork, error) {
 	query := `

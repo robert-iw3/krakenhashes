@@ -715,12 +715,14 @@ func (r *JobTaskRepository) UpdateTaskStatus(ctx context.Context, id uuid.UUID, 
 
 // ResetTaskForRetry resets a task for retry by incrementing retry count and resetting status
 func (r *JobTaskRepository) ResetTaskForRetry(ctx context.Context, id uuid.UUID) error {
-	// First, get the current keyspace_processed value
+	// First, get the current task details including keyspace range
 	var jobExecutionID uuid.UUID
 	var keyspaceProcessed int64
-	err := r.db.QueryRowContext(ctx, 
-		"SELECT job_execution_id, keyspace_processed FROM job_tasks WHERE id = $1", 
-		id).Scan(&jobExecutionID, &keyspaceProcessed)
+	var keyspaceStart int64
+	var keyspaceEnd int64
+	err := r.db.QueryRowContext(ctx,
+		"SELECT job_execution_id, keyspace_processed, keyspace_start, keyspace_end FROM job_tasks WHERE id = $1",
+		id).Scan(&jobExecutionID, &keyspaceProcessed, &keyspaceStart, &keyspaceEnd)
 	if err != nil {
 		return fmt.Errorf("failed to get task details: %w", err)
 	}
@@ -757,7 +759,7 @@ func (r *JobTaskRepository) ResetTaskForRetry(ctx context.Context, id uuid.UUID)
 	// Subtract the processed keyspace from the job execution
 	if keyspaceProcessed > 0 {
 		updateJobQuery := `
-			UPDATE job_executions 
+			UPDATE job_executions
 			SET processed_keyspace = processed_keyspace - $1,
 			    updated_at = CURRENT_TIMESTAMP
 			WHERE id = $2 AND processed_keyspace >= $1`
@@ -766,7 +768,22 @@ func (r *JobTaskRepository) ResetTaskForRetry(ctx context.Context, id uuid.UUID)
 			return fmt.Errorf("failed to update job processed keyspace: %w", err)
 		}
 	}
-	
+
+	// Decrement the dispatched keyspace to return the work back to the pool
+	// This ensures the scheduler knows this keyspace is available for reassignment
+	chunkSize := keyspaceEnd - keyspaceStart
+	if chunkSize > 0 {
+		decrementDispatchedQuery := `
+			UPDATE job_executions
+			SET dispatched_keyspace = GREATEST(dispatched_keyspace - $1, 0),
+			    updated_at = CURRENT_TIMESTAMP
+			WHERE id = $2`
+		_, err = tx.ExecContext(ctx, decrementDispatchedQuery, chunkSize, jobExecutionID)
+		if err != nil {
+			return fmt.Errorf("failed to decrement job dispatched keyspace: %w", err)
+		}
+	}
+
 	// Commit transaction
 	if err = tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
