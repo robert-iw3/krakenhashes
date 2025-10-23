@@ -36,6 +36,12 @@ Learn how to effectively use KrakenHashes for your password auditing needs.
 
     Understanding POT files and analyzing cracking results
 
+-   :material-chart-box:{ .lg .middle } **[Analytics Reports](analytics-reports.md)**
+
+    ---
+
+    Generate comprehensive analytics reports with domain-based filtering
+
 -   :material-help-circle:{ .lg .middle } **[Troubleshooting](troubleshooting.md)**
 
     ---
@@ -59,6 +65,8 @@ Learn how to effectively use KrakenHashes for your password auditing needs.
 - [Create a cracking job](jobs-workflows.md#creating-jobs)
 - [View cracked passwords](analyzing-results.md#viewing-results)
 - [Export results](analyzing-results.md#exporting-results)
+- [Generate analytics report](analytics-reports.md#generating-analytics-reports)
+- [Filter analytics by domain](analytics-reports.md#domain-based-filtering)
 
 ### :material-puzzle: **Advanced Topics**
 - [Custom attack workflows](jobs-workflows.md#custom-workflows)

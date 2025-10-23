@@ -44,6 +44,24 @@ type AnalyticsData struct {
 	StrengthMetrics     StrengthStats       `json:"strength_metrics"`
 	TopPasswords        []TopPassword       `json:"top_passwords"`
 	Recommendations     []Recommendation    `json:"recommendations"`
+	DomainAnalytics     []DomainAnalytics   `json:"domain_analytics"`
+}
+
+// DomainAnalytics contains complete analytics for a specific domain
+type DomainAnalytics struct {
+	Domain              string             `json:"domain"`
+	Overview            OverviewStats      `json:"overview"`
+	LengthDistribution  LengthStats        `json:"length_distribution"`
+	ComplexityAnalysis  ComplexityStats    `json:"complexity_analysis"`
+	PositionalAnalysis  PositionalStats    `json:"positional_analysis"`
+	PatternDetection    PatternStats       `json:"pattern_detection"`
+	UsernameCorrelation UsernameStats      `json:"username_correlation"`
+	PasswordReuse       ReuseStats         `json:"password_reuse"`
+	TemporalPatterns    TemporalStats      `json:"temporal_patterns"`
+	MaskAnalysis        MaskStats          `json:"mask_analysis"`
+	CustomPatterns      CustomPatternStats `json:"custom_patterns"`
+	StrengthMetrics     StrengthStats      `json:"strength_metrics"`
+	TopPasswords        []TopPassword      `json:"top_passwords"`
 }
 
 // Scan implements sql.Scanner for AnalyticsData
@@ -69,6 +87,7 @@ type OverviewStats struct {
 	TotalCracked    int              `json:"total_cracked"`
 	CrackPercentage float64          `json:"crack_percentage"`
 	HashModes       []HashModeStats  `json:"hash_modes"`
+	DomainBreakdown []DomainStats    `json:"domain_breakdown"`
 }
 
 // HashModeStats contains statistics for a specific hash type
@@ -78,6 +97,14 @@ type HashModeStats struct {
 	Total      int     `json:"total"`
 	Cracked    int     `json:"cracked"`
 	Percentage float64 `json:"percentage"`
+}
+
+// DomainStats contains statistics for a specific domain
+type DomainStats struct {
+	Domain          string  `json:"domain"`
+	TotalHashes     int     `json:"total_hashes"`
+	CrackedHashes   int     `json:"cracked_hashes"`
+	CrackPercentage float64 `json:"crack_percentage"`
 }
 
 // LengthStats contains password length distribution

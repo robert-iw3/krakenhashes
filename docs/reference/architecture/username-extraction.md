@@ -551,15 +551,17 @@ Actual: username="WKS01", domain=NULL ❌
 
 ## Future Enhancements
 
+**Implemented Enhancements (v1.2+):**
+- ✅ **Domain-based analytics reports** - Comprehensive analytics with domain filtering (see [Analytics Reports](../../user-guide/analytics-reports.md))
+- ✅ **Statistics by domain** - Pre-calculated analytics for each domain
+- ✅ **Export reports grouped by domain** - Domain-specific analytics sections
+
 **Potential Improvements:**
 - Automatic detection of privileged accounts (admin, root, etc.)
 - Domain hierarchy visualization
 - Cross-hashlist username tracking
 - Machine account identification in UI
-- Export reports grouped by domain
-- Statistics by user and domain
 - LDAP/Active Directory integration for username validation
-- Username-based reporting and analytics
 
 **API Enhancements:**
 - Filter endpoint by username or domain

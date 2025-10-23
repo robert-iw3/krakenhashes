@@ -1,7 +1,7 @@
 /**
  * Overview section showing high-level statistics and hash mode breakdown.
  */
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Paper,
   Typography,
@@ -15,21 +15,64 @@ import {
   TableHead,
   TableRow,
   Box,
+  Tabs,
+  Tab,
 } from '@mui/material';
-import { AnalyticsReport, AnalyticsData } from '../../types/analytics';
+import { AnalyticsReport, AnalyticsData, DomainStats } from '../../types/analytics';
 
 interface OverviewSectionProps {
   report: AnalyticsReport;
   data: AnalyticsData;
+  filteredData: AnalyticsData;
+  selectedDomain: string | null;
+  onDomainChange: (domain: string | null) => void;
 }
 
-export default function OverviewSection({ report, data }: OverviewSectionProps) {
-  const crackPercentage = data.overview.crack_percentage.toFixed(2);
+export default function OverviewSection({ report, data, filteredData, selectedDomain, onDomainChange }: OverviewSectionProps) {
+  const domains = data.overview.domain_breakdown || [];
+
+  // Use filtered data's overview directly (already filtered by parent)
+  const filteredStats = {
+    total_hashes: filteredData.overview.total_hashes,
+    total_cracked: filteredData.overview.total_cracked,
+    crack_percentage: filteredData.overview.crack_percentage,
+  };
+
+  const crackPercentage = filteredStats.crack_percentage.toFixed(2);
+
+  const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
+    if (newValue === 0) {
+      onDomainChange(null); // "All" tab
+    } else {
+      const domain = domains[newValue - 1]?.domain;
+      if (domain) {
+        onDomainChange(domain);
+      }
+    }
+  };
+
+  const getCurrentTabValue = () => {
+    if (!selectedDomain) return 0;
+    const index = domains.findIndex(d => d.domain === selectedDomain);
+    return index >= 0 ? index + 1 : 0;
+  };
 
   return (
     <Paper sx={{ p: 3, mb: 3 }}>
+      {/* Domain Tabs - Only show if there are multiple domains */}
+      {domains.length > 0 && (
+        <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
+          <Tabs value={getCurrentTabValue()} onChange={handleTabChange} aria-label="Domain filter tabs">
+            <Tab label="All" />
+            {domains.map((domainStat) => (
+              <Tab key={domainStat.domain} label={domainStat.domain} />
+            ))}
+          </Tabs>
+        </Box>
+      )}
+
       <Typography variant="h5" gutterBottom>
-        Overview
+        Overview{selectedDomain ? ` - ${selectedDomain}` : ''}
       </Typography>
 
       {/* Summary Cards */}
@@ -41,7 +84,7 @@ export default function OverviewSection({ report, data }: OverviewSectionProps) 
                 Total Hashes
               </Typography>
               <Typography variant="h4">
-                {data.overview.total_hashes.toLocaleString()}
+                {filteredStats.total_hashes.toLocaleString()}
               </Typography>
             </CardContent>
           </Card>
@@ -53,7 +96,7 @@ export default function OverviewSection({ report, data }: OverviewSectionProps) 
                 Cracked
               </Typography>
               <Typography variant="h4" color="success.main">
-                {data.overview.total_cracked.toLocaleString()}
+                {filteredStats.total_cracked.toLocaleString()}
               </Typography>
             </CardContent>
           </Card>
@@ -84,6 +127,37 @@ export default function OverviewSection({ report, data }: OverviewSectionProps) 
         </Grid>
       </Grid>
 
+      {/* Domain Breakdown Table - Only show when "All" is selected and domains exist */}
+      {!selectedDomain && domains.length > 0 && (
+        <Box sx={{ mb: 3 }}>
+          <Typography variant="h6" gutterBottom>
+            Domain Breakdown
+          </Typography>
+          <TableContainer>
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableCell>Domain</TableCell>
+                  <TableCell align="right">Total Hashes</TableCell>
+                  <TableCell align="right">Cracked</TableCell>
+                  <TableCell align="right">Percentage</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {domains.map((domainStat) => (
+                  <TableRow key={domainStat.domain}>
+                    <TableCell>{domainStat.domain}</TableCell>
+                    <TableCell align="right">{domainStat.total_hashes.toLocaleString()}</TableCell>
+                    <TableCell align="right">{domainStat.cracked_hashes.toLocaleString()}</TableCell>
+                    <TableCell align="right">{domainStat.crack_percentage.toFixed(2)}%</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </Box>
+      )}
+
       {/* Hash Mode Breakdown */}
       <Box>
         <Typography variant="h6" gutterBottom>
@@ -100,7 +174,7 @@ export default function OverviewSection({ report, data }: OverviewSectionProps) 
               </TableRow>
             </TableHead>
             <TableBody>
-              {data.overview.hash_modes.map((stat) => (
+              {filteredData.overview.hash_modes.map((stat) => (
                 <TableRow key={stat.mode_id}>
                   <TableCell>{stat.mode_name}</TableCell>
                   <TableCell align="right">{stat.total.toLocaleString()}</TableCell>
@@ -114,10 +188,10 @@ export default function OverviewSection({ report, data }: OverviewSectionProps) 
                   <strong>Total</strong>
                 </TableCell>
                 <TableCell align="right">
-                  <strong>{data.overview.total_hashes.toLocaleString()}</strong>
+                  <strong>{filteredStats.total_hashes.toLocaleString()}</strong>
                 </TableCell>
                 <TableCell align="right">
-                  <strong>{data.overview.total_cracked.toLocaleString()}</strong>
+                  <strong>{filteredStats.total_cracked.toLocaleString()}</strong>
                 </TableCell>
                 <TableCell align="right">
                   <strong>{crackPercentage}%</strong>

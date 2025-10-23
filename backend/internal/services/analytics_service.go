@@ -91,9 +91,20 @@ func (s *AnalyticsService) GenerateAnalytics(ctx context.Context, reportID uuid.
 		return fmt.Errorf("failed to get hash types: %w", err)
 	}
 
-	// Generate all analytics
+	// Get domain breakdown
+	domains, err := s.repo.GetDomainsByHashlists(ctx, hashlistIDs)
+	if err != nil {
+		return fmt.Errorf("failed to get domains: %w", err)
+	}
+
+	domainBreakdown, err := s.calculateDomainBreakdown(ctx, hashlistIDs, domains)
+	if err != nil {
+		return fmt.Errorf("failed to calculate domain breakdown: %w", err)
+	}
+
+	// Generate all analytics for "All" view
 	analyticsData := &models.AnalyticsData{
-		Overview:            s.calculateOverview(totalHashes, totalCracked, hashCounts, hashTypes),
+		Overview:            s.calculateOverview(totalHashes, totalCracked, hashCounts, hashTypes, domainBreakdown),
 		LengthDistribution:  s.calculateLengthDistribution(passwords),
 		ComplexityAnalysis:  s.calculateComplexity(passwords),
 		PositionalAnalysis:  s.calculatePositionalAnalysis(passwords),
@@ -105,6 +116,58 @@ func (s *AnalyticsService) GenerateAnalytics(ctx context.Context, reportID uuid.
 		CustomPatterns:      s.checkCustomPatterns(passwords, report.CustomPatterns, report.ClientID.String()),
 		StrengthMetrics:     s.calculateStrengthMetrics(passwords, speeds),
 		TopPasswords:        s.getTopPasswords(passwords, 50),
+	}
+
+	// Calculate per-domain analytics if domains exist
+	if len(domains) > 0 {
+		domainAnalytics := make([]models.DomainAnalytics, 0, len(domains))
+
+		for _, domain := range domains {
+			// Get domain-filtered passwords
+			domainPasswords, err := s.repo.GetCrackedPasswordsByHashlistsAndDomain(ctx, hashlistIDs, domain)
+			if err != nil {
+				return fmt.Errorf("failed to get cracked passwords for domain %s: %w", domain, err)
+			}
+
+			// Get domain-filtered passwords with hashlist tracking (for reuse analysis)
+			domainPasswordsWithHashlists, err := s.repo.GetCrackedPasswordsWithHashlistsAndDomain(ctx, hashlistIDs, domain)
+			if err != nil {
+				return fmt.Errorf("failed to get cracked passwords with hashlists for domain %s: %w", domain, err)
+			}
+
+			// Get domain stats
+			domainTotal, domainCracked, err := s.repo.GetDomainStats(ctx, hashlistIDs, domain)
+			if err != nil {
+				return fmt.Errorf("failed to get stats for domain %s: %w", domain, err)
+			}
+
+			// Get hash counts by type for this domain
+			domainHashCounts, err := s.repo.GetHashCountsByTypeDomain(ctx, hashlistIDs, domain)
+			if err != nil {
+				return fmt.Errorf("failed to get hash counts for domain %s: %w", domain, err)
+			}
+
+			// Calculate all analytics for this domain
+			domainAnalytic := models.DomainAnalytics{
+				Domain:              domain,
+				Overview:            s.calculateOverview(domainTotal, domainCracked, domainHashCounts, hashTypes, nil),
+				LengthDistribution:  s.calculateLengthDistribution(domainPasswords),
+				ComplexityAnalysis:  s.calculateComplexity(domainPasswords),
+				PositionalAnalysis:  s.calculatePositionalAnalysis(domainPasswords),
+				PatternDetection:    s.detectPatterns(domainPasswords),
+				UsernameCorrelation: s.analyzeUsernameCorrelation(domainPasswords),
+				PasswordReuse:       s.detectPasswordReuse(domainPasswordsWithHashlists),
+				TemporalPatterns:    s.detectTemporalPatterns(domainPasswords),
+				MaskAnalysis:        s.analyzeMasks(domainPasswords),
+				CustomPatterns:      s.checkCustomPatterns(domainPasswords, report.CustomPatterns, report.ClientID.String()),
+				StrengthMetrics:     s.calculateStrengthMetrics(domainPasswords, speeds),
+				TopPasswords:        s.getTopPasswords(domainPasswords, 50),
+			}
+
+			domainAnalytics = append(domainAnalytics, domainAnalytic)
+		}
+
+		analyticsData.DomainAnalytics = domainAnalytics
 	}
 
 	// Generate recommendations based on all analytics
@@ -125,7 +188,7 @@ func (s *AnalyticsService) GenerateAnalytics(ctx context.Context, reportID uuid.
 }
 
 // calculateOverview generates overview statistics
-func (s *AnalyticsService) calculateOverview(totalHashes, totalCracked int, hashCounts map[int]struct{ Total, Cracked int }, hashTypes map[int]string) models.OverviewStats {
+func (s *AnalyticsService) calculateOverview(totalHashes, totalCracked int, hashCounts map[int]struct{ Total, Cracked int }, hashTypes map[int]string, domainBreakdown []models.DomainStats) models.OverviewStats {
 	// Build hash mode stats
 	hashModes := []models.HashModeStats{}
 	for modeID, counts := range hashCounts {
@@ -159,7 +222,34 @@ func (s *AnalyticsService) calculateOverview(totalHashes, totalCracked int, hash
 		TotalCracked:    totalCracked,
 		CrackPercentage: crackPercentage,
 		HashModes:       hashModes,
+		DomainBreakdown: domainBreakdown,
 	}
+}
+
+// calculateDomainBreakdown calculates statistics for each domain
+func (s *AnalyticsService) calculateDomainBreakdown(ctx context.Context, hashlistIDs []int64, domains []string) ([]models.DomainStats, error) {
+	domainStats := make([]models.DomainStats, 0, len(domains))
+
+	for _, domain := range domains {
+		total, cracked, err := s.repo.GetDomainStats(ctx, hashlistIDs, domain)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get stats for domain %s: %w", domain, err)
+		}
+
+		percentage := 0.0
+		if total > 0 {
+			percentage = float64(cracked) / float64(total) * 100
+		}
+
+		domainStats = append(domainStats, models.DomainStats{
+			Domain:          domain,
+			TotalHashes:     total,
+			CrackedHashes:   cracked,
+			CrackPercentage: percentage,
+		})
+	}
+
+	return domainStats, nil
 }
 
 // calculateLengthDistribution analyzes password length distribution

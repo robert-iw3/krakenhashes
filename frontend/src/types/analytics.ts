@@ -33,6 +33,23 @@ export interface AnalyticsData {
   strength_metrics: StrengthStats;
   top_passwords: TopPassword[];
   recommendations: Recommendation[];
+  domain_analytics?: DomainAnalytics[];
+}
+
+export interface DomainAnalytics {
+  domain: string;
+  overview: OverviewStats;
+  length_distribution: LengthStats;
+  complexity_analysis: ComplexityStats;
+  positional_analysis: PositionalStats;
+  pattern_detection: PatternStats;
+  username_correlation: UsernameStats;
+  password_reuse: ReuseStats;
+  temporal_patterns: TemporalStats;
+  mask_analysis: MaskStats;
+  custom_patterns: CustomPatternStats;
+  strength_metrics: StrengthStats;
+  top_passwords: TopPassword[];
 }
 
 export interface OverviewStats {
@@ -40,6 +57,7 @@ export interface OverviewStats {
   total_cracked: number;
   crack_percentage: number;
   hash_modes: HashModeStats[];
+  domain_breakdown: DomainStats[];
 }
 
 export interface HashModeStats {
@@ -48,6 +66,13 @@ export interface HashModeStats {
   total: number;
   cracked: number;
   percentage: number;
+}
+
+export interface DomainStats {
+  domain: string;
+  total_hashes: number;
+  cracked_hashes: number;
+  crack_percentage: number;
 }
 
 export interface LengthStats {

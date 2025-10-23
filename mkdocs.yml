@@ -113,6 +113,7 @@ nav:
     - Jobs & Workflows: user-guide/jobs-workflows.md
     - Wordlists & Rules: user-guide/wordlists-rules.md
     - Analyzing Results: user-guide/analyzing-results.md
+    - Analytics Reports: user-guide/analytics-reports.md
     - Troubleshooting: user-guide/troubleshooting.md
   - Admin Guide:
     - admin-guide/index.md

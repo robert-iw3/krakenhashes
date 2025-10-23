@@ -2,7 +2,7 @@
  * Main display component for analytics reports.
  * Handles status-aware rendering and coordinates all section components.
  */
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Box,
   Paper,
@@ -41,6 +41,7 @@ export default function AnalyticsReportDisplay({
   onRetry,
   onDelete,
 }: AnalyticsReportDisplayProps) {
+  const [selectedDomain, setSelectedDomain] = useState<string | null>(null);
   // Render status-specific UI
   const renderStatusUI = () => {
     switch (status) {
@@ -106,6 +107,39 @@ export default function AnalyticsReportDisplay({
 
   const data = report.analytics_data;
 
+  // Get the analytics data based on selected domain
+  const getAnalyticsData = () => {
+    if (!selectedDomain || !data.domain_analytics) {
+      return data; // Return "All" data
+    }
+
+    // Find domain-specific analytics
+    const domainData = data.domain_analytics.find((d) => d.domain === selectedDomain);
+    if (!domainData) {
+      return data; // Fallback to "All"
+    }
+
+    // Return domain-filtered analytics
+    return {
+      overview: domainData.overview,
+      length_distribution: domainData.length_distribution,
+      complexity_analysis: domainData.complexity_analysis,
+      positional_analysis: domainData.positional_analysis,
+      pattern_detection: domainData.pattern_detection,
+      username_correlation: domainData.username_correlation,
+      password_reuse: domainData.password_reuse,
+      temporal_patterns: domainData.temporal_patterns,
+      mask_analysis: domainData.mask_analysis,
+      custom_patterns: domainData.custom_patterns,
+      strength_metrics: domainData.strength_metrics,
+      top_passwords: domainData.top_passwords,
+      recommendations: data.recommendations, // Keep global recommendations
+      domain_analytics: data.domain_analytics, // Keep for reference
+    };
+  };
+
+  const filteredData = getAnalyticsData();
+
   return (
     <Box>
       {/* Status indicator */}
@@ -117,7 +151,13 @@ export default function AnalyticsReportDisplay({
       </Typography>
 
       {/* Overview Section - Full Width */}
-      <OverviewSection report={report} data={data} />
+      <OverviewSection
+        report={report}
+        data={data}
+        filteredData={filteredData}
+        selectedDomain={selectedDomain}
+        onDomainChange={setSelectedDomain}
+      />
 
       {/* Masonry-style layout using CSS columns - cards flow vertically to fill space */}
       <Box
@@ -132,33 +172,33 @@ export default function AnalyticsReportDisplay({
           },
         }}
       >
-        <LengthDistributionSection data={data.length_distribution} />
+        <LengthDistributionSection data={filteredData.length_distribution} />
 
-        <ComplexityAnalysisSection data={data.complexity_analysis} />
+        <ComplexityAnalysisSection data={filteredData.complexity_analysis} />
 
-        <PositionalAnalysisSection data={data.positional_analysis} />
+        <PositionalAnalysisSection data={filteredData.positional_analysis} />
 
-        <PatternDetectionSection data={data.pattern_detection} />
+        <PatternDetectionSection data={filteredData.pattern_detection} />
 
-        <UsernameCorrelationSection data={data.username_correlation} />
+        <UsernameCorrelationSection data={filteredData.username_correlation} />
 
-        <TemporalPatternsSection data={data.temporal_patterns} />
+        <TemporalPatternsSection data={filteredData.temporal_patterns} />
 
-        <MaskAnalysisSection data={data.mask_analysis} />
+        <MaskAnalysisSection data={filteredData.mask_analysis} />
 
-        {data.custom_patterns && Object.keys(data.custom_patterns.patterns_detected).length > 0 && (
-          <CustomPatternsSection data={data.custom_patterns} />
+        {filteredData.custom_patterns && Object.keys(filteredData.custom_patterns.patterns_detected).length > 0 && (
+          <CustomPatternsSection data={filteredData.custom_patterns} />
         )}
       </Box>
 
       {/* Full-Width Sections Below Grid */}
-      <StrengthMetricsSection data={data.strength_metrics} />
+      <StrengthMetricsSection data={filteredData.strength_metrics} />
 
-      <PasswordReuseSection data={data.password_reuse} />
+      <PasswordReuseSection data={filteredData.password_reuse} />
 
-      <TopPasswordsSection data={data.top_passwords} />
+      <TopPasswordsSection data={filteredData.top_passwords} />
 
-      <RecommendationsSection data={data.recommendations} />
+      <RecommendationsSection data={filteredData.recommendations} />
     </Box>
   );
 }
