@@ -32,12 +32,19 @@ export default function ClientAutocomplete({
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const justSelectedRef = useRef(false); // Track if user just selected from dropdown
   const anchorEl = useRef<HTMLDivElement>(null); // Anchor for the Popper
 
   const debouncedSearch = useDebounce(inputValue, 300);
 
   // Effect to fetch suggestions
   useEffect(() => {
+    // Don't search if user just selected an option
+    if (justSelectedRef.current) {
+      justSelectedRef.current = false;
+      return;
+    }
+
     if (debouncedSearch) {
       setSearchLoading(true);
       setSearchError(null);
@@ -63,7 +70,7 @@ export default function ClientAutocomplete({
       setShowSuggestions(false);
       setSearchError(null);
     }
-  }, [debouncedSearch, inputValue]);
+  }, [debouncedSearch]);
 
   // Update internal state if controlled value changes
   useEffect(() => {
@@ -80,18 +87,16 @@ export default function ClientAutocomplete({
   };
 
   const handleSuggestionClick = (option: ClientOption) => {
+    justSelectedRef.current = true; // Mark that user just selected an option
     setInputValue(option.name); // Update text field
     onChange(option.name); // Update form state with selected name
-    setShowSuggestions(false); // Close suggestions
+    setShowSuggestions(false); // Close suggestions immediately
     setOptions([]); // Clear options after selection
   };
 
   const handleCloseSuggestions = () => {
-    // Delay closing slightly to allow click event on suggestion to register
-    setTimeout(() => {
-        console.log('[handleCloseSuggestions] Setting showSuggestions to false');
-        setShowSuggestions(false);
-    }, 100);
+    console.log('[handleCloseSuggestions] Setting showSuggestions to false');
+    setShowSuggestions(false);
   };
 
   // ---> ADD LOGGING <---

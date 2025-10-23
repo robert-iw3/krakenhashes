@@ -24,15 +24,36 @@ import { api } from '../../services/api';
 import { useNavigate } from 'react-router-dom';
 import { getJobExecutionSettings } from '../../services/jobSettings';
 
-const schema = z.object({
-  name: z.string().min(1, 'Name is required'),
-  description: z.string().optional(),
-  hashTypeId: z.number().min(1, 'Hash type is required'),
-  clientName: z.string().nullish(),
-  excludeFromPotfile: z.boolean().optional(),
-});
+// Create schema function to dynamically set client requirement
+const createSchema = (requireClient: boolean) => {
+  const baseSchema = z.object({
+    name: z.string().min(1, 'Name is required'),
+    description: z.string().optional(),
+    hashTypeId: z.number().min(1, 'Hash type is required'),
+    clientName: z.string().nullish(),
+    excludeFromPotfile: z.boolean().optional(),
+  });
 
-type FormData = z.infer<typeof schema>;
+  if (requireClient) {
+    return baseSchema.refine(
+      (data) => data.clientName !== null && data.clientName !== undefined && data.clientName.trim() !== '',
+      {
+        message: 'Client is required',
+        path: ['clientName'],
+      }
+    );
+  }
+
+  return baseSchema;
+};
+
+type FormData = {
+  name: string;
+  description?: string;
+  hashTypeId: number;
+  clientName?: string | null;
+  excludeFromPotfile?: boolean;
+};
 
 interface HashlistUploadFormProps {
   onSuccess?: () => void;
@@ -45,11 +66,12 @@ export default function HashlistUploadForm({ onSuccess }: HashlistUploadFormProp
   const [pastedHashes, setPastedHashes] = useState('');
   const [potfileGloballyEnabled, setPotfileGloballyEnabled] = useState(true);
   const [clientPotfileEnabled, setClientPotfileEnabled] = useState(true);
+  const [requireClient, setRequireClient] = useState(false);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
 
   const { control, handleSubmit, reset, formState: { errors } } = useForm<FormData>({
-    resolver: zodResolver(schema),
+    resolver: zodResolver(createSchema(requireClient)),
     defaultValues: {
       name: '',
       description: '',
@@ -84,9 +106,9 @@ export default function HashlistUploadForm({ onSuccess }: HashlistUploadFormProp
     maxFiles: 1
   });
 
-  // Fetch global potfile setting on mount
+  // Fetch global potfile setting and client requirement setting on mount
   useEffect(() => {
-    const fetchPotfileSetting = async () => {
+    const fetchSettings = async () => {
       try {
         const settings = await getJobExecutionSettings();
         setPotfileGloballyEnabled(settings.potfile_enabled);
@@ -95,8 +117,19 @@ export default function HashlistUploadForm({ onSuccess }: HashlistUploadFormProp
         // Default to true if fetch fails
         setPotfileGloballyEnabled(true);
       }
+
+      // Fetch require client setting
+      try {
+        const response = await api.get('/api/admin/settings/require_client_for_hashlist');
+        const requireClientValue = response.data?.value === 'true';
+        setRequireClient(requireClientValue);
+      } catch (error) {
+        console.error('Failed to fetch require client setting:', error);
+        // Default to false if fetch fails
+        setRequireClient(false);
+      }
     };
-    fetchPotfileSetting();
+    fetchSettings();
   }, []);
 
   // Fetch client potfile setting when client changes
@@ -246,10 +279,17 @@ export default function HashlistUploadForm({ onSuccess }: HashlistUploadFormProp
         name="clientName"
         control={control}
         render={({ field }) => (
-          <ClientAutocomplete
-            value={field.value ?? null}
-            onChange={field.onChange}
-          />
+          <Box>
+            <ClientAutocomplete
+              value={field.value ?? null}
+              onChange={field.onChange}
+            />
+            {errors.clientName && (
+              <Box sx={{ color: 'error.main', fontSize: '0.75rem', mt: 0.5, ml: 1.75 }}>
+                {errors.clientName.message}
+              </Box>
+            )}
+          </Box>
         )}
       />
 
