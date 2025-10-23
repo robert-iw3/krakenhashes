@@ -1729,12 +1729,11 @@ func (c *Connection) writePump() {
 			if statusMsg, err := c.createAgentStatusMessage(); err != nil {
 				debug.Error("Failed to create agent status update: %v", err)
 			} else {
-				// Send via outbound channel to avoid direct write
-				select {
-				case c.outbound <- statusMsg:
+				// Send via safeSendMessage to avoid panic on closed channel
+				if c.safeSendMessage(statusMsg, 1000) {
 					debug.Info("Queued agent status update")
-				case <-time.After(1 * time.Second):
-					debug.Warning("Failed to queue status update: channel blocked")
+				} else {
+					debug.Warning("Failed to queue status update: channel blocked or closed")
 				}
 			}
 
@@ -1765,16 +1764,14 @@ func (c *Connection) SendJobProgress(progress *jobs.JobProgress) error {
 		Timestamp: time.Now(),
 	}
 
-	// Send via channel with timeout
-	select {
-	case c.outbound <- msg:
-		debug.Debug("Queued job progress update for task %s: %d keyspace processed, %d H/s", 
-			progress.TaskID, progress.KeyspaceProcessed, progress.HashRate)
-		return nil
-	case <-time.After(5 * time.Second):
-		debug.Error("Failed to queue job progress update: channel blocked")
-		return fmt.Errorf("failed to queue job progress update: channel blocked")
+	// Send via safeSendMessage with panic recovery
+	if !c.safeSendMessage(msg, 5000) {
+		debug.Error("Failed to queue job progress update: channel blocked or closed")
+		return fmt.Errorf("failed to queue job progress update: channel blocked or closed")
 	}
+	debug.Debug("Queued job progress update for task %s: %d keyspace processed, %d H/s",
+		progress.TaskID, progress.KeyspaceProcessed, progress.HashRate)
+	return nil
 }
 
 // SendHashcatOutput sends hashcat output to the server
@@ -1805,14 +1802,12 @@ func (c *Connection) SendHashcatOutput(taskID string, output string, isError boo
 		Timestamp: time.Now(),
 	}
 
-	// Send via channel with timeout
-	select {
-	case c.outbound <- msg:
-		return nil
-	case <-time.After(5 * time.Second):
-		debug.Error("Failed to queue hashcat output: channel blocked")
-		return fmt.Errorf("failed to queue hashcat output: channel blocked")
+	// Send via safeSendMessage with panic recovery
+	if !c.safeSendMessage(msg, 5000) {
+		debug.Error("Failed to queue hashcat output: channel blocked or closed")
+		return fmt.Errorf("failed to queue hashcat output: channel blocked or closed")
 	}
+	return nil
 }
 
 // getDetailedOSInfo returns detailed OS information
@@ -1996,31 +1991,6 @@ func (c *Connection) safeSendMessage(msg *WSMessage, timeoutMs int) (sent bool) 
 	default:
 		debug.Warning("Outbound channel full, dropping message of type %s", msg.Type)
 		return false
-	}
-}
-
-// Send sends a raw message to the server (deprecated - use type-specific methods instead)
-func (c *Connection) Send(message []byte) error {
-	if !c.isConnected.Load() {
-		return fmt.Errorf("not connected")
-	}
-
-	// Parse the message as WSMessage
-	var wsMsg WSMessage
-	if err := json.Unmarshal(message, &wsMsg); err != nil {
-		// If it's not a valid WSMessage, wrap it
-		wsMsg = WSMessage{
-			Type:      WSTypeHeartbeat,
-			Payload:   json.RawMessage(message),
-			Timestamp: time.Now(),
-		}
-	}
-
-	select {
-	case c.outbound <- &wsMsg:
-		return nil
-	case <-time.After(5 * time.Second):
-		return fmt.Errorf("send timeout: channel blocked")
 	}
 }
 
