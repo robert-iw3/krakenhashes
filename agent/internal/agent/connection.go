@@ -372,7 +372,10 @@ type Connection struct {
 
 	// Once for ensuring single close
 	closeOnce sync.Once
-	
+
+	// Atomic flag to track if outbound channel is closed
+	channelClosed atomic.Bool
+
 	// Message buffer for handling disconnections
 	messageBuffer *buffer.MessageBuffer
 	
@@ -1901,10 +1904,17 @@ func (c *Connection) Close() {
 	c.closeOnce.Do(func() {
 		debug.Info("Closing connection")
 		c.isConnected.Store(false)
-		
+
 		// Close the outbound channel to signal writePump to exit
-		close(c.outbound)
-		
+		// Use atomic flag to prevent double-close panic
+		if !c.channelClosed.Load() {
+			c.channelClosed.Store(true)
+			close(c.outbound)
+			debug.Debug("Outbound channel closed")
+		} else {
+			debug.Debug("Outbound channel already closed, skipping")
+		}
+
 		// Close the websocket connection
 		if c.ws != nil {
 			debug.Debug("Closing WebSocket connection")
@@ -1943,12 +1953,14 @@ func (c *Connection) reinitializeChannels() {
 			// Channel is closed, create new one
 			debug.Info("Outbound channel was closed, creating new channel")
 			c.outbound = make(chan *WSMessage, 256)
+			// Reset channel closed flag for the new channel
+			c.channelClosed.Store(false)
 		}
 	default:
 		// Channel is still open and has no messages, which is fine
 		debug.Debug("Outbound channel is still open")
 	}
-	
+
 	// Reset closeOnce for next disconnection
 	c.closeOnce = sync.Once{}
 	debug.Info("Reset closeOnce for future disconnections")
