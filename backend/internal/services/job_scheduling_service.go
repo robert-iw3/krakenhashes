@@ -175,7 +175,7 @@ func (s *JobSchedulingService) assignWorkToAgent(ctx context.Context, agent *mod
 					agent.Metadata["busy_status"] = "false"
 					delete(agent.Metadata, "current_task_id")
 					delete(agent.Metadata, "current_job_id")
-					s.agentRepo.Update(ctx, agent)
+					s.agentRepo.UpdateMetadata(ctx, agent.ID, agent.Metadata)
 					// Continue to assign work
 				} else {
 					// Valid UUID, check if task exists and is actually assigned to this agent
@@ -189,7 +189,7 @@ func (s *JobSchedulingService) assignWorkToAgent(ctx context.Context, agent *mod
 						agent.Metadata["busy_status"] = "false"
 						delete(agent.Metadata, "current_task_id")
 						delete(agent.Metadata, "current_job_id")
-						s.agentRepo.Update(ctx, agent)
+						s.agentRepo.UpdateMetadata(ctx, agent.ID, agent.Metadata)
 						// Continue to assign work
 					} else if task.AgentID == nil || *task.AgentID != agent.ID {
 						// Task exists but not assigned to this agent
@@ -201,7 +201,7 @@ func (s *JobSchedulingService) assignWorkToAgent(ctx context.Context, agent *mod
 						agent.Metadata["busy_status"] = "false"
 						delete(agent.Metadata, "current_task_id")
 						delete(agent.Metadata, "current_job_id")
-						s.agentRepo.Update(ctx, agent)
+						s.agentRepo.UpdateMetadata(ctx, agent.ID, agent.Metadata)
 						// Continue to assign work
 					} else if task.Status != models.JobTaskStatusRunning && task.Status != models.JobTaskStatusAssigned {
 						// Task is not in a running state
@@ -213,7 +213,7 @@ func (s *JobSchedulingService) assignWorkToAgent(ctx context.Context, agent *mod
 						agent.Metadata["busy_status"] = "false"
 						delete(agent.Metadata, "current_task_id")
 						delete(agent.Metadata, "current_job_id")
-						s.agentRepo.Update(ctx, agent)
+						s.agentRepo.UpdateMetadata(ctx, agent.ID, agent.Metadata)
 						// Continue to assign work
 					} else {
 						// Valid busy status, agent is actually busy
@@ -233,7 +233,7 @@ func (s *JobSchedulingService) assignWorkToAgent(ctx context.Context, agent *mod
 				agent.Metadata["busy_status"] = "false"
 				delete(agent.Metadata, "current_task_id")
 				delete(agent.Metadata, "current_job_id")
-				s.agentRepo.Update(ctx, agent)
+				s.agentRepo.UpdateMetadata(ctx, agent.ID, agent.Metadata)
 				// Continue to assign work
 			}
 		}
@@ -1118,13 +1118,25 @@ func (s *JobSchedulingService) StartScheduler(ctx context.Context, interval time
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
+	// Cleanup ticker runs every 5 minutes
+	cleanupTicker := time.NewTicker(5 * time.Minute)
+	defer cleanupTicker.Stop()
+
 	debug.Log("Job scheduler started", map[string]interface{}{
-		"interval": interval,
+		"interval":         interval,
+		"cleanup_interval": "5m",
 	})
 
 	// Recover stale jobs on startup
 	if err := s.RecoverStaleJobs(ctx); err != nil {
 		debug.Log("Failed to recover stale jobs on startup", map[string]interface{}{
+			"error": err.Error(),
+		})
+	}
+
+	// Run cleanup on startup
+	if err := s.CleanupStaleAgentStatus(ctx); err != nil {
+		debug.Log("Failed to cleanup stale agent status on startup", map[string]interface{}{
 			"error": err.Error(),
 		})
 	}
@@ -1149,6 +1161,13 @@ func (s *JobSchedulingService) StartScheduler(ctx context.Context, interval time
 					"assigned_tasks":   len(result.AssignedTasks),
 					"interrupted_jobs": len(result.InterruptedJobs),
 					"errors":           len(result.Errors),
+				})
+			}
+		case <-cleanupTicker.C:
+			// Run periodic cleanup of stale agent status
+			if err := s.CleanupStaleAgentStatus(ctx); err != nil {
+				debug.Log("Failed to cleanup stale agent status", map[string]interface{}{
+					"error": err.Error(),
 				})
 			}
 		}
@@ -1658,6 +1677,132 @@ func (s *JobSchedulingService) RecoverStaleJobs(ctx context.Context) error {
 	debug.Log("Stale job recovery completed", map[string]interface{}{
 		"total_tasks_recovered": len(staleTasks),
 	})
+
+	return nil
+}
+
+// CleanupStaleAgentStatus cleans up stale agent busy_status metadata
+// This runs periodically to catch agents stuck in busy state when database updates failed
+func (s *JobSchedulingService) CleanupStaleAgentStatus(ctx context.Context) error {
+	debug.Log("Starting stale agent status cleanup", nil)
+
+	// Get all agents with busy_status = "true"
+	agents, err := s.agentRepo.List(ctx, map[string]interface{}{})
+	if err != nil {
+		return fmt.Errorf("failed to get agents: %w", err)
+	}
+
+	cleanedCount := 0
+	for _, agent := range agents {
+		// Skip if not marked as busy
+		if agent.Metadata == nil || agent.Metadata["busy_status"] != "true" {
+			continue
+		}
+
+		// Check if the agent has a valid running task
+		taskIDStr, hasTaskID := agent.Metadata["current_task_id"]
+		if !hasTaskID || taskIDStr == "" {
+			// No task ID but marked as busy - clear it
+			debug.Log("Cleanup: Clearing busy status with no task ID", map[string]interface{}{
+				"agent_id": agent.ID,
+			})
+			agent.Metadata["busy_status"] = "false"
+			delete(agent.Metadata, "current_task_id")
+			delete(agent.Metadata, "current_job_id")
+			if err := s.agentRepo.UpdateMetadata(ctx, agent.ID, agent.Metadata); err != nil {
+				debug.Error("Failed to clear stale agent status: %v", err)
+				continue
+			}
+			cleanedCount++
+			continue
+		}
+
+		// Parse and validate task ID
+		taskUUID, err := uuid.Parse(taskIDStr)
+		if err != nil {
+			// Invalid task ID - clear it
+			debug.Log("Cleanup: Clearing busy status with invalid task ID", map[string]interface{}{
+				"agent_id":     agent.ID,
+				"invalid_task": taskIDStr,
+			})
+			agent.Metadata["busy_status"] = "false"
+			delete(agent.Metadata, "current_task_id")
+			delete(agent.Metadata, "current_job_id")
+			if err := s.agentRepo.UpdateMetadata(ctx, agent.ID, agent.Metadata); err != nil {
+				debug.Error("Failed to clear stale agent status: %v", err)
+				continue
+			}
+			cleanedCount++
+			continue
+		}
+
+		// Check if task exists and is actually running
+		task, err := s.jobExecutionService.jobTaskRepo.GetByID(ctx, taskUUID)
+		if err != nil || task == nil {
+			// Task doesn't exist - clear busy status
+			debug.Log("Cleanup: Clearing busy status for non-existent task", map[string]interface{}{
+				"agent_id": agent.ID,
+				"task_id":  taskIDStr,
+			})
+			agent.Metadata["busy_status"] = "false"
+			delete(agent.Metadata, "current_task_id")
+			delete(agent.Metadata, "current_job_id")
+			if err := s.agentRepo.UpdateMetadata(ctx, agent.ID, agent.Metadata); err != nil {
+				debug.Error("Failed to clear stale agent status: %v", err)
+				continue
+			}
+			cleanedCount++
+			continue
+		}
+
+		// Check if task is assigned to this agent and in running state
+		if task.AgentID == nil || *task.AgentID != agent.ID {
+			debug.Log("Cleanup: Clearing busy status for task assigned to different agent", map[string]interface{}{
+				"agent_id":         agent.ID,
+				"task_id":          taskIDStr,
+				"task_assigned_to": task.AgentID,
+			})
+			agent.Metadata["busy_status"] = "false"
+			delete(agent.Metadata, "current_task_id")
+			delete(agent.Metadata, "current_job_id")
+			if err := s.agentRepo.UpdateMetadata(ctx, agent.ID, agent.Metadata); err != nil {
+				debug.Error("Failed to clear stale agent status: %v", err)
+				continue
+			}
+			cleanedCount++
+			continue
+		}
+
+		if task.Status != models.JobTaskStatusRunning && task.Status != models.JobTaskStatusAssigned {
+			debug.Log("Cleanup: Clearing busy status for completed/failed task", map[string]interface{}{
+				"agent_id":    agent.ID,
+				"task_id":     taskIDStr,
+				"task_status": task.Status,
+			})
+			agent.Metadata["busy_status"] = "false"
+			delete(agent.Metadata, "current_task_id")
+			delete(agent.Metadata, "current_job_id")
+			if err := s.agentRepo.UpdateMetadata(ctx, agent.ID, agent.Metadata); err != nil {
+				debug.Error("Failed to clear stale agent status: %v", err)
+				continue
+			}
+			cleanedCount++
+			continue
+		}
+
+		// If we get here, the agent is legitimately busy
+		debug.Log("Agent is legitimately busy", map[string]interface{}{
+			"agent_id":    agent.ID,
+			"task_id":     taskIDStr,
+			"task_status": task.Status,
+		})
+	}
+
+	if cleanedCount > 0 {
+		debug.Log("Stale agent status cleanup completed", map[string]interface{}{
+			"agents_cleaned": cleanedCount,
+		})
+	}
 
 	return nil
 }

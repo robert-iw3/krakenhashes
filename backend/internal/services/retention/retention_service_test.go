@@ -68,8 +68,9 @@ func TestDeleteHashlistAndOrphanedHashes(t *testing.T) {
 	hashRepo := repository.NewHashRepository(dbWrapper)
 	clientRepo := repository.NewClientRepository(dbWrapper)
 	clientSettingsRepo := repository.NewClientSettingsRepository(dbWrapper)
+	analyticsRepo := repository.NewAnalyticsRepository(dbWrapper)
 
-	service := NewRetentionService(dbWrapper, hashlistRepo, hashRepo, clientRepo, clientSettingsRepo)
+	service := NewRetentionService(dbWrapper, hashlistRepo, hashRepo, clientRepo, clientSettingsRepo, analyticsRepo)
 
 	ctx := context.Background()
 	hashlistID := int64(1)
@@ -149,8 +150,9 @@ func TestPurgeOldHashlists(t *testing.T) {
 	hashRepo := repository.NewHashRepository(dbWrapper)
 	clientRepo := repository.NewClientRepository(dbWrapper)
 	clientSettingsRepo := repository.NewClientSettingsRepository(dbWrapper)
+	analyticsRepo := repository.NewAnalyticsRepository(dbWrapper)
 
-	service := NewRetentionService(dbWrapper, hashlistRepo, hashRepo, clientRepo, clientSettingsRepo)
+	service := NewRetentionService(dbWrapper, hashlistRepo, hashRepo, clientRepo, clientSettingsRepo, analyticsRepo)
 
 	ctx := context.Background()
 

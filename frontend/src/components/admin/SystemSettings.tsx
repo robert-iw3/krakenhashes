@@ -29,6 +29,7 @@ const SystemSettings: React.FC<SystemSettingsProps> = ({ onSave, loading = false
     max_priority: 1000,
   });
   const [agentSchedulingEnabled, setAgentSchedulingEnabled] = useState(false);
+  const [requireClientForHashlist, setRequireClientForHashlist] = useState(false);
   const [loadingData, setLoadingData] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -52,6 +53,10 @@ const SystemSettings: React.FC<SystemSettingsProps> = ({ onSave, loading = false
         const schedulingSetting = settings.data?.find((s: any) => s.key === 'agent_scheduling_enabled');
         if (schedulingSetting) {
           setAgentSchedulingEnabled(schedulingSetting.value === 'true');
+        }
+        const requireClientSetting = settings.data?.find((s: any) => s.key === 'require_client_for_hashlist');
+        if (requireClientSetting) {
+          setRequireClientForHashlist(requireClientSetting.value === 'true');
         }
       } catch (err) {
         console.error('Failed to load general settings:', err);
@@ -270,6 +275,55 @@ const SystemSettings: React.FC<SystemSettingsProps> = ({ onSave, loading = false
               <Typography variant="body2" color="text.secondary">
                 <strong>Note:</strong> Individual agents must also have scheduling enabled and schedules 
                 configured for this to take effect.
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        <Grid item xs={12} md={6}>
+          <Card sx={{ height: '100%' }}>
+            <CardContent>
+              <Box display="flex" alignItems="center" mb={2}>
+                <Typography variant="h6" component="h3">
+                  Hashlist Settings
+                </Typography>
+                <Tooltip title="Configure settings related to hashlist uploads and management">
+                  <IconButton size="small" sx={{ ml: 1 }}>
+                    <InfoIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </Box>
+
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={requireClientForHashlist}
+                    onChange={async (e) => {
+                      const newValue = e.target.checked;
+                      setRequireClientForHashlist(newValue);
+                      try {
+                        await updateSystemSetting('require_client_for_hashlist', newValue.toString());
+                        enqueueSnackbar('Hashlist client requirement updated', { variant: 'success' });
+                      } catch (error) {
+                        console.error('Failed to update client requirement setting:', error);
+                        setRequireClientForHashlist(!newValue); // Revert on error
+                        enqueueSnackbar('Failed to update setting', { variant: 'error' });
+                      }
+                    }}
+                    disabled={loading || saving || loadingData}
+                  />
+                }
+                label="Require Client for Hashlists"
+              />
+
+              <Typography variant="body2" color="text.secondary" paragraph sx={{ mt: 2 }}>
+                When enabled, users must assign a client when uploading new hashlists. This helps maintain
+                better organization and tracking of hashlists by client.
+              </Typography>
+
+              <Typography variant="body2" color="text.secondary">
+                <strong>Note:</strong> This only affects new hashlist uploads. Existing hashlists can still
+                be edited to change their client assignment regardless of this setting.
               </Typography>
             </CardContent>
           </Card>

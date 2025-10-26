@@ -382,3 +382,35 @@ func (h *AgentHandler) GetUserAgents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 }
+
+// ClearBusyStatus manually clears the busy_status metadata for an agent
+// This is a manual override for when agents get stuck in busy state
+func (h *AgentHandler) ClearBusyStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse agent ID from URL
+	vars := mux.Vars(r)
+	id, err := strconv.Atoi(vars["id"])
+	if err != nil {
+		http.Error(w, "Invalid agent ID", http.StatusBadRequest)
+		return
+	}
+
+	debug.Info("Clearing busy status for agent %d", id)
+
+	// Clear the agent's busy status
+	if err := h.service.ClearAgentBusyStatus(r.Context(), id); err != nil {
+		debug.Error("Failed to clear agent busy status: %v", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Send success response
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"message": "Agent busy status cleared successfully",
+	})
+}

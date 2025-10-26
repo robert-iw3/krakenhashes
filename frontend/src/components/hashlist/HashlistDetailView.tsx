@@ -7,32 +7,29 @@ import {
   LinearProgress,
   Button,
   Divider,
-  List,
-  ListItem,
-  ListItemText,
-  ListItemButton,
   Tooltip,
   IconButton,
-  Alert,
   Dialog,
   DialogActions,
   DialogContent,
   DialogContentText,
-  DialogTitle
+  DialogTitle,
+  TextField
 } from '@mui/material';
 import {
   Download as DownloadIcon,
   Delete as DeleteIcon,
-  Refresh as RefreshIcon,
   History as HistoryIcon,
   ArrowBack as ArrowBackIcon,
-  PlayArrow as PlayArrowIcon
+  PlayArrow as PlayArrowIcon,
+  Edit as EditIcon
 } from '@mui/icons-material';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../services/api';
-import HashDetailModal from './HashDetailModal';
 import CreateJobDialog from './CreateJobDialog';
+import HashlistHashesTable from './HashlistHashesTable';
+import ClientAutocomplete from './ClientAutocomplete';
 import { useSnackbar } from 'notistack';
 import { AxiosResponse, AxiosError } from 'axios';
 
@@ -41,6 +38,7 @@ interface HashDetail {
   hash_value: string;
   original_hash: string;
   username?: string;
+  domain?: string;
   hash_type_id: number;
   is_cracked: boolean;
   password?: string;
@@ -54,10 +52,10 @@ interface HashDetail {
 export default function HashlistDetailView() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const [selectedHash, setSelectedHash] = useState<HashDetail | null>(null);
-  const [modalOpen, setModalOpen] = useState(false);
   const [createJobDialogOpen, setCreateJobDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [editClientDialogOpen, setEditClientDialogOpen] = useState(false);
+  const [selectedClient, setSelectedClient] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const { enqueueSnackbar } = useSnackbar();
 
@@ -81,44 +79,6 @@ export default function HashlistDetailView() {
     },
   });
 
-  const { data: hashResponse, isLoading: loadingSamples, refetch: refetchHashes } = useQuery({
-    queryKey: ['hashlist-samples', id],
-    queryFn: () => api.get(`/api/hashlists/${id}/hashes?limit=10`).then(res => res.data),
-    enabled: !!hashlist
-  });
-
-  // Extract hashes from response and normalize the data
-  const hashSamples: HashDetail[] = React.useMemo(() => {
-    if (!hashResponse?.hashes) return [];
-    return hashResponse.hashes.map((hash: HashDetail) => ({
-      ...hash,
-      // Add frontend-friendly aliases
-      hash: hash.hash_value,
-      isCracked: hash.is_cracked,
-      crackedText: hash.password
-    }));
-  }, [hashResponse]);
-
-  const handleHashClick = (hash: HashDetail) => {
-    // Enrich the hash detail with hashlist info
-    const enrichedHash = {
-      ...hash,
-      hashlistName: hashlist?.name,
-      hashType: hashlist?.hashTypeName
-    };
-    setSelectedHash(enrichedHash);
-    setModalOpen(true);
-  };
-
-  const handleCloseModal = () => {
-    setModalOpen(false);
-    setSelectedHash(null);
-  };
-
-  const handleRefreshHashes = () => {
-    refetchHashes();
-  };
-
   const handleDeleteClick = () => {
     setDeleteDialogOpen(true);
   };
@@ -131,6 +91,57 @@ export default function HashlistDetailView() {
 
   const handleDeleteCancel = () => {
     setDeleteDialogOpen(false);
+  };
+
+  // Update Client Mutation
+  const updateClientMutation = useMutation({
+    mutationFn: async (clientId: string | null) => {
+      return api.patch(`/api/hashlists/${id}/client`, { client_id: clientId });
+    },
+    onSuccess: () => {
+      enqueueSnackbar('Client updated successfully', { variant: 'success' });
+      queryClient.invalidateQueries({ queryKey: ['hashlist', id] });
+      queryClient.invalidateQueries({ queryKey: ['hashlists'] });
+      setEditClientDialogOpen(false);
+    },
+    onError: (error: any) => {
+      const errorMsg = error.response?.data?.error || error.message || 'Failed to update client';
+      enqueueSnackbar(errorMsg, { variant: 'error' });
+    },
+  });
+
+  const handleEditClientClick = () => {
+    // Get client name from hashlist
+    const clientName = hashlist?.client_name;
+    setSelectedClient(clientName || null);
+    setEditClientDialogOpen(true);
+  };
+
+  const handleEditClientConfirm = async () => {
+    // Look up client by name if selectedClient is a string
+    if (selectedClient) {
+      try {
+        const response = await api.get(`/api/clients/search?q=${selectedClient}`);
+        const clients = Array.isArray(response.data) ? response.data : [];
+        const matchingClient = clients.find((c: any) => c.name === selectedClient);
+
+        if (matchingClient) {
+          updateClientMutation.mutate(matchingClient.id);
+        } else {
+          enqueueSnackbar('Client not found', { variant: 'error' });
+        }
+      } catch (error) {
+        console.error('Failed to lookup client:', error);
+        enqueueSnackbar('Failed to lookup client', { variant: 'error' });
+      }
+    } else {
+      // Clear the client (set to null)
+      updateClientMutation.mutate(null);
+    }
+  };
+
+  const handleEditClientCancel = () => {
+    setEditClientDialogOpen(false);
   };
 
   if (isLoading) return <LinearProgress />;
@@ -178,8 +189,8 @@ export default function HashlistDetailView() {
 
         <Box display="flex" gap={2} sx={{ mt: 3 }}>
           <Typography>
-            Status: <Chip 
-              label={hashlist.status} 
+            Status: <Chip
+              label={hashlist.status}
               color={
                 hashlist.status === 'ready' ? 'success' :
                 hashlist.status === 'error' ? 'error' : 'primary'
@@ -188,6 +199,14 @@ export default function HashlistDetailView() {
           </Typography>
           <Typography>
             Hash Type: {hashlist.hashTypeName}
+          </Typography>
+          <Typography>
+            Client: {hashlist.client_name || 'None'}
+            <Tooltip title="Edit Client">
+              <IconButton size="small" onClick={handleEditClientClick} sx={{ ml: 1 }}>
+                <EditIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
           </Typography>
           <Typography>
             Created: {new Date(hashlist.createdAt).toLocaleString()}
@@ -218,63 +237,14 @@ export default function HashlistDetailView() {
         </Box>
       </Paper>
 
-      <Paper sx={{ p: 3, mb: 3 }}>
-        <Box display="flex" justifyContent="space-between" alignItems="center">
-          <Typography variant="h6">Sample Hashes</Typography>
-          <Button startIcon={<RefreshIcon />} size="small" onClick={handleRefreshHashes}>Refresh</Button>
-        </Box>
-        <Divider sx={{ my: 2 }} />
-        {loadingSamples ? (
-          <LinearProgress />
-        ) : hashSamples.length === 0 ? (
-          <Alert severity="info">No hashes found in this hashlist.</Alert>
-        ) : (
-          <List>
-            {hashSamples.map((hash: HashDetail) => (
-            <ListItemButton 
-              key={hash.id}
-              onClick={() => handleHashClick(hash)}
-              sx={{ 
-                borderRadius: 1,
-                mb: 0.5,
-                '&:hover': {
-                  backgroundColor: 'action.hover'
-                }
-              }}
-            >
-              <ListItemText 
-                primary={
-                  <Typography 
-                    variant="body2" 
-                    sx={{ 
-                      fontFamily: 'monospace',
-                      wordBreak: 'break-all',
-                      cursor: 'pointer',
-                      '&:hover': {
-                        textDecoration: 'underline'
-                      }
-                    }}
-                  >
-                    {hash.hash_value}
-                  </Typography>
-                }
-                secondary={
-                  <Box>
-                    {hash.username && <Typography variant="caption" display="block">User: {hash.username}</Typography>}
-                    {hash.is_cracked ? `Cracked: ${hash.password}` : 'Not cracked'}
-                  </Box>
-                }
-              />
-              <Chip 
-                label={hash.is_cracked ? 'Cracked' : 'Pending'}
-                color={hash.is_cracked ? 'success' : 'default'}
-                size="small"
-              />
-            </ListItemButton>
-            ))}
-          </List>
-        )}
-      </Paper>
+      {hashlist && (
+        <HashlistHashesTable
+          hashlistId={id!}
+          hashlistName={hashlist.name}
+          totalHashes={hashlist.total_hashes || 0}
+          crackedHashes={hashlist.cracked_hashes || 0}
+        />
+      )}
 
       <Paper sx={{ p: 3 }}>
         <Typography variant="h6" gutterBottom>
@@ -287,12 +257,6 @@ export default function HashlistDetailView() {
         </Typography>
       </Paper>
 
-      <HashDetailModal 
-        open={modalOpen}
-        onClose={handleCloseModal}
-        hash={selectedHash}
-      />
-      
       {hashlist && (
         <CreateJobDialog
           open={createJobDialogOpen}
@@ -324,6 +288,39 @@ export default function HashlistDetailView() {
           </Button>
           <Button onClick={handleDeleteConfirm} color="error" autoFocus disabled={deleteMutation.isPending}>
             {deleteMutation.isPending ? 'Deleting...' : 'Delete'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={editClientDialogOpen}
+        onClose={handleEditClientCancel}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          Edit Client Assignment
+        </DialogTitle>
+        <DialogContent>
+          <DialogContentText sx={{ mb: 2 }}>
+            Select a client for this hashlist or leave empty to remove the client assignment.
+          </DialogContentText>
+          <ClientAutocomplete
+            value={selectedClient}
+            onChange={(value) => setSelectedClient(value)}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleEditClientCancel} color="primary">
+            Cancel
+          </Button>
+          <Button
+            onClick={handleEditClientConfirm}
+            color="primary"
+            variant="contained"
+            disabled={updateClientMutation.isPending}
+          >
+            {updateClientMutation.isPending ? 'Saving...' : 'Save'}
           </Button>
         </DialogActions>
       </Dialog>

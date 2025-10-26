@@ -596,13 +596,9 @@ func (s *AgentService) ValidateAgentAPIKey(ctx context.Context, apiKey string) (
 		return 0, fmt.Errorf("invalid API key")
 	}
 
-	// Update last used timestamp
+	// Update last used timestamp (use specialized method to avoid sync_status errors)
 	now := time.Now()
-	agent.APIKeyLastUsed = sql.NullTime{
-		Time:  now,
-		Valid: true,
-	}
-	if err := s.agentRepo.Update(ctx, agent); err != nil {
+	if err := s.agentRepo.UpdateAPIKeyLastUsedByID(ctx, agent.ID, now); err != nil {
 		debug.Error("failed to update API key last used: %v", err)
 		// Continue anyway as this is not critical
 	}
@@ -617,15 +613,17 @@ func (s *AgentService) GetByAPIKey(ctx context.Context, apiKey string) (*models.
 		return nil, fmt.Errorf("failed to get agent by API key: %w", err)
 	}
 
-	// Update last used timestamp
+	// Update last used timestamp (use specialized method to avoid sync_status errors)
 	now := time.Now()
+	if err := s.agentRepo.UpdateAPIKeyLastUsedByID(ctx, agent.ID, now); err != nil {
+		debug.Error("failed to update API key last used: %v", err)
+		// Continue anyway as this is not critical
+	}
+
+	// Update the agent object for the caller
 	agent.APIKeyLastUsed = sql.NullTime{
 		Time:  now,
 		Valid: true,
-	}
-	if err := s.agentRepo.Update(ctx, agent); err != nil {
-		debug.Error("failed to update API key last used: %v", err)
-		// Continue anyway as this is not critical
 	}
 
 	return agent, nil
@@ -874,4 +872,47 @@ func (s *AgentService) GetUserAgentsWithTasks(ctx context.Context, userID string
 	}
 
 	return result, nil
+}
+
+// ClearAgentBusyStatus manually clears the busy_status metadata for an agent
+// This validates that the agent isn't actually running a task before clearing
+func (s *AgentService) ClearAgentBusyStatus(ctx context.Context, agentID int) error {
+	// Get the agent
+	agent, err := s.agentRepo.GetByID(ctx, agentID)
+	if err != nil {
+		return fmt.Errorf("failed to get agent: %w", err)
+	}
+
+	// Check if agent has metadata
+	if agent.Metadata == nil {
+		return fmt.Errorf("agent has no metadata")
+	}
+
+	// Check if agent is marked as busy
+	if agent.Metadata["busy_status"] != "true" {
+		return fmt.Errorf("agent is not marked as busy")
+	}
+
+	// Validate that the agent doesn't have an active task
+	activeTasks, err := s.jobTaskRepo.GetActiveTasksByAgent(ctx, agentID)
+	if err != nil {
+		return fmt.Errorf("failed to check active tasks: %w", err)
+	}
+
+	if len(activeTasks) > 0 {
+		return fmt.Errorf("agent has %d active tasks, cannot clear busy status", len(activeTasks))
+	}
+
+	// Clear the busy status
+	agent.Metadata["busy_status"] = "false"
+	delete(agent.Metadata, "current_task_id")
+	delete(agent.Metadata, "current_job_id")
+
+	// Update metadata using specialized method to avoid sync_status errors
+	if err := s.agentRepo.UpdateMetadata(ctx, agentID, agent.Metadata); err != nil {
+		return fmt.Errorf("failed to update agent metadata: %w", err)
+	}
+
+	debug.Info("Manually cleared busy status for agent %d", agentID)
+	return nil
 }

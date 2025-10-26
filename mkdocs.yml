@@ -113,6 +113,7 @@ nav:
     - Jobs & Workflows: user-guide/jobs-workflows.md
     - Wordlists & Rules: user-guide/wordlists-rules.md
     - Analyzing Results: user-guide/analyzing-results.md
+    - Analytics Reports: user-guide/analytics-reports.md
     - Troubleshooting: user-guide/troubleshooting.md
   - Admin Guide:
     - admin-guide/index.md
@@ -173,6 +174,7 @@ nav:
       - Job Update System: reference/architecture/job-update-system.md
       - Job Completion System: reference/architecture/job-completion-system.md
       - Benchmark Workflow: reference/architecture/benchmark-workflow.md
+      - Username Extraction: reference/architecture/username-extraction.md
     - Environment Variables: reference/environment.md
     - Database Schema: reference/database.md
     - Hash Types: reference/hash-types.md

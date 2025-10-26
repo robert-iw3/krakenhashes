@@ -372,7 +372,10 @@ type Connection struct {
 
 	// Once for ensuring single close
 	closeOnce sync.Once
-	
+
+	// Atomic flag to track if outbound channel is closed
+	channelClosed atomic.Bool
+
 	// Message buffer for handling disconnections
 	messageBuffer *buffer.MessageBuffer
 	
@@ -640,7 +643,7 @@ func NewConnection(urlConfig *config.URLConfig) (*Connection, error) {
 	conn := &Connection{
 		urlConfig:  urlConfig,
 		hwMonitor:  hwMonitor,
-		outbound:   make(chan *WSMessage, 256),
+		outbound:   make(chan *WSMessage, 4096),
 		done:       make(chan struct{}),
 		tlsConfig:  tlsConfig,
 		syncStatus: "pending",
@@ -1729,12 +1732,11 @@ func (c *Connection) writePump() {
 			if statusMsg, err := c.createAgentStatusMessage(); err != nil {
 				debug.Error("Failed to create agent status update: %v", err)
 			} else {
-				// Send via outbound channel to avoid direct write
-				select {
-				case c.outbound <- statusMsg:
+				// Send via safeSendMessage to avoid panic on closed channel
+				if c.safeSendMessage(statusMsg, 1000) {
 					debug.Info("Queued agent status update")
-				case <-time.After(1 * time.Second):
-					debug.Warning("Failed to queue status update: channel blocked")
+				} else {
+					debug.Warning("Failed to queue status update: channel blocked or closed")
 				}
 			}
 
@@ -1765,16 +1767,14 @@ func (c *Connection) SendJobProgress(progress *jobs.JobProgress) error {
 		Timestamp: time.Now(),
 	}
 
-	// Send via channel with timeout
-	select {
-	case c.outbound <- msg:
-		debug.Debug("Queued job progress update for task %s: %d keyspace processed, %d H/s", 
-			progress.TaskID, progress.KeyspaceProcessed, progress.HashRate)
-		return nil
-	case <-time.After(5 * time.Second):
-		debug.Error("Failed to queue job progress update: channel blocked")
-		return fmt.Errorf("failed to queue job progress update: channel blocked")
+	// Send via safeSendMessage with panic recovery
+	if !c.safeSendMessage(msg, 5000) {
+		debug.Error("Failed to queue job progress update: channel blocked or closed")
+		return fmt.Errorf("failed to queue job progress update: channel blocked or closed")
 	}
+	debug.Debug("Queued job progress update for task %s: %d keyspace processed, %d H/s",
+		progress.TaskID, progress.KeyspaceProcessed, progress.HashRate)
+	return nil
 }
 
 // SendHashcatOutput sends hashcat output to the server
@@ -1805,14 +1805,12 @@ func (c *Connection) SendHashcatOutput(taskID string, output string, isError boo
 		Timestamp: time.Now(),
 	}
 
-	// Send via channel with timeout
-	select {
-	case c.outbound <- msg:
-		return nil
-	case <-time.After(5 * time.Second):
-		debug.Error("Failed to queue hashcat output: channel blocked")
-		return fmt.Errorf("failed to queue hashcat output: channel blocked")
+	// Send via safeSendMessage with panic recovery
+	if !c.safeSendMessage(msg, 5000) {
+		debug.Error("Failed to queue hashcat output: channel blocked or closed")
+		return fmt.Errorf("failed to queue hashcat output: channel blocked or closed")
 	}
+	return nil
 }
 
 // getDetailedOSInfo returns detailed OS information
@@ -1906,10 +1904,17 @@ func (c *Connection) Close() {
 	c.closeOnce.Do(func() {
 		debug.Info("Closing connection")
 		c.isConnected.Store(false)
-		
+
 		// Close the outbound channel to signal writePump to exit
-		close(c.outbound)
-		
+		// Use atomic flag to prevent double-close panic
+		if !c.channelClosed.Load() {
+			c.channelClosed.Store(true)
+			close(c.outbound)
+			debug.Debug("Outbound channel closed")
+		} else {
+			debug.Debug("Outbound channel already closed, skipping")
+		}
+
 		// Close the websocket connection
 		if c.ws != nil {
 			debug.Debug("Closing WebSocket connection")
@@ -1947,13 +1952,15 @@ func (c *Connection) reinitializeChannels() {
 		if !ok {
 			// Channel is closed, create new one
 			debug.Info("Outbound channel was closed, creating new channel")
-			c.outbound = make(chan *WSMessage, 256)
+			c.outbound = make(chan *WSMessage, 4096)
+			// Reset channel closed flag for the new channel
+			c.channelClosed.Store(false)
 		}
 	default:
 		// Channel is still open and has no messages, which is fine
 		debug.Debug("Outbound channel is still open")
 	}
-	
+
 	// Reset closeOnce for next disconnection
 	c.closeOnce = sync.Once{}
 	debug.Info("Reset closeOnce for future disconnections")
@@ -1988,39 +1995,32 @@ func (c *Connection) safeSendMessage(msg *WSMessage, timeoutMs int) (sent bool) 
 			return false
 		}
 	}
-	
+
+	// Monitor channel fullness
+	channelLen := len(c.outbound)
+	channelCap := cap(c.outbound)
+	if channelCap > 0 {
+		fullnessPercent := float64(channelLen) / float64(channelCap) * 100
+		if fullnessPercent >= 90 {
+			debug.Error("Outbound channel critically full: %d/%d (%.1f%%) - message type: %s",
+				channelLen, channelCap, fullnessPercent, msg.Type)
+		} else if fullnessPercent >= 75 {
+			debug.Warning("Outbound channel high: %d/%d (%.1f%%) - message type: %s",
+				channelLen, channelCap, fullnessPercent, msg.Type)
+		}
+	}
+
 	// Non-blocking send
 	select {
 	case c.outbound <- msg:
 		return true
 	default:
-		debug.Warning("Outbound channel full, dropping message of type %s", msg.Type)
+		channelLen := len(c.outbound)
+		channelCap := cap(c.outbound)
+		fullnessPercent := float64(channelLen) / float64(channelCap) * 100
+		debug.Warning("Outbound channel full (%d/%d, %.1f%%), dropping message of type %s",
+			channelLen, channelCap, fullnessPercent, msg.Type)
 		return false
-	}
-}
-
-// Send sends a raw message to the server (deprecated - use type-specific methods instead)
-func (c *Connection) Send(message []byte) error {
-	if !c.isConnected.Load() {
-		return fmt.Errorf("not connected")
-	}
-
-	// Parse the message as WSMessage
-	var wsMsg WSMessage
-	if err := json.Unmarshal(message, &wsMsg); err != nil {
-		// If it's not a valid WSMessage, wrap it
-		wsMsg = WSMessage{
-			Type:      WSTypeHeartbeat,
-			Payload:   json.RawMessage(message),
-			Timestamp: time.Now(),
-		}
-	}
-
-	select {
-	case c.outbound <- &wsMsg:
-		return nil
-	case <-time.After(5 * time.Second):
-		return fmt.Errorf("send timeout: channel blocked")
 	}
 }
 

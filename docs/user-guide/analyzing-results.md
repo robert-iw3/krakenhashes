@@ -184,6 +184,17 @@ Exports can be performed at different levels:
 3. Click **Download** → **User:Pass**
 4. Import into your testing tools
 
+## Analytics Reports
+
+For comprehensive password analysis across multiple metrics, KrakenHashes provides an **Analytics Reports** feature that generates detailed statistical breakdowns. Analytics reports support:
+
+- **Domain-based filtering**: Analyze password patterns by domain in multi-domain environments
+- **13 analytics sections**: From length distribution to strength metrics
+- **Custom pattern detection**: Define and track organization-specific password patterns
+- **Visual dashboards**: Interactive charts and graphs for data visualization
+
+For complete details on generating and using analytics reports, see the [Analytics Reports Guide](analytics-reports.md).
+
 ## Analyzing Patterns and Statistics
 
 ### Current Statistics

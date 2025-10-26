@@ -141,7 +141,7 @@ func CORSMiddleware(next http.Handler) http.Handler {
  *   - JWT authentication (protected routes)
  *   - API Key authentication (agent routes)
  */
-func SetupRoutes(r *mux.Router, sqlDB *sql.DB, tlsProvider tls.Provider, agentService *services.AgentService, wordlistManager wordlist.Manager, ruleManager rule.Manager, binaryManager binary.Manager, potfileService *services.PotfileService) {
+func SetupRoutes(r *mux.Router, sqlDB *sql.DB, tlsProvider tls.Provider, agentService *services.AgentService, wordlistManager wordlist.Manager, ruleManager rule.Manager, binaryManager binary.Manager, potfileService *services.PotfileService, analyticsQueueService *services.AnalyticsQueueService) {
 	debug.Info("Initializing route configuration")
 
 	// Create our custom DB wrapper
@@ -239,6 +239,9 @@ func SetupRoutes(r *mux.Router, sqlDB *sql.DB, tlsProvider tls.Provider, agentSe
 	// Setup wordlist and rule routes
 	SetupWordlistRoutes(jwtRouter, sqlDB, appConfig, agentService, presetJobService, potfileService)
 	SetupRuleRoutes(jwtRouter, sqlDB, appConfig, agentService, presetJobService)
+
+	// Setup analytics routes
+	SetupAnalyticsRoutes(jwtRouter, database, analyticsQueueService)
 
 	// Setup file download routes for agents
 	SetupFileDownloadRoutes(r, sqlDB, appConfig, agentService)

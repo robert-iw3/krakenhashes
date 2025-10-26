@@ -303,7 +303,7 @@ func (s *JobWebSocketIntegration) SendJobAssignment(ctx context.Context, task *m
 	agent.Metadata["busy_status"] = "true"
 	agent.Metadata["current_task_id"] = task.ID.String()
 	agent.Metadata["current_job_id"] = jobExecution.ID.String()
-	if err := s.agentRepo.Update(ctx, agent); err != nil {
+	if err := s.agentRepo.UpdateMetadata(ctx, agent.ID, agent.Metadata); err != nil {
 		debug.Error("Failed to update agent metadata after task assignment: %v", err)
 		// Don't fail the assignment, the agent is still running the task
 	}
@@ -739,7 +739,7 @@ func (s *JobWebSocketIntegration) HandleJobProgress(ctx context.Context, agentID
 				agent.Metadata["busy_status"] = "false"
 				delete(agent.Metadata, "current_task_id")
 				delete(agent.Metadata, "current_job_id")
-				if err := s.agentRepo.Update(ctx, agent); err != nil {
+				if err := s.agentRepo.UpdateMetadata(ctx, agent.ID, agent.Metadata); err != nil {
 					debug.Error("Failed to clear agent busy status after task failure: %v", err)
 				}
 			}
@@ -820,7 +820,7 @@ func (s *JobWebSocketIntegration) HandleJobProgress(ctx context.Context, agentID
 				agent.Metadata["busy_status"] = "false"
 				delete(agent.Metadata, "current_task_id")
 				delete(agent.Metadata, "current_job_id")
-				if err := s.agentRepo.Update(ctx, agent); err != nil {
+				if err := s.agentRepo.UpdateMetadata(ctx, agent.ID, agent.Metadata); err != nil {
 					debug.Error("Failed to clear agent busy status after task completion: %v", err)
 				}
 			}
@@ -894,7 +894,7 @@ func (s *JobWebSocketIntegration) HandleJobProgress(ctx context.Context, agentID
 				agent.Metadata["busy_status"] = "false"
 				delete(agent.Metadata, "current_task_id")
 				delete(agent.Metadata, "current_job_id")
-				if err := s.agentRepo.Update(ctx, agent); err != nil {
+				if err := s.agentRepo.UpdateMetadata(ctx, agent.ID, agent.Metadata); err != nil {
 					debug.Error("Failed to clear agent busy status after task completion (keyspace): %v", err)
 				}
 			}

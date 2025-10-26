@@ -116,16 +116,50 @@ func (r *HashListRepository) UpdateStatsAndStatus(ctx context.Context, id int64,
 	return nil
 }
 
+// UpdateClientID updates the client_id for a hashlist.
+func (r *HashListRepository) UpdateClientID(ctx context.Context, id int64, clientID uuid.UUID) error {
+	query := `
+		UPDATE hashlists
+		SET client_id = $1, updated_at = $2
+		WHERE id = $3
+	`
+	var clientIDArg interface{} // Handle NULL client_id
+	if clientID != uuid.Nil {
+		clientIDArg = clientID
+	} else {
+		clientIDArg = nil
+	}
+
+	result, err := r.db.ExecContext(ctx, query, clientIDArg, time.Now(), id)
+	if err != nil {
+		return fmt.Errorf("failed to update hashlist client for %d: %w", id, err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		// Log warning
+		debug.Warning("Could not get rows affected after updating hashlist %d client: %v", id, err)
+	} else if rowsAffected == 0 {
+		return fmt.Errorf("hashlist %d not found for client update: %w", id, ErrNotFound)
+	}
+	return nil
+}
+
 // GetByID retrieves a hashlist by its ID.
 func (r *HashListRepository) GetByID(ctx context.Context, id int64) (*models.HashList, error) {
 	query := `
-		SELECT id, name, user_id, client_id, hash_type_id, file_path, total_hashes, cracked_hashes, status, error_message, exclude_from_potfile, created_at, updated_at
-		FROM hashlists
-		WHERE id = $1
+		SELECT
+			h.id, h.name, h.user_id, h.client_id, h.hash_type_id, h.file_path,
+			h.total_hashes, h.cracked_hashes, h.status, h.error_message,
+			h.exclude_from_potfile, h.created_at, h.updated_at,
+			c.name AS client_name
+		FROM hashlists h
+		LEFT JOIN clients c ON h.client_id = c.id
+		WHERE h.id = $1
 	`
 	var hashlist models.HashList
 	var clientID sql.Null[uuid.UUID] // Handle nullable client_id
 	var filePath sql.NullString       // Handle nullable file_path
+	var clientName sql.NullString     // Handle nullable client_name
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&hashlist.ID,
 		&hashlist.Name,
@@ -140,6 +174,7 @@ func (r *HashListRepository) GetByID(ctx context.Context, id int64) (*models.Has
 		&hashlist.ExcludeFromPotfile,
 		&hashlist.CreatedAt,
 		&hashlist.UpdatedAt,
+		&clientName,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -152,6 +187,9 @@ func (r *HashListRepository) GetByID(ctx context.Context, id int64) (*models.Has
 	}
 	if filePath.Valid {
 		hashlist.FilePath = filePath.String
+	}
+	if clientName.Valid {
+		hashlist.ClientName = &clientName.String
 	}
 	return &hashlist, nil
 }

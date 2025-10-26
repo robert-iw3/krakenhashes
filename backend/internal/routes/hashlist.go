@@ -44,6 +44,7 @@ type hashlistHandler struct {
 	hashRepo           *repository.HashRepository
 	fileRepo           *repository.FileRepository
 	clientSettingsRepo *repository.ClientSettingsRepository
+	systemSettingsRepo *repository.SystemSettingsRepository
 	dataDir            string // Base directory for storing hashlist files
 	cfg                *config.Config
 	agentService       *services.AgentService
@@ -72,6 +73,7 @@ func registerHashlistRoutes(r *mux.Router, sqlDB *sql.DB, cfg *config.Config, ag
 	hashRepo := repository.NewHashRepository(database)
 	fileRepo := repository.NewFileRepository(database, cfg.HashUploadDir)
 	clientSettingsRepo := repository.NewClientSettingsRepository(database)
+	systemSettingsRepo := repository.NewSystemSettingsRepository(database)
 
 	// Define the storage directory for hashlists
 	hashlistDataDir := filepath.Join(cfg.DataDir, "hashlists")
@@ -92,6 +94,7 @@ func registerHashlistRoutes(r *mux.Router, sqlDB *sql.DB, cfg *config.Config, ag
 		hashTypeRepo:       hashTypeRepo,
 		clientRepo:         clientRepo,
 		clientSettingsRepo: clientSettingsRepo,
+		systemSettingsRepo: systemSettingsRepo,
 		hashRepo:           hashRepo,
 		fileRepo:           fileRepo,
 		dataDir:            hashlistDataDir,
@@ -117,6 +120,7 @@ func registerHashlistRoutes(r *mux.Router, sqlDB *sql.DB, cfg *config.Config, ag
 	hashlistRouter.HandleFunc("/{id}/hashes", h.handleGetHashlistHashes).Methods(http.MethodGet, http.MethodOptions)
 	hashlistRouter.HandleFunc("/{id}/available-jobs", h.handleGetAvailableJobs).Methods(http.MethodGet, http.MethodOptions)
 	hashlistRouter.HandleFunc("/{id}/create-job", h.handleCreateJob).Methods(http.MethodPost, http.MethodOptions)
+	hashlistRouter.HandleFunc("/{id}/client", h.handleUpdateHashlistClient).Methods(http.MethodPatch, http.MethodOptions)
 
 	// 2.2. Hash Types API
 	hashTypeRouter := r.PathPrefix("/hashtypes").Subrouter() // Use 'r' directly
@@ -129,7 +133,8 @@ func registerHashlistRoutes(r *mux.Router, sqlDB *sql.DB, cfg *config.Config, ag
 	// Create the admin client handler with full functionality (including cracked counts)
 	clientRepoForHandler := repository.NewClientRepository(database)
 	clientSettingsRepoForHandler := repository.NewClientSettingsRepository(database)
-	retentionService := retentionsvc.NewRetentionService(database, hashlistRepo, hashRepo, clientRepoForHandler, clientSettingsRepoForHandler)
+	analyticsRepoForHandler := repository.NewAnalyticsRepository(database)
+	retentionService := retentionsvc.NewRetentionService(database, hashlistRepo, hashRepo, clientRepoForHandler, clientSettingsRepoForHandler, analyticsRepoForHandler)
 	clientService := clientsvc.NewClientService(clientRepoForHandler, hashlistRepo, clientSettingsRepoForHandler, retentionService)
 	clientHandler := adminclient.NewClientHandler(clientRepoForHandler, clientService)
 
@@ -203,9 +208,20 @@ func (h *hashlistHandler) handleUploadHashlist(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	// --- Check if client is required ---
+	trimmedClientName := strings.TrimSpace(clientName)
+	requireClientSetting, err := h.systemSettingsRepo.GetSetting(ctx, "require_client_for_hashlist")
+	if err == nil && requireClientSetting != nil && requireClientSetting.Value != nil {
+		requireClient := *requireClientSetting.Value == "true"
+		if requireClient && trimmedClientName == "" {
+			debug.Warning("Client is required but not provided for hashlist upload")
+			jsonError(w, "Client is required when uploading hashlists", http.StatusBadRequest)
+			return
+		}
+	}
+
 	// --- Lookup or Create Client by Name ---
 	var clientID uuid.UUID = uuid.Nil // Default to Nil (no client)
-	trimmedClientName := strings.TrimSpace(clientName)
 
 	if trimmedClientName != "" {
 		debug.Info("Processing client name from upload: '%s'", trimmedClientName)
@@ -582,6 +598,7 @@ func (h *hashlistHandler) handleGetHashlist(w http.ResponseWriter, r *http.Reque
 		"name":                 hashlist.Name,
 		"user_id":              hashlist.UserID,
 		"client_id":            hashlist.ClientID,
+		"client_name":          hashlist.ClientName,
 		"hash_type_id":         hashlist.HashTypeID,
 		"total_hashes":         hashlist.TotalHashes,
 		"cracked_hashes":       hashlist.CrackedHashes,
@@ -650,6 +667,86 @@ func (h *hashlistHandler) handleDeleteHashlist(w http.ResponseWriter, r *http.Re
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *hashlistHandler) handleUpdateHashlistClient(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	_, err := getUserIDFromContext(ctx)
+	if err != nil {
+		jsonError(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	// Note: All authenticated users can update hashlist clients
+	// This will change when teams are implemented
+
+	id, err := getInt64FromPath(r, "id")
+	if err != nil {
+		jsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Parse request body
+	var request struct {
+		ClientID *string `json:"client_id"` // UUID as string, nullable
+	}
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		jsonError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Convert string UUID to uuid.UUID
+	var clientID uuid.UUID
+	if request.ClientID != nil && *request.ClientID != "" {
+		clientID, err = uuid.Parse(*request.ClientID)
+		if err != nil {
+			jsonError(w, "Invalid client_id format", http.StatusBadRequest)
+			return
+		}
+
+		// Verify client exists
+		_, err = h.clientRepo.GetByID(ctx, clientID)
+		if err != nil {
+			if strings.Contains(err.Error(), "not found") {
+				jsonError(w, "Client not found", http.StatusNotFound)
+			} else {
+				debug.Error("Error verifying client %s: %v", clientID, err)
+				jsonError(w, "Failed to verify client", http.StatusInternalServerError)
+			}
+			return
+		}
+	} else {
+		clientID = uuid.Nil // Set to NULL
+	}
+
+	// Verify hashlist exists
+	hashlist, err := h.hashlistRepo.GetByID(ctx, id)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			jsonError(w, "Hashlist not found", http.StatusNotFound)
+		} else {
+			debug.Error("Error getting hashlist %d: %v", id, err)
+			jsonError(w, "Failed to retrieve hashlist", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	// Update the client
+	err = h.hashlistRepo.UpdateClientID(ctx, id, clientID)
+	if err != nil {
+		debug.Error("Error updating client for hashlist %d: %v", id, err)
+		jsonError(w, "Failed to update hashlist client", http.StatusInternalServerError)
+		return
+	}
+
+	// Fetch updated hashlist to return
+	hashlist, err = h.hashlistRepo.GetByID(ctx, id)
+	if err != nil {
+		debug.Error("Error getting updated hashlist %d: %v", id, err)
+		jsonError(w, "Failed to retrieve updated hashlist", http.StatusInternalServerError)
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, hashlist)
 }
 
 func (h *hashlistHandler) handleDownloadHashlist(w http.ResponseWriter, r *http.Request) {
@@ -760,11 +857,14 @@ func (h *hashlistHandler) handleGetHashlistHashes(w http.ResponseWriter, r *http
 	// This will change when teams are implemented
 
 	// Parse pagination parameters
-	limit := 10
+	limit := 500 // Default limit increased to 500 for better UX
 	offset := 0
 	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
-		if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 && parsedLimit <= 100 {
-			limit = parsedLimit
+		// Support -1 for "all results" (similar to pot table)
+		if limitStr == "-1" {
+			limit = 999999 // Effectively unlimited
+		} else if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 && parsedLimit <= 2000 {
+			limit = parsedLimit // Max limit increased from 100 to 2000
 		}
 	}
 	if offsetStr := r.URL.Query().Get("offset"); offsetStr != "" {

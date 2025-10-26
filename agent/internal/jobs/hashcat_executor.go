@@ -111,19 +111,25 @@ type DeviceSpeed struct {
 // HashcatExecutor handles hashcat process execution and monitoring
 type HashcatExecutor struct {
 	dataDirectory string
-	
+
 	// Process management
 	mutex           sync.RWMutex
 	activeProcesses map[string]*HashcatProcess
-	
+
 	// Output callback for sending output via websocket
 	outputCallback  func(taskID string, output string, isError bool)
-	
+
 	// Device flags callback - returns device flags for hashcat (-d flag)
 	deviceFlagsCallback func() string
-	
+
 	// Agent's default extra parameters for hashcat
 	agentExtraParams string
+
+	// Crack batching - reduces message flood when many hashes crack simultaneously
+	crackBatchMutex    sync.Mutex
+	crackBatchBuffers  map[string][]CrackedHash // Buffer per task ID
+	crackBatchTimers   map[string]*time.Timer   // Timer per task ID
+	crackBatchInterval time.Duration            // Batch window duration (100ms)
 }
 
 // HashcatProcess represents an active hashcat process
@@ -159,8 +165,11 @@ func NewHashcatExecutor(dataDirectory string) *HashcatExecutor {
 	// with --potfile-disable and no output files
 	
 	executor := &HashcatExecutor{
-		dataDirectory:   dataDirectory,
-		activeProcesses: make(map[string]*HashcatProcess),
+		dataDirectory:      dataDirectory,
+		activeProcesses:    make(map[string]*HashcatProcess),
+		crackBatchBuffers:  make(map[string][]CrackedHash),
+		crackBatchTimers:   make(map[string]*time.Timer),
+		crackBatchInterval: 100 * time.Millisecond, // 100ms batching window
 	}
 	
 	// Clean up any orphaned processes on startup
@@ -575,37 +584,53 @@ func (e *HashcatExecutor) runHashcatProcess(ctx context.Context, process *Hashca
 			line := scanner.Text()
 			lineCount++
 			debug.Debug("[Hashcat stdout raw] %s", line)
-			
-			// Send output via websocket if callback is set
-			if e.outputCallback != nil {
-				e.outputCallback(process.TaskID, line, false)
+
+			// Store original line for outputCallback
+			originalLine := line
+
+			// Pre-check: Is this a standalone crack line (not JSON, contains colon, not "Skipping")?
+			// We need to detect this BEFORE calling outputCallback
+			if strings.Contains(line, ":") && !strings.HasPrefix(line, "{") && !strings.Contains(line, "Skipping") && !strings.Contains(line, "\"status\"") {
+				// Try to parse as crack
+				cracked := e.parseCrackedHash(line, process.HashlistContent)
+				if cracked != nil {
+					// This is a crack line - skip outputCallback and add to batch
+					e.addCrackToBatch(process, cracked)
+					debug.Info("[Hashcat cracked] Hash: %s, Plain: %s",
+						cracked.Hash, cracked.Plain)
+					// Skip the rest of processing for this line
+					continue
+				}
 			}
-			
+
 			// Sometimes hashcat outputs crack result and JSON on same line
-			// First check if line contains both crack and JSON
+			// Check if line contains both crack and JSON
 			if strings.Contains(line, ":") && strings.Contains(line, "{") && strings.Contains(line, "\"status\"") {
 				// Split at the JSON start
 				jsonStart := strings.Index(line, "{")
 				crackPart := strings.TrimSpace(line[:jsonStart])
 				jsonPart := line[jsonStart:]
-				
+
 				// Process crack part first
 				if len(crackPart) > 0 {
 					cracked := e.parseCrackedHash(crackPart, process.HashlistContent)
 					if cracked != nil {
-						progress := &JobProgress{
-							TaskID:        process.TaskID,
-							CrackedCount:  1,
-							CrackedHashes: []CrackedHash{*cracked},
-						}
-						e.sendProgressUpdate(process, progress, "cracked")
+						// Add crack to batch instead of sending immediately
+						e.addCrackToBatch(process, cracked)
 						debug.Info("[Hashcat cracked] Hash: %s, Plain: %s",
 							cracked.Hash, cracked.Plain)
+						// For combined lines, still send the JSON part via outputCallback
 					}
 				}
-				
+
 				// Now process JSON part
 				line = jsonPart
+			}
+
+			// Send output via websocket if callback is set
+			// (Standalone crack lines already handled above with continue)
+			if e.outputCallback != nil {
+				e.outputCallback(process.TaskID, originalLine, false)
 			}
 			
 			// Check if this is a JSON status line
@@ -747,26 +772,9 @@ func (e *HashcatExecutor) runHashcatProcess(ctx context.Context, process *Hashca
 				} else {
 					debug.Warning("[Hashcat] Failed to parse JSON status: %v", err)
 				}
-			} else if strings.Contains(line, ":") && !strings.HasPrefix(line, "{") && !strings.Contains(line, "Skipping") {
-				// This might be a cracked hash
-				// Try to parse using our hashlist knowledge for better accuracy
-				cracked := e.parseCrackedHash(line, process.HashlistContent)
-
-				if cracked != nil {
-					// Send crack update immediately
-					progress := &JobProgress{
-						TaskID:        process.TaskID,
-						CrackedCount:  1,
-						CrackedHashes: []CrackedHash{*cracked},
-					}
-					e.sendProgressUpdate(process, progress, "cracked")
-
-					debug.Info("[Hashcat cracked] Hash: %s, Plain: %s",
-						cracked.Hash, cracked.Plain)
-				} else {
-					debug.Debug("[Hashcat stdout] %s", line)
-				}
 			} else {
+				// Not JSON - could be informational output
+				// (Crack lines are already handled at the beginning of the loop)
 				debug.Debug("[Hashcat stdout] %s", line)
 			}
 		}
@@ -930,17 +938,24 @@ func (e *HashcatExecutor) runHashcatProcess(ctx context.Context, process *Hashca
 					// Use the last progress percentage if available, otherwise 100%
 					progressPercent := 100.0
 					var effectiveProgress int64
+					var totalEffectiveKeyspace *int64
 					if process.LastProgress != nil {
 						if process.LastProgress.ProgressPercent > 0 {
 							progressPercent = process.LastProgress.ProgressPercent
 						}
 						effectiveProgress = process.LastProgress.EffectiveProgress
+						// Include the total effective keyspace from last hashcat status
+						// This ensures the backend can adjust dispatched_keyspace even if this is the first/only message
+						if process.LastProgress.TotalEffectiveKeyspace != nil {
+							totalEffectiveKeyspace = process.LastProgress.TotalEffectiveKeyspace
+						}
 					}
 					finalProgress := &JobProgress{
-						TaskID:            process.TaskID,
-						KeyspaceProcessed: process.Assignment.KeyspaceEnd - process.Assignment.KeyspaceStart,
-						EffectiveProgress: effectiveProgress,
-						ProgressPercent:   progressPercent,
+						TaskID:                 process.TaskID,
+						KeyspaceProcessed:      process.Assignment.KeyspaceEnd - process.Assignment.KeyspaceStart,
+						EffectiveProgress:      effectiveProgress,
+						ProgressPercent:        progressPercent,
+						TotalEffectiveKeyspace: totalEffectiveKeyspace, // Always include for backend adjustment
 					}
 					e.sendProgressUpdate(process, finalProgress, "completed")
 					
@@ -949,14 +964,21 @@ func (e *HashcatExecutor) runHashcatProcess(ctx context.Context, process *Hashca
 					debug.Info("Hashcat exhausted keyspace for task %s", process.TaskID)
 					// Exhausted means 100% complete
 					var effectiveProgress int64
+					var totalEffectiveKeyspace *int64
 					if process.LastProgress != nil {
 						effectiveProgress = process.LastProgress.EffectiveProgress
+						// Include the total effective keyspace from last hashcat status
+						// This ensures the backend can adjust dispatched_keyspace even if this is the first/only message
+						if process.LastProgress.TotalEffectiveKeyspace != nil {
+							totalEffectiveKeyspace = process.LastProgress.TotalEffectiveKeyspace
+						}
 					}
 					finalProgress := &JobProgress{
-						TaskID:            process.TaskID,
-						KeyspaceProcessed: process.Assignment.KeyspaceEnd - process.Assignment.KeyspaceStart,
-						EffectiveProgress: effectiveProgress,
-						ProgressPercent:   100.0, // Keyspace exhausted = 100% complete
+						TaskID:                 process.TaskID,
+						KeyspaceProcessed:      process.Assignment.KeyspaceEnd - process.Assignment.KeyspaceStart,
+						EffectiveProgress:      effectiveProgress,
+						ProgressPercent:        100.0, // Keyspace exhausted = 100% complete
+						TotalEffectiveKeyspace: totalEffectiveKeyspace, // Always include for backend adjustment
 					}
 					e.sendProgressUpdate(process, finalProgress, "completed")
 
@@ -1018,6 +1040,9 @@ func (e *HashcatExecutor) runHashcatProcess(ctx context.Context, process *Hashca
 			e.sendProgressUpdate(process, finalProgress, "completed")
 		}
 	}
+
+	// Clean up batch state when task ends
+	e.cleanupBatchState(process)
 }
 
 // sendProgressUpdate sends a progress update through the channel
@@ -1041,8 +1066,116 @@ func (e *HashcatExecutor) sendErrorProgress(process *HashcatProcess, errorMsg st
 		Status:       "failed",
 		ErrorMessage: errorMsg,
 	}
-	
+
 	e.sendProgressUpdate(process, progress, "failed")
+}
+
+// addCrackToBatch adds a cracked hash to the batch buffer for the given task.
+// If the buffer reaches 50 cracks, it flushes immediately. Otherwise, it starts
+// or resets the batch timer to flush after 100ms.
+func (e *HashcatExecutor) addCrackToBatch(process *HashcatProcess, cracked *CrackedHash) {
+	e.crackBatchMutex.Lock()
+	defer e.crackBatchMutex.Unlock()
+
+	taskID := process.TaskID
+
+	// Initialize buffer if needed
+	if e.crackBatchBuffers[taskID] == nil {
+		e.crackBatchBuffers[taskID] = make([]CrackedHash, 0, 50)
+	}
+
+	// Add crack to buffer
+	e.crackBatchBuffers[taskID] = append(e.crackBatchBuffers[taskID], *cracked)
+
+	// Check if we should flush immediately (buffer full)
+	if len(e.crackBatchBuffers[taskID]) >= 50 {
+		debug.Debug("Crack batch buffer full for task %s (%d cracks), flushing immediately",
+			taskID, len(e.crackBatchBuffers[taskID]))
+		e.flushCrackBatchLocked(process)
+		return
+	}
+
+	// Start or reset the batch timer
+	e.startBatchTimerLocked(process)
+}
+
+// flushCrackBatch flushes the crack batch buffer for the given task with mutex protection.
+func (e *HashcatExecutor) flushCrackBatch(process *HashcatProcess) {
+	e.crackBatchMutex.Lock()
+	defer e.crackBatchMutex.Unlock()
+	e.flushCrackBatchLocked(process)
+}
+
+// flushCrackBatchLocked flushes the crack batch buffer without acquiring the mutex (caller must hold it).
+func (e *HashcatExecutor) flushCrackBatchLocked(process *HashcatProcess) {
+	taskID := process.TaskID
+
+	// Get the buffer
+	buffer := e.crackBatchBuffers[taskID]
+	if len(buffer) == 0 {
+		return // Nothing to flush
+	}
+
+	debug.Debug("Flushing crack batch for task %s with %d cracks", taskID, len(buffer))
+
+	// Send the batched progress update
+	progress := &JobProgress{
+		TaskID:        taskID,
+		CrackedCount:  len(buffer),
+		CrackedHashes: buffer,
+	}
+	e.sendProgressUpdate(process, progress, "cracked")
+
+	// Clear the buffer
+	e.crackBatchBuffers[taskID] = make([]CrackedHash, 0, 50)
+
+	// Stop and clear the timer
+	if timer := e.crackBatchTimers[taskID]; timer != nil {
+		timer.Stop()
+		delete(e.crackBatchTimers, taskID)
+	}
+}
+
+// startBatchTimerLocked starts or resets the batch timer for the given task (caller must hold mutex).
+func (e *HashcatExecutor) startBatchTimerLocked(process *HashcatProcess) {
+	taskID := process.TaskID
+
+	// Stop existing timer if present
+	if timer := e.crackBatchTimers[taskID]; timer != nil {
+		timer.Stop()
+	}
+
+	// Create new timer
+	e.crackBatchTimers[taskID] = time.AfterFunc(e.crackBatchInterval, func() {
+		// When timer fires, flush the batch
+		e.crackBatchMutex.Lock()
+		defer e.crackBatchMutex.Unlock()
+
+		// Verify buffer still exists (task might have completed)
+		if e.crackBatchBuffers[taskID] != nil && len(e.crackBatchBuffers[taskID]) > 0 {
+			debug.Debug("Batch timer expired for task %s, flushing %d cracks",
+				taskID, len(e.crackBatchBuffers[taskID]))
+			e.flushCrackBatchLocked(process)
+		}
+	})
+}
+
+// cleanupBatchState cleans up the batching state for a task (called when task completes/fails).
+func (e *HashcatExecutor) cleanupBatchState(process *HashcatProcess) {
+	e.crackBatchMutex.Lock()
+	defer e.crackBatchMutex.Unlock()
+
+	taskID := process.TaskID
+
+	// Flush any remaining cracks
+	e.flushCrackBatchLocked(process)
+
+	// Clean up maps
+	delete(e.crackBatchBuffers, taskID)
+	if timer := e.crackBatchTimers[taskID]; timer != nil {
+		timer.Stop()
+		delete(e.crackBatchTimers, taskID)
+	}
 }
 
 // StopTask stops a running task

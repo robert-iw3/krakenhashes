@@ -734,6 +734,31 @@ func (r *AgentRepository) UpdateMetadata(ctx context.Context, agentID int, metad
 	return nil
 }
 
+// UpdateAPIKeyLastUsedByID updates the api_key_last_used timestamp for an agent by ID
+func (r *AgentRepository) UpdateAPIKeyLastUsedByID(ctx context.Context, agentID int, lastUsed time.Time) error {
+	query := `
+		UPDATE agents
+		SET api_key_last_used = $2,
+		    updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1`
+
+	result, err := r.db.ExecContext(ctx, query, agentID, lastUsed)
+	if err != nil {
+		return fmt.Errorf("failed to update agent API key last used: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("agent not found")
+	}
+
+	return nil
+}
+
 // UpdateOSInfo updates an agent's OS information
 func (r *AgentRepository) UpdateOSInfo(ctx context.Context, agentID int, osInfo map[string]interface{}) error {
 	// Convert OS info to JSON

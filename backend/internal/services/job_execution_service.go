@@ -350,6 +350,9 @@ func (s *JobExecutionService) calculateKeyspace(ctx context.Context, presetJob *
 	// We only need the attack-specific inputs
 	var args []string
 
+	// Add attack mode flag - REQUIRED for hashcat to interpret arguments correctly
+	args = append(args, "-a", strconv.Itoa(int(presetJob.AttackMode)))
+
 	// Add attack-specific arguments
 	switch presetJob.AttackMode {
 	case models.AttackModeStraight: // Dictionary attack (-a 0)
@@ -984,7 +987,7 @@ func (s *JobExecutionService) GetAvailableAgents(ctx context.Context) ([]models.
 					agent.Metadata["busy_status"] = "false"
 					delete(agent.Metadata, "current_task_id")
 					delete(agent.Metadata, "current_job_id")
-					s.agentRepo.Update(ctx, &agent)
+					s.agentRepo.UpdateMetadata(ctx, agent.ID, agent.Metadata)
 				} else {
 					// Valid UUID, check if task exists and is actually assigned to this agent
 					task, err := s.jobTaskRepo.GetByID(ctx, taskUUID)
@@ -1000,7 +1003,7 @@ func (s *JobExecutionService) GetAvailableAgents(ctx context.Context) ([]models.
 						agent.Metadata["busy_status"] = "false"
 						delete(agent.Metadata, "current_task_id")
 						delete(agent.Metadata, "current_job_id")
-						s.agentRepo.Update(ctx, &agent)
+						s.agentRepo.UpdateMetadata(ctx, agent.ID, agent.Metadata)
 					}
 				}
 			} else {
@@ -1011,7 +1014,7 @@ func (s *JobExecutionService) GetAvailableAgents(ctx context.Context) ([]models.
 				agent.Metadata["busy_status"] = "false"
 				delete(agent.Metadata, "current_task_id")
 				delete(agent.Metadata, "current_job_id")
-				s.agentRepo.Update(ctx, &agent)
+				s.agentRepo.UpdateMetadata(ctx, agent.ID, agent.Metadata)
 			}
 		}
 
